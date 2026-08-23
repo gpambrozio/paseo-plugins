@@ -17,6 +17,25 @@ export const SkillEntrySchema = z.object({
   status: z.enum(["discovered"]),
 });
 
+export const ReportedSkillSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  argumentHint: z.string(),
+});
+
+/**
+ * What the live session says it can run, minus everything discovery already
+ * found, split on the provider's own `kind`. `available: false` means the daemon
+ * predates `agent.commands()`, which is not an error — the panel simply omits
+ * both sections.
+ */
+export const ReportedSkillsSchema = z.object({
+  available: z.boolean(),
+  error: z.string().nullable(),
+  skills: z.array(ReportedSkillSchema),
+  commands: z.array(ReportedSkillSchema),
+});
+
 export const listSkills = defineRpc({
   name: "skills.list",
   input: z.object({ agentId: z.string() }),
@@ -25,6 +44,7 @@ export const listSkills = defineRpc({
     supported: z.boolean(),
     cwd: z.string().nullable(),
     skills: z.array(SkillEntrySchema),
+    reported: ReportedSkillsSchema,
   }),
 });
 
