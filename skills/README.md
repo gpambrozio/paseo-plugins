@@ -31,11 +31,7 @@ Focus a workspace tab holding an agent, press ⌘K, and pick **Skills**.
 
 ## Demo
 
-
-
-https://github.com/user-attachments/assets/cbb0166e-d981-4367-a5b4-5b12d2e7c14c
-
-
+<video src="https://github.com/gpambrozio/paseo-skills/raw/main/docs/media/demo.mp4" controls></video>
 
 ## Develop
 
@@ -61,6 +57,7 @@ A failed reload stays failed; Paseo does not restore the previous code.
 | `resolve/skill-directory.server.ts` | Scans one `skills` directory.                         |
 | `resolve/skill-entry.ts`        | Entry types, skill id construction, first-wins dedupe.     |
 | `resolve/frontmatter.ts`        | `SKILL.md` frontmatter parsing.                            |
+| `resolve/reported.ts`           | Splits session-reported entries discovery did not find.    |
 | `panel.client.tsx`              | The panel: list, search, detail, invoke.                  |
 
 `docs/design.md` records why it is shaped this way. Read it before changing discovery.

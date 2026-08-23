@@ -156,3 +156,88 @@ Final fix wave re-review clean: all 6 findings ADDRESSED. Schema/type coherence 
 Re-reviewer noted one out-of-scope UX quirk (deferred): if the agent disappears while the detail sub-screen is open, the selectedSkillId branch still renders SkillDetail rather than the "agent no longer available" message, because it is checked first.
 Re-reviewer noted one parse edge (deferred): `user-invocable: False` with a capital F would be misread as invocable. Every real occurrence on this machine is lowercase.
 PROJECT COMPLETE: 13 commits, 47 tests passing, plugin running in the user's daemon at ~/.paseo.
+
+## Reported skills (2026-08-22)
+
+Ruling 27: the "built-in skills are invisible" limitation was closed by an upstream change rather
+than worked around. `PaseoAgentHandle` had no way to ask a session what it loaded, so v1 could only
+scan directories. `DaemonClient.listCommands` had existed all along — claude, codex, opencode, acp,
+omp, and pi all implement it — but `createPaseoApi` never exposed it and `PluginHandlerContext` is
+`{ paseo: PaseoApi }`, so plugin code could not reach it. Added `agent.commands()` upstream as a
+thin delegation (getpaseo/paseo#3719, draft) and consumed it here. Cost if wrong: the section is
+dead weight until that PR merges, and the plugin degrades to exactly v1 behaviour in the meantime.
+
+Ruling 28: NOT repointing `@getpaseo/client` at the local monorepo checkout to pick up the new
+types. A `file:` dependency breaks `npm install` from a fresh clone, which c05ba3e deliberately
+fixed, and augmenting the package's `PaseoAgentHandle` would conflict once the real bump lands.
+Instead `resolve/reported.ts` declares a structural `supportsCommands()` type guard. That guard is
+required at runtime anyway — the `paseo` object comes from the daemon's bundled client, not from
+this project's node_modules, so the method can be absent whatever the types claim — so the type
+costs nothing extra and stays correct after the dependency bump. Cost if wrong: the plugin's types
+for this one call are hand-written rather than derived.
+
+Ruling 29: reported rows are inert, not pressable. The entry has no path and no body, so a detail
+screen would show the name and description the row already shows. Cost if wrong: no way to invoke a
+built-in skill from the panel, which the design's "Invoke" verb otherwise implies. Reversible: the
+detail screen takes a path unchanged if a provider ever reports one.
+
+Ruling 30: `supported` keeps meaning "filesystem discovery supported" and the panel's fallback
+message now requires both sources to be empty. Otherwise opencode/pi/acp agents would show "does
+not support skills" while sitting on a populated reported list. Cost if wrong: a provider with
+neither discovery nor commands shows an empty panel instead of an explanation — guarded by also
+checking `reported.error`.
+
+Ruling 31: an entry whose `kind` the provider left unset is KEPT, not dropped. Claude classifies by
+a hardcoded denylist and calls everything else a skill, but the protocol marks `kind` optional and
+other providers may omit it; dropping unclassified entries would hide every skill from those
+providers. Cost if wrong: a session control leaks into the skills section for a provider that does
+not classify.
+
+Ruling 32: a failure from `commands()` never fails `skills.list`. Discovery already succeeded, and
+losing the whole panel because the session could not answer is worse than a missing section. The
+error travels inside `reported` so the panel can say why the section is empty.
+
+VERIFICATION GAP: the populated section is unverified. The running daemon is 0.5.0-beta.4, which
+predates `agent.commands()`, so against it the plugin takes the `available: false` path and renders
+no section. Reload is clean and 63 tests pass, including five handler tests that stub `commands()`,
+but nobody has seen the section render with real data. That needs a daemon built from the upstream
+branch, and `panel.client.tsx` has no test harness.
+
+Ruling 33 (supersedes Ruling 31's filter, user decision): show two sections, `Built-in skills` and
+`Built-in commands`, rather than dropping `kind === "command"` entirely. Entries with no `kind`
+still count as skills.
+
+VERIFICATION (dev daemon on 6768, built from the upstream branch, real Claude session): discovered
+29, reported 55 with 0 overlap and 0 duplicate names — 45 into `Built-in skills`, 10 into
+`Built-in commands` (clear, compact, context, debug, extra-usage, heapdump, init, loop, schedule,
+usage). `agent.commands()` returned 84 total, error null.
+
+KNOWN DEFECT, not fixable from the plugin: the split does not correct Claude's misclassification.
+Claude's `classifyClaudeSlashCommand` denylists exactly those ten names and calls everything else a
+skill, so roughly 27 of the 45 in `Built-in skills` are session controls (autocompact, config,
+doctor, effort, fast, model, rename, rewind, mcp, recap, import, agents, batch, color, goal,
+insights, list-agents, verify, reload-skills, team-onboarding, workflow-launch-exec,
+__remote-workflow, design-consent, design-revoke, design-sync, ultrareview). Confirmed there is no
+better signal: Claude's built-ins are compiled into a single ~320 MB Mach-O binary at
+~/.local/share/claude/versions/, so no directory scan can classify them. Paseo's composer uses the
+same `kind` for `/` autocomplete, so the panel agrees with the composer — the fix belongs upstream
+in `classifyClaudeSlashCommand`, not here.
+
+Ruling 34 (supersedes Ruling 29, user decision): reported rows ARE pressable. They open a reduced
+detail screen with the full description and a working Invoke button. Ruling 29 argued a detail
+screen would only repeat the row; that was wrong on two counts — the list clips descriptions to two
+lines, and Invoke is the panel's main verb, which inert rows denied to exactly the skills a user
+cannot reach any other way in this panel.
+
+Ruling 35: extracted `useInvoke` and `InvokeControls` rather than copying the send into the new
+screen. Ruling 20 added a re-entrancy guard because a double tap on a slow connection invoked a
+skill twice on a live agent; a copied implementation would have been a second place for that bug to
+come back. `detailStyles` extracted alongside for the same reason as `listStyles`.
+
+Ruling 36: reported entries are addressed by name in the selection state, discovered ones by id.
+Verified against a real session that all 55 reported names are unique across both buckets. A refetch
+that drops the selected entry clears the selection during render and falls back to the list.
+
+NOTE (user-facing risk, not guarded): the Built-in commands section can now invoke destructive
+session controls — `/clear` wipes the conversation, `/compact` rewrites it. This matches the
+composer, which offers the same commands with no confirmation, so no extra friction was added.
