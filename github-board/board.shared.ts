@@ -47,7 +47,7 @@ export type BoardColumn = z.output<typeof BoardColumnSchema>;
 export type Board = z.output<typeof BoardSchema>;
 
 export const loadBoard = defineRpc({
-  name: "loadBoard",
+  name: "board.load",
   input: z.object({
     /** Omitted on first load: the server falls back to the saved login. */
     login: z.string().optional(),
@@ -57,7 +57,7 @@ export const loadBoard = defineRpc({
 });
 
 export const saveLogin = defineRpc({
-  name: "saveLogin",
+  name: "board.save-login",
   input: z.object({ login: z.string() }),
   output: z.object({ login: z.string() }),
 });
