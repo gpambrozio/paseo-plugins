@@ -12,6 +12,31 @@ import {
 import type { Board, BoardColumn, BoardItem } from "./board.shared";
 import { loadBoard, saveLogin } from "./board.shared";
 
+/**
+ * `Linking.openURL` is `window.open` on the desktop renderer, and the main
+ * Electron window installs no window-open handler, so a card click lands in a
+ * bare child window instead of the browser. The desktop preload exposes the
+ * same opener Paseo's own links go through, which hands the URL to the OS
+ * browser as a normal tab. Mobile and plain web have no bridge and keep
+ * `Linking`, which already opens a tab there.
+ */
+interface DesktopOpenerBridge {
+  readonly opener?: { readonly openUrl?: (url: string) => Promise<void> };
+}
+
+function openExternalUrl(url: string): void {
+  const openUrl = (globalThis as { paseoDesktop?: DesktopOpenerBridge }).paseoDesktop?.opener
+    ?.openUrl;
+  if (typeof openUrl !== "function") {
+    void Linking.openURL(url);
+    return;
+  }
+  void openUrl(url).catch((error: unknown) => {
+    console.warn("[github-board] desktop opener refused the URL, falling back", error);
+    void Linking.openURL(url);
+  });
+}
+
 /** Width of one column when columns scroll horizontally instead of sharing the row. */
 const COMPACT_COLUMN_WIDTH = 300;
 
@@ -157,7 +182,7 @@ type Styles = ReturnType<typeof useStyles>;
 
 function Card({ item, styles }: { item: BoardItem; styles: Styles }) {
   const open = useCallback(() => {
-    void Linking.openURL(item.url);
+    openExternalUrl(item.url);
   }, [item.url]);
 
   return (
