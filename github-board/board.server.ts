@@ -86,7 +86,7 @@ interface GhSearchRow {
   commentsCount?: unknown;
   isDraft?: unknown;
   labels?: unknown;
-  repository?: { nameWithOwner?: unknown };
+  repository?: { nameWithOwner?: unknown; isArchived?: unknown };
 }
 
 function toItem(row: GhSearchRow, detail: string | null): BoardItem {
@@ -110,6 +110,13 @@ function toItem(row: GhSearchRow, detail: string | null): BoardItem {
 
 const SEARCH_FIELDS = "id,number,title,repository,url,updatedAt,commentsCount,labels";
 
+/**
+ * An archived repository is read-only, so its open issues and pull requests can
+ * never be closed and sit on the board forever. `gh search` filters them out
+ * server-side; discussions have no such flag and are filtered on the response.
+ */
+const UNARCHIVED_ONLY = "--archived=false";
+
 async function fetchIssues(login: string, limit: number): Promise<BoardItem[]> {
   const raw = await gh([
     "search",
@@ -118,6 +125,7 @@ async function fetchIssues(login: string, limit: number): Promise<BoardItem[]> {
     login,
     "--state",
     "open",
+    UNARCHIVED_ONLY,
     "--sort",
     "updated",
     "--order",
@@ -146,6 +154,7 @@ async function fetchPullRequests(
     login,
     "--state",
     "open",
+    UNARCHIVED_ONLY,
     "--sort",
     "updated",
     "--order",
@@ -175,7 +184,7 @@ const DISCUSSION_QUERY = `query($q: String!, $limit: Int!) {
         updatedAt
         category { name }
         comments { totalCount }
-        repository { nameWithOwner }
+        repository { nameWithOwner isArchived }
       }
     }
   }
@@ -206,6 +215,7 @@ async function fetchDiscussions(login: string, limit: number): Promise<BoardItem
   if (!Array.isArray(nodes)) return [];
   return nodes
     .filter((node): node is GhDiscussionNode => typeof node === "object" && node !== null)
+    .filter((node) => node.repository?.isArchived !== true)
     .map((node) => {
       const item = toItem(node, typeof node.category?.name === "string" ? node.category.name : null);
       const total = node.comments?.totalCount;
