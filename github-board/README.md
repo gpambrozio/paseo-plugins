@@ -12,6 +12,9 @@ A Paseo plugin that adds a **GitHub** sidebar surface showing your work in four 
 Both pull request columns come from one search, so the board makes three `gh`
 calls per refresh, not four.
 
+![The GitHub board: Issues, Draft PRs, Open PRs, and Discussions columns, with a
+login field and Refresh button in the header.](docs/screenshot.png)
+
 ## Requirements
 
 - **Paseo 0.5.0-beta or newer.** The plugin system does not exist in 0.4.0 —
