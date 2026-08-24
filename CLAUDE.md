@@ -6,7 +6,9 @@ Plugins for [Paseo](https://paseo.sh), one self-contained folder per plugin: `sk
 `github-board/`. Plugin code is trusted and unsandboxed — the server half runs next to the daemon
 with its files, processes, and credentials; the client half runs inside the Paseo app.
 
-`skills/CLAUDE.md` is the deeper guide for that plugin. Read it before touching skill discovery.
+Each plugin has its own `CLAUDE.md` for what only that plugin does — `skills/CLAUDE.md` before
+touching skill discovery, `github-board/CLAUDE.md` before touching the `gh` queries or the board's
+caching. This file is only what they share.
 
 ## There is no workspace root
 
@@ -108,35 +110,6 @@ silently and the entire Paseo API types as `any`. Keep that dependency at `^0.5.
 
 The tsconfigs also differ: `skills` includes `**/*`, `github-board` includes only `*.ts`/`*.tsx` at
 its root, so a new subdirectory there is invisible to `tsc` until the `include` is widened.
-
-## github-board
-
-Shells out to `gh` via `execFile` on the **daemon machine**, not the device running the app, so
-`gh` must be installed and authenticated there. Three calls per refresh, not four: both PR columns
-split one `gh search prs` result by `isDraft`.
-
-Each column is fetched independently and carries its own `error`, so a missing `read:discussion`
-scope blanks one column instead of the board. Preserve that when adding columns.
-
-`@me` is always resolved to a concrete login before any query runs, because GitHub's search types
-disagree about the alias. Login precedence: header field → saved settings → `gh`'s authenticated
-account. Settings persist to `$PASEO_HOME/plugins/github-board/settings.json`, defaulting to
-`~/.paseo`, and hold both `login` and the repository filter's `hiddenRepositories`. Two handlers
-write that one file, so both go through `updateSettings`, which read-modify-writes — a whole-file
-write from either would drop the other's key.
-
-A plugin surface unmounts whenever the user switches workspaces, so anything that should outlive
-that (the repository filter) belongs in settings, not component state. The same unmount is why both
-halves cache the board for five minutes — module scope in `board.client.tsx` for an instant repaint,
-and a keyed value in `board.server.ts` so a cold mount still skips the three `gh` calls. `force` on
-`board.load` is the Refresh button bypassing both. Keep `hiddenRepositories` out of the server's
-cached value: settings are read per load, or a filter saved after that board was built comes back
-stale on the next hit.
-
-The client bundle's module scope surviving an unmount is an assumption about the host, not a
-guarantee — the server cache is what makes the speedup hold if it turns out to be wrong. The board's filter rides
-along in the `board.load` response and is adopted once, guarded by a ref: later refreshes must not
-overwrite a selection the user is mid-way through changing.
 
 ## skills
 
