@@ -15,6 +15,35 @@ calls per refresh, not four.
 ![The GitHub board: Issues, Draft PRs, Open PRs, and Discussions columns, with a
 login field and Refresh button in the header.](docs/screenshot.png)
 
+## Filtering by repository
+
+The header dropdown next to **Set** lists every repository with a card anywhere
+on the board and filters all four columns at once. Everything starts selected;
+**All** and **None** set the whole list.
+
+The selection saves to the same `settings.json` as the login, because the
+surface unmounts on every workspace switch and component state would not
+survive it. It is stored as the *hidden* repositories rather than the visible
+ones, so a repository the filter has never seen — a new one, or one whose first
+card only appears on a later refresh — arrives selected rather than silently
+filtered out.
+
+## Caching
+
+Revisiting the board does not re-run `gh`. Two caches sit in front of it, both
+in memory and both five minutes:
+
+- The surface keeps the last board at module scope, so a workspace switch —
+  which unmounts it — repaints instantly. Past the window the stale board stays
+  on screen while a refresh runs underneath it.
+- The handler keeps the last board per login, so even a cold mount usually skips
+  the three `gh` calls. A board with a failed column is not cached, so the retry
+  is not held off for five minutes.
+
+**Refresh** bypasses both. The repository filter is read from settings on every
+load and is never part of the cached board, so changing it cannot be undone by
+a cache hit.
+
 ## Requirements
 
 - **Paseo 0.5.0-beta or newer.** The plugin system does not exist in 0.4.0 —
@@ -54,6 +83,10 @@ The login resolves in this order:
 1. the login typed into the header field (persisted on **Set**),
 2. the saved login at `$PASEO_HOME/plugins/github-board/settings.json`,
 3. the account `gh` is authenticated as.
+
+The settings file holds `login` and `hiddenRepositories`, and each handler
+merges rather than overwrites, so saving one never drops the other. A file from
+an older version with only `login` is read and upgraded in place.
 
 `@me` is always resolved to a concrete login before any query runs, because
 GitHub's search types disagree about the alias and an unresolved `@me` in the

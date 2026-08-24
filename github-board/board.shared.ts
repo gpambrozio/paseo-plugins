@@ -39,6 +39,12 @@ export const BoardSchema = z.object({
   /** The concrete login every query ran against, never the `@me` alias. */
   login: z.string(),
   columns: z.array(BoardColumnSchema),
+  /**
+   * The saved repository filter, as the repositories to hide. Rides along with
+   * the board so the surface can restore the filter on its first render instead
+   * of flashing an unfiltered board while a second round trip lands.
+   */
+  hiddenRepositories: z.array(z.string()),
   fetchedAt: z.string(),
 });
 
@@ -52,6 +58,8 @@ export const loadBoard = defineRpc({
     /** Omitted on first load: the server falls back to the saved login. */
     login: z.string().optional(),
     limit: z.number().int().min(1).max(100).default(30),
+    /** Set by the Refresh button to bypass the server's short-lived board cache. */
+    force: z.boolean().default(false),
   }),
   output: BoardSchema,
 });
@@ -60,4 +68,15 @@ export const saveLogin = defineRpc({
   name: "board.save-login",
   input: z.object({ login: z.string() }),
   output: z.object({ login: z.string() }),
+});
+
+/**
+ * The repository filter outlives the surface, which unmounts whenever the user
+ * switches workspaces, so the selection lives next to the login rather than in
+ * component state.
+ */
+export const saveRepositoryFilter = defineRpc({
+  name: "board.save-filter",
+  input: z.object({ hiddenRepositories: z.array(z.string()) }),
+  output: z.object({ hiddenRepositories: z.array(z.string()) }),
 });

@@ -121,7 +121,22 @@ scope blanks one column instead of the board. Preserve that when adding columns.
 `@me` is always resolved to a concrete login before any query runs, because GitHub's search types
 disagree about the alias. Login precedence: header field → saved settings → `gh`'s authenticated
 account. Settings persist to `$PASEO_HOME/plugins/github-board/settings.json`, defaulting to
-`~/.paseo`.
+`~/.paseo`, and hold both `login` and the repository filter's `hiddenRepositories`. Two handlers
+write that one file, so both go through `updateSettings`, which read-modify-writes — a whole-file
+write from either would drop the other's key.
+
+A plugin surface unmounts whenever the user switches workspaces, so anything that should outlive
+that (the repository filter) belongs in settings, not component state. The same unmount is why both
+halves cache the board for five minutes — module scope in `board.client.tsx` for an instant repaint,
+and a keyed value in `board.server.ts` so a cold mount still skips the three `gh` calls. `force` on
+`board.load` is the Refresh button bypassing both. Keep `hiddenRepositories` out of the server's
+cached value: settings are read per load, or a filter saved after that board was built comes back
+stale on the next hit.
+
+The client bundle's module scope surviving an unmount is an assumption about the host, not a
+guarantee — the server cache is what makes the speedup hold if it turns out to be wrong. The board's filter rides
+along in the `board.load` response and is adopted once, guarded by a ref: later refreshes must not
+overwrite a selection the user is mid-way through changing.
 
 ## skills
 

@@ -4,7 +4,13 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { z } from "zod";
-import type { BoardColumn, BoardItem, loadBoard, saveLogin } from "./board.shared";
+import type {
+  BoardColumn,
+  BoardItem,
+  loadBoard,
+  saveLogin,
+  saveRepositoryFilter,
+} from "./board.shared";
 
 const execFileAsync = promisify(execFile);
 
@@ -16,25 +22,46 @@ function settingsPath(): string {
   return join(home, "plugins", "github-board", "settings.json");
 }
 
-async function readSavedLogin(): Promise<string | null> {
+interface Settings {
+  /** Null until the user pins one; the caller falls back to the gh viewer. */
+  login: string | null;
+  /** Repositories the board hides, saved as the filter's complement. */
+  hiddenRepositories: string[];
+}
+
+const EMPTY_SETTINGS: Settings = { login: null, hiddenRepositories: [] };
+
+async function readSettings(): Promise<Settings> {
   try {
     const parsed: unknown = JSON.parse(await readFile(settingsPath(), "utf8"));
-    if (typeof parsed === "object" && parsed !== null && "login" in parsed) {
-      const { login } = parsed as { login: unknown };
-      if (typeof login === "string" && login.trim() !== "") return login.trim();
-    }
-    return null;
+    if (typeof parsed !== "object" || parsed === null) return EMPTY_SETTINGS;
+    const { login, hiddenRepositories } = parsed as {
+      login?: unknown;
+      hiddenRepositories?: unknown;
+    };
+    return {
+      login: typeof login === "string" && login.trim() !== "" ? login.trim() : null,
+      hiddenRepositories: Array.isArray(hiddenRepositories)
+        ? hiddenRepositories.filter((entry): entry is string => typeof entry === "string")
+        : [],
+    };
   } catch {
     // No settings yet, or a file we can no longer parse. Either way the caller
     // falls back to the authenticated viewer, which always resolves.
-    return null;
+    return EMPTY_SETTINGS;
   }
 }
 
-async function writeSavedLogin(login: string): Promise<void> {
+/**
+ * Read-modify-write, because the login and the repository filter are saved by
+ * separate handlers and a whole-file write from either would drop the other.
+ */
+async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
+  const next = { ...(await readSettings()), ...patch };
   const path = settingsPath();
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ login }, null, 2)}\n`, "utf8");
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return next;
 }
 
 function describeGhFailure(error: unknown): string {
@@ -223,6 +250,27 @@ async function fetchDiscussions(login: string, limit: number): Promise<BoardItem
     });
 }
 
+/**
+ * A board costs three `gh` subprocesses and a round trip to GitHub, so one is
+ * reused for a short window — the surface remounts on every workspace switch
+ * and should not pay that each time. The Refresh button sends `force`.
+ *
+ * `hiddenRepositories` is deliberately not part of the cached value: settings
+ * are read on every load, because a client that saved a new filter and then
+ * remounted would otherwise be handed the filter this board was built with.
+ */
+interface CachedBoard {
+  /** Login and limit both change the query, so both are part of the key. */
+  key: string;
+  columns: BoardColumn[];
+  fetchedAt: string;
+  storedAt: number;
+}
+
+const BOARD_TTL_MS = 5 * 60_000;
+
+let cachedBoard: CachedBoard | null = null;
+
 async function settle(
   id: BoardColumn["id"],
   title: string,
@@ -238,12 +286,29 @@ async function settle(
 export async function loadBoardHandler({
   login,
   limit,
+  force,
 }: z.output<typeof loadBoard.input>): Promise<z.input<typeof loadBoard.output>> {
   const requested = login?.trim();
+  const settings = await readSettings();
   const resolved =
     requested !== undefined && requested !== "" && requested !== "@me"
       ? requested
-      : ((await readSavedLogin()) ?? (await resolveViewerLogin()));
+      : (settings.login ?? (await resolveViewerLogin()));
+
+  const key = `${resolved}\u0000${limit}`;
+  if (
+    !force &&
+    cachedBoard !== null &&
+    cachedBoard.key === key &&
+    Date.now() - cachedBoard.storedAt < BOARD_TTL_MS
+  ) {
+    return {
+      login: resolved,
+      hiddenRepositories: settings.hiddenRepositories,
+      columns: cachedBoard.columns,
+      fetchedAt: cachedBoard.fetchedAt,
+    };
+  }
 
   // Both pull request columns share one request, so they settle together.
   const pullRequests = fetchPullRequests(resolved, limit).then(
@@ -260,15 +325,25 @@ export async function loadBoardHandler({
     settle("discussions", "Discussions", () => fetchDiscussions(resolved, limit)),
   ]);
 
+  const columns: BoardColumn[] = [
+    issues,
+    { id: "draft-prs", title: "Draft PRs", items: prs.split.draft, error: prs.error },
+    { id: "open-prs", title: "Open PRs", items: prs.split.open, error: prs.error },
+    discussions,
+  ];
+  const fetchedAt = new Date().toISOString();
+
+  // A column that failed is not worth remembering: caching it would keep the
+  // error on screen for the whole window even though a retry might succeed.
+  if (columns.every((column) => column.error === null)) {
+    cachedBoard = { key, columns, fetchedAt, storedAt: Date.now() };
+  }
+
   return {
     login: resolved,
-    columns: [
-      issues,
-      { id: "draft-prs", title: "Draft PRs", items: prs.split.draft, error: prs.error },
-      { id: "open-prs", title: "Open PRs", items: prs.split.open, error: prs.error },
-      discussions,
-    ],
-    fetchedAt: new Date().toISOString(),
+    hiddenRepositories: settings.hiddenRepositories,
+    columns,
+    fetchedAt,
   };
 }
 
@@ -277,6 +352,15 @@ export async function saveLoginHandler({
 }: z.output<typeof saveLogin.input>): Promise<z.input<typeof saveLogin.output>> {
   const trimmed = login.trim();
   const resolved = trimmed === "" || trimmed === "@me" ? await resolveViewerLogin() : trimmed;
-  await writeSavedLogin(resolved);
+  await updateSettings({ login: resolved });
   return { login: resolved };
+}
+
+export async function saveRepositoryFilterHandler({
+  hiddenRepositories,
+}: z.output<typeof saveRepositoryFilter.input>): Promise<
+  z.input<typeof saveRepositoryFilter.output>
+> {
+  const saved = await updateSettings({ hiddenRepositories: [...hiddenRepositories].sort() });
+  return { hiddenRepositories: saved.hiddenRepositories };
 }

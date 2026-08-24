@@ -1,11 +1,16 @@
 import type { PluginContext } from "@getpaseo/plugin";
 import { GitHubBoard } from "./board.client";
-import { loadBoardHandler, saveLoginHandler } from "./board.server";
-import { loadBoard, saveLogin } from "./board.shared";
+import {
+  loadBoardHandler,
+  saveLoginHandler,
+  saveRepositoryFilterHandler,
+} from "./board.server";
+import { loadBoard, saveLogin, saveRepositoryFilter } from "./board.shared";
 
 export default function contribute(plugin: PluginContext) {
   plugin.handle(loadBoard, loadBoardHandler);
   plugin.handle(saveLogin, saveLoginHandler);
+  plugin.handle(saveRepositoryFilter, saveRepositoryFilterHandler);
 
   plugin.addSurface("board", GitHubBoard);
   plugin.addSidebarItem({

@@ -1,5 +1,5 @@
 import { type PluginSurfaceProps, useRpc } from "@getpaseo/plugin";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import type { Board, BoardColumn, BoardItem } from "./board.shared";
-import { loadBoard, saveLogin } from "./board.shared";
+import { loadBoard, saveLogin, saveRepositoryFilter } from "./board.shared";
 
 /**
  * `Linking.openURL` is `window.open` on the desktop renderer, and the main
@@ -39,6 +39,24 @@ function openExternalUrl(url: string): void {
 
 /** Width of one column when columns scroll horizontally instead of sharing the row. */
 const COMPACT_COLUMN_WIDTH = 300;
+
+/**
+ * Switching workspaces unmounts this surface and mounting it again used to cost
+ * three `gh` subprocesses before anything rendered. The last board is kept at
+ * module scope instead, which outlives the component and dies with the app, so
+ * a return visit paints immediately and only re-fetches once the data has aged
+ * past `STALE_AFTER_MS` — and even then the stale board stays on screen while
+ * the refresh runs.
+ *
+ * The server still owns the durable copy of the filter; `cachedHidden` is only
+ * here because a toggle made after the last load would otherwise be undone by
+ * rehydrating from a board fetched before it.
+ */
+let cachedBoard: Board | null = null;
+let cachedFetchedAt = 0;
+let cachedHidden: ReadonlySet<string> | null = null;
+
+const STALE_AFTER_MS = 5 * 60_000;
 
 /**
  * The theme exposes six opaque tokens and no border or hover colour, so
@@ -78,6 +96,9 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         paddingVertical: layout.compact ? 10 : 14,
         borderBottomWidth: 1,
         borderBottomColor: separator,
+        // The repository dropdown escapes the header, so the header has to
+        // out-stack the columns it overlaps.
+        zIndex: 30,
       },
       title: {
         color: colors.foreground,
@@ -111,6 +132,69 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         paddingVertical: 6,
       },
       ghostButtonLabel: { color: colors.foreground, fontSize: 13 },
+      filterAnchor: { position: "relative" as const },
+      dropdown: {
+        position: "absolute" as const,
+        top: "100%" as const,
+        left: 0,
+        marginTop: 4,
+        minWidth: 220,
+        maxHeight: 320,
+        backgroundColor: colors.surface0,
+        borderWidth: 1,
+        borderColor: separator,
+        borderRadius: 8,
+        overflow: "hidden" as const,
+      },
+      dropdownActions: {
+        flexDirection: "row" as const,
+        gap: 6,
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+        borderBottomWidth: 1,
+        borderBottomColor: separator,
+      },
+      chipButton: {
+        borderWidth: 1,
+        borderColor: separator,
+        borderRadius: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 3,
+      },
+      chipLabel: { color: colors.foreground, fontSize: 12 },
+      dropdownList: { paddingVertical: 4 },
+      dropdownRow: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+      },
+      checkbox: {
+        width: 14,
+        height: 14,
+        borderRadius: 3,
+        borderWidth: 1,
+        borderColor: separator,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
+      checkboxChecked: { backgroundColor: colors.accent, borderColor: colors.accent },
+      checkmark: {
+        color: colors.accentForeground,
+        fontSize: 9,
+        lineHeight: 12,
+        fontWeight: "700" as const,
+      },
+      dropdownLabel: { color: colors.foreground, fontSize: 12 },
+      backdrop: {
+        position: "absolute" as const,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 20,
+      },
       banner: {
         paddingHorizontal: layout.compact ? 12 : 20,
         paddingVertical: 10,
@@ -180,6 +264,85 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
 
 type Styles = ReturnType<typeof useStyles>;
 
+/**
+ * Repository filter. The selection is held as the set of *hidden* repositories
+ * rather than the visible ones, so a repository that only shows up on a later
+ * refresh — or that the saved filter has never seen — arrives selected, which
+ * is what "starts with all repos selected" means once the board can change
+ * under the filter.
+ */
+function RepoFilter({
+  repositories,
+  hidden,
+  open,
+  styles,
+  onToggleOpen,
+  onToggleRepo,
+  onSelectAll,
+  onSelectNone,
+}: {
+  repositories: readonly string[];
+  hidden: ReadonlySet<string>;
+  open: boolean;
+  styles: Styles;
+  onToggleOpen: () => void;
+  onToggleRepo: (repository: string) => void;
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+}) {
+  const selected = repositories.filter((repository) => !hidden.has(repository)).length;
+  const allSelected = selected === repositories.length;
+
+  return (
+    <View style={styles.filterAnchor}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Filter repositories: ${selected} of ${repositories.length} shown`}
+        accessibilityState={{ expanded: open }}
+        style={styles.ghostButton}
+        onPress={onToggleOpen}
+      >
+        <Text style={styles.ghostButtonLabel}>
+          {allSelected ? "All repos" : `${selected}/${repositories.length} repos`} ▾
+        </Text>
+      </Pressable>
+      {open ? (
+        <View style={styles.dropdown}>
+          <View style={styles.dropdownActions}>
+            <Pressable style={styles.chipButton} onPress={onSelectAll}>
+              <Text style={styles.chipLabel}>All</Text>
+            </Pressable>
+            <Pressable style={styles.chipButton} onPress={onSelectNone}>
+              <Text style={styles.chipLabel}>None</Text>
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.dropdownList}>
+            {repositories.map((repository) => {
+              const checked = !hidden.has(repository);
+              return (
+                <Pressable
+                  key={repository}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked }}
+                  onPress={() => onToggleRepo(repository)}
+                  style={({ pressed }) => [styles.dropdownRow, pressed ? styles.cardPressed : null]}
+                >
+                  <View style={[styles.checkbox, checked ? styles.checkboxChecked : null]}>
+                    {checked ? <Text style={styles.checkmark}>✓</Text> : null}
+                  </View>
+                  <Text style={styles.dropdownLabel} numberOfLines={1}>
+                    {repository}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function Card({ item, styles }: { item: BoardItem; styles: Styles }) {
   const open = useCallback(() => {
     openExternalUrl(item.url);
@@ -238,20 +401,40 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const styles = useStyles(props);
   const load = useRpc(loadBoard);
   const persistLogin = useRpc(saveLogin);
+  const persistFilter = useRpc(saveRepositoryFilter);
 
-  const [board, setBoard] = useState<Board | null>(null);
+  const [board, setBoard] = useState<Board | null>(cachedBoard);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(true);
-  const [loginDraft, setLoginDraft] = useState("");
+  const [busy, setBusy] = useState(cachedBoard === null);
+  const [loginDraft, setLoginDraft] = useState(cachedBoard?.login ?? "");
+  const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(
+    () => cachedHidden ?? new Set(),
+  );
+  const [filterOpen, setFilterOpen] = useState(false);
+  /**
+   * The saved filter is adopted on the first load only. Later refreshes must not
+   * overwrite what the user is toggling right now with the value the server last
+   * heard — and a remount that already restored the filter from cache counts as
+   * hydrated.
+   */
+  const filterHydrated = useRef(cachedHidden !== null);
 
   const refresh = useCallback(
-    async (login?: string) => {
+    async (login?: string, force = false) => {
       setBusy(true);
       setError(null);
       try {
-        const next = await load(login === undefined ? {} : { login });
+        const next = await load(login === undefined ? { force } : { login, force });
+        cachedBoard = next;
+        cachedFetchedAt = Date.now();
         setBoard(next);
         setLoginDraft(next.login);
+        if (!filterHydrated.current) {
+          filterHydrated.current = true;
+          const restored = new Set(next.hiddenRepositories);
+          cachedHidden = restored;
+          setHiddenRepos(restored);
+        }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       } finally {
@@ -262,8 +445,63 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   );
 
   useEffect(() => {
+    // A cached board renders straight away. Fetching again is only worth three
+    // `gh` calls once it has aged out, and that refresh runs underneath the
+    // board already on screen rather than behind a spinner.
+    if (cachedBoard !== null && Date.now() - cachedFetchedAt < STALE_AFTER_MS) return;
     void refresh();
   }, [refresh]);
+
+  /** Every repository with a card in any column, whether or not it is filtered out. */
+  const repositories = useMemo(() => {
+    const seen = new Set<string>();
+    for (const column of board?.columns ?? []) {
+      for (const item of column.items) {
+        if (item.repository !== "") seen.add(item.repository);
+      }
+    }
+    return [...seen].sort((a, b) => a.localeCompare(b));
+  }, [board]);
+
+  const columns = useMemo(() => {
+    if (board === null) return [];
+    if (hiddenRepos.size === 0) return board.columns;
+    return board.columns.map((column) => ({
+      ...column,
+      items: column.items.filter((item) => !hiddenRepos.has(item.repository)),
+    }));
+  }, [board, hiddenRepos]);
+
+  /** Applies a selection locally and saves it, so it survives the next unmount. */
+  const commitHidden = useCallback(
+    (next: ReadonlySet<string>) => {
+      cachedHidden = next;
+      setHiddenRepos(next);
+      persistFilter({ hiddenRepositories: [...next] }).catch((cause: unknown) => {
+        setError(
+          `Repository filter could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      });
+    },
+    [persistFilter],
+  );
+
+  const toggleRepo = useCallback(
+    (repository: string) => {
+      const next = new Set(hiddenRepos);
+      if (!next.delete(repository)) next.add(repository);
+      commitHidden(next);
+    },
+    [commitHidden, hiddenRepos],
+  );
+
+  const selectAllRepos = useCallback(() => {
+    commitHidden(new Set());
+  }, [commitHidden]);
+
+  const selectNoRepos = useCallback(() => {
+    commitHidden(new Set(repositories));
+  }, [commitHidden, repositories]);
 
   const applyLogin = useCallback(async () => {
     const trimmed = loginDraft.trim();
@@ -294,14 +532,38 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         <Pressable style={styles.ghostButton} onPress={() => void applyLogin()}>
           <Text style={styles.ghostButtonLabel}>Set</Text>
         </Pressable>
+        {repositories.length > 0 ? (
+          <RepoFilter
+            repositories={repositories}
+            hidden={hiddenRepos}
+            open={filterOpen}
+            styles={styles}
+            onToggleOpen={() => setFilterOpen((open) => !open)}
+            onToggleRepo={toggleRepo}
+            onSelectAll={selectAllRepos}
+            onSelectNone={selectNoRepos}
+          />
+        ) : null}
         <View style={styles.headerSpacer} />
         {board !== null && !props.layout.compact ? (
           <Text style={styles.subtle}>Updated {relativeTime(board.fetchedAt)}</Text>
         ) : null}
-        <Pressable style={styles.button} onPress={() => void refresh()} disabled={busy}>
+        <Pressable
+          style={styles.button}
+          onPress={() => void refresh(undefined, true)}
+          disabled={busy}
+        >
           <Text style={styles.buttonLabel}>{busy ? "Loading…" : "Refresh"}</Text>
         </Pressable>
       </View>
+
+      {filterOpen ? (
+        <Pressable
+          accessibilityLabel="Close repository filter"
+          style={styles.backdrop}
+          onPress={() => setFilterOpen(false)}
+        />
+      ) : null}
 
       {error !== null ? (
         <View style={styles.banner}>
@@ -315,13 +577,13 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         </View>
       ) : props.layout.compact ? (
         <ScrollView horizontal contentContainerStyle={styles.columnsContent}>
-          {board.columns.map((column) => (
+          {columns.map((column) => (
             <Column key={column.id} column={column} styles={styles} />
           ))}
         </ScrollView>
       ) : (
         <View style={[styles.columns, styles.columnsContent]}>
-          {board.columns.map((column) => (
+          {columns.map((column) => (
             <Column key={column.id} column={column} styles={styles} />
           ))}
         </View>
