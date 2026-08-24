@@ -7,6 +7,7 @@ import type { z } from "zod";
 import type {
   BoardColumn,
   BoardItem,
+  LinkedIssue,
   loadBoard,
   saveLogin,
   saveRepositoryFilter,
@@ -132,6 +133,8 @@ function toItem(row: GhSearchRow, detail: string | null): BoardItem {
     commentsCount: typeof row.commentsCount === "number" ? row.commentsCount : 0,
     labels,
     detail,
+    // Only pull requests link issues; every other caller keeps the empty list.
+    linkedIssues: [],
   };
 }
 
@@ -139,10 +142,12 @@ const SEARCH_FIELDS = "id,number,title,repository,url,updatedAt,commentsCount,la
 
 /**
  * An archived repository is read-only, so its open issues and pull requests can
- * never be closed and sit on the board forever. `gh search` filters them out
- * server-side; discussions have no such flag and are filtered on the response.
+ * never be closed and sit on the board forever. Both the `gh search` flag and
+ * the GraphQL query qualifier filter them out server-side; discussions have no
+ * such qualifier and are filtered on the response.
  */
-const UNARCHIVED_ONLY = "--archived=false";
+const UNARCHIVED_ONLY_FLAG = "--archived=false";
+const UNARCHIVED_ONLY = "archived:false";
 
 async function fetchIssues(login: string, limit: number): Promise<BoardItem[]> {
   const raw = await gh([
@@ -152,7 +157,7 @@ async function fetchIssues(login: string, limit: number): Promise<BoardItem[]> {
     login,
     "--state",
     "open",
-    UNARCHIVED_ONLY,
+    UNARCHIVED_ONLY_FLAG,
     "--sort",
     "updated",
     "--order",
@@ -167,6 +172,56 @@ async function fetchIssues(login: string, limit: number): Promise<BoardItem[]> {
 }
 
 /**
+ * Pull requests go through GraphQL rather than `gh search prs`, which exposes no
+ * linked-issue field. `closingIssuesReferences` is the only source that sees
+ * both closing keywords in the body and issues attached by hand from the
+ * Development panel, and the board needs it to fold an issue into the pull
+ * request that closes it.
+ */
+const PULL_REQUEST_QUERY = `query($q: String!, $limit: Int!) {
+  search(query: $q, type: ISSUE, first: $limit) {
+    nodes {
+      ... on PullRequest {
+        id
+        number
+        title
+        url
+        updatedAt
+        isDraft
+        comments { totalCount }
+        labels(first: 20) { nodes { name } }
+        repository { nameWithOwner isArchived }
+        closingIssuesReferences(first: 20) {
+          nodes { id number repository { nameWithOwner } }
+        }
+      }
+    }
+  }
+}`;
+
+interface GhPullRequestNode extends GhSearchRow {
+  comments?: { totalCount?: unknown };
+  closingIssuesReferences?: { nodes?: unknown };
+}
+
+function toLinkedIssues(node: GhPullRequestNode): LinkedIssue[] {
+  const nodes = node.closingIssuesReferences?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  return nodes
+    .filter((issue): issue is Record<string, unknown> => typeof issue === "object" && issue !== null)
+    .map((issue) => ({
+      id: typeof issue.id === "string" ? issue.id : "",
+      number: typeof issue.number === "number" ? issue.number : 0,
+      repository:
+        typeof (issue.repository as { nameWithOwner?: unknown } | undefined)?.nameWithOwner ===
+        "string"
+          ? ((issue.repository as { nameWithOwner: string }).nameWithOwner)
+          : "",
+    }))
+    .filter((issue) => issue.id !== "");
+}
+
+/**
  * One search backs two columns. Splitting client-side would ship draft pull
  * requests the open column discards, so the split happens here.
  */
@@ -175,27 +230,35 @@ async function fetchPullRequests(
   limit: number,
 ): Promise<{ draft: BoardItem[]; open: BoardItem[] }> {
   const raw = await gh([
-    "search",
-    "prs",
-    "--author",
-    login,
-    "--state",
-    "open",
-    UNARCHIVED_ONLY,
-    "--sort",
-    "updated",
-    "--order",
-    "desc",
-    "--limit",
-    String(limit),
-    "--json",
-    `${SEARCH_FIELDS},isDraft`,
+    "api",
+    "graphql",
+    "-f",
+    `query=${PULL_REQUEST_QUERY}`,
+    "-f",
+    `q=author:${login} is:pr state:open ${UNARCHIVED_ONLY} sort:updated-desc`,
+    "-F",
+    `limit=${limit}`,
   ]);
-  const rows: GhSearchRow[] = JSON.parse(raw);
+  const parsed: unknown = JSON.parse(raw);
+  const nodes = (parsed as { data?: { search?: { nodes?: unknown } } }).data?.search?.nodes;
+  if (!Array.isArray(nodes)) return { draft: [], open: [] };
+
   const draft: BoardItem[] = [];
   const open: BoardItem[] = [];
-  for (const row of rows) {
-    (row.isDraft === true ? draft : open).push(toItem(row, null));
+  for (const node of nodes) {
+    if (typeof node !== "object" || node === null) continue;
+    const row = node as GhPullRequestNode;
+    // The search returns issues and pull requests under one type; a node that
+    // matched neither inline fragment comes back as an empty object.
+    if (typeof row.id !== "string") continue;
+    const labels = (row.labels as { nodes?: unknown } | undefined)?.nodes;
+    const item = toItem({ ...row, labels: Array.isArray(labels) ? labels : [] }, null);
+    const total = row.comments?.totalCount;
+    (row.isDraft === true ? draft : open).push({
+      ...item,
+      commentsCount: typeof total === "number" ? total : 0,
+      linkedIssues: toLinkedIssues(row),
+    });
   }
   return { draft, open };
 }

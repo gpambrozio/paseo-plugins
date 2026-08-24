@@ -5,15 +5,33 @@ A Paseo plugin that adds a **GitHub** sidebar surface showing your work in four 
 | Column | Source |
 | --- | --- |
 | Issues | `gh search issues --author <login> --state open` |
-| Draft PRs | `gh search prs --author <login> --state open`, filtered to `isDraft` |
+| Draft PRs | `gh api graphql`, `search(type: ISSUE)` for `is:pr state:open`, filtered to `isDraft` |
 | Open PRs | the same search, filtered to non-draft |
 | Discussions | `gh api graphql`, `search(type: DISCUSSION)` |
 
 Both pull request columns come from one search, so the board makes three `gh`
-calls per refresh, not four.
+calls per refresh, not four. Pull requests go through GraphQL rather than
+`gh search prs` because only GraphQL exposes `closingIssuesReferences` — see
+below.
 
 ![The GitHub board: Issues, Draft PRs, Open PRs, and Discussions columns, with a
 login field and Refresh button in the header.](docs/screenshot.png)
+
+## Issues folded into their pull requests
+
+An issue that already has an open pull request against it is the same piece of
+work as that pull request, so it gets one card, not two: the issue drops out of
+the **Issues** column and shows up as an accent-coloured `Issue #123` pill on
+the pull request card. Drafts count — the work exists either way — so a draft
+pull request claims its issue too.
+
+The link is GitHub's own `closingIssuesReferences`, which sees both closing
+keywords in the pull request body (`Closes #123`) and issues attached by hand
+from the Development panel. A pill reads `Issue owner/name#123` when the issue
+lives in another repository.
+
+The fold happens after the repository filter, so hiding a pull request's
+repository puts its issue back on the board rather than taking both cards away.
 
 ## Filtering by repository
 
@@ -97,7 +115,10 @@ header tells you nothing about which account you are looking at.
 - **Discussions are authored-only.** GitHub's discussion search accepts
   `author:` but silently returns nothing for `involves:` and `commenter:`, so
   there is no "discussions I participated in" column to build.
-- **Issues and PRs are authored-only too**, for symmetry. Swapping `--author`
-  for `--involves` in `board.server.ts` widens them to anything you touched.
-- Each column caps at `limit` (default 30, max 100) items.
+- **Issues and PRs are authored-only too**, for symmetry. Widening them to
+  anything you touched means `--involves` for the issues search and `involves:`
+  in the pull request query, both in `board.server.ts`.
+- Each column caps at `limit` (default 30, max 100) items. An issue whose pull
+  request falls past that cap keeps its own card, since nothing on the board
+  claims it.
 - A column that fails renders its own error; the other three still load.

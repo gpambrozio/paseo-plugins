@@ -3,12 +3,23 @@ import { z } from "zod";
 
 /**
  * The four columns the board renders, in display order. Draft and open pull
- * requests come from a single `gh search prs` call and are split by `isDraft`,
- * so the column id is presentation only — see board.server.ts.
+ * requests come from a single search and are split by `isDraft`, so the column
+ * id is presentation only — see board.server.ts.
  */
 export const COLUMN_IDS = ["issues", "draft-prs", "open-prs", "discussions"] as const;
 
 export type ColumnId = (typeof COLUMN_IDS)[number];
+
+/**
+ * An issue a pull request closes, as GitHub's `closingIssuesReferences` reports
+ * it. The id is the same node id `gh search issues` returns, so the board can
+ * match a linked issue to its card by identity rather than by number.
+ */
+export const LinkedIssueSchema = z.object({
+  id: z.string(),
+  number: z.number().int(),
+  repository: z.string(),
+});
 
 export const BoardItemSchema = z.object({
   id: z.string(),
@@ -22,6 +33,12 @@ export const BoardItemSchema = z.object({
   labels: z.array(z.string()),
   /** Column-specific trailing detail, e.g. a discussion's category. */
   detail: z.string().nullable(),
+  /**
+   * Pull requests only, empty everywhere else. The board renders these as pills
+   * on the pull request card and drops the matching cards from the Issues
+   * column, so one piece of work occupies one card.
+   */
+  linkedIssues: z.array(LinkedIssueSchema),
 });
 
 export const BoardColumnSchema = z.object({
@@ -48,6 +65,7 @@ export const BoardSchema = z.object({
   fetchedAt: z.string(),
 });
 
+export type LinkedIssue = z.output<typeof LinkedIssueSchema>;
 export type BoardItem = z.output<typeof BoardItemSchema>;
 export type BoardColumn = z.output<typeof BoardColumnSchema>;
 export type Board = z.output<typeof BoardSchema>;

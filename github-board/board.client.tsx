@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import type { Board, BoardColumn, BoardItem } from "./board.shared";
+import type { Board, BoardColumn, BoardItem, LinkedIssue } from "./board.shared";
 import { loadBoard, saveLogin, saveRepositoryFilter } from "./board.shared";
 
 /**
@@ -257,6 +257,20 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         borderWidth: 1,
         borderColor: separator,
       },
+      // Accent-tinted so a folded-in issue reads as a link to other work rather
+      // than as one more label on the pull request.
+      linkedIssue: {
+        color: colors.accent,
+        fontSize: 10,
+        fontWeight: "600" as const,
+        overflow: "hidden" as const,
+        borderRadius: 8,
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderWidth: 1,
+        borderColor: withAlpha(colors.accent, "66"),
+        backgroundColor: withAlpha(colors.accent, "1a"),
+      },
       empty: { color: colors.foregroundMuted, fontSize: 12, padding: 12 },
     };
   }, [theme, layout.compact]);
@@ -343,15 +357,32 @@ function RepoFilter({
   );
 }
 
+/**
+ * The repository is spelled out only when the issue lives somewhere other than
+ * the pull request; within one repository the number alone is how GitHub itself
+ * reads.
+ */
+function linkedIssueLabel(issue: LinkedIssue, repository: string): string {
+  return issue.repository === repository || issue.repository === ""
+    ? `Issue #${issue.number}`
+    : `Issue ${issue.repository}#${issue.number}`;
+}
+
 function Card({ item, styles }: { item: BoardItem; styles: Styles }) {
   const open = useCallback(() => {
     openExternalUrl(item.url);
   }, [item.url]);
 
+  const closes = item.linkedIssues
+    .map((issue) => linkedIssueLabel(issue, item.repository))
+    .join(", ");
+
   return (
     <Pressable
       accessibilityRole="link"
-      accessibilityLabel={`${item.repository} #${item.number}: ${item.title}`}
+      accessibilityLabel={`${item.repository} #${item.number}: ${item.title}${
+        closes === "" ? "" : `, closes ${closes}`
+      }`}
       onPress={open}
       style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
     >
@@ -366,6 +397,11 @@ function Card({ item, styles }: { item: BoardItem; styles: Styles }) {
         {item.commentsCount > 0 ? (
           <Text style={styles.subtle}>{item.commentsCount} comments</Text>
         ) : null}
+        {item.linkedIssues.map((issue) => (
+          <Text key={issue.id} style={styles.linkedIssue}>
+            {linkedIssueLabel(issue, item.repository)}
+          </Text>
+        ))}
         {item.detail !== null ? <Text style={styles.label}>{item.detail}</Text> : null}
         {item.labels.slice(0, 3).map((label) => (
           <Text key={label} style={styles.label}>
@@ -465,11 +501,36 @@ export function GitHubBoard(props: PluginSurfaceProps) {
 
   const columns = useMemo(() => {
     if (board === null) return [];
-    if (hiddenRepos.size === 0) return board.columns;
-    return board.columns.map((column) => ({
-      ...column,
-      items: column.items.filter((item) => !hiddenRepos.has(item.repository)),
-    }));
+    const visible =
+      hiddenRepos.size === 0
+        ? board.columns
+        : board.columns.map((column) => ({
+            ...column,
+            items: column.items.filter((item) => !hiddenRepos.has(item.repository)),
+          }));
+
+    /**
+     * An issue with a pull request open against it is the same piece of work as
+     * that pull request, so it gets one card, not two — the pull request's,
+     * carrying the issue as a pill. Drafts count: the work exists either way.
+     *
+     * This runs after the repository filter rather than on the server, so a pull
+     * request hidden by the filter stops claiming its issue instead of taking
+     * the issue's card off the board with it.
+     */
+    const claimed = new Set<string>();
+    for (const column of visible) {
+      if (column.id !== "draft-prs" && column.id !== "open-prs") continue;
+      for (const item of column.items) {
+        for (const issue of item.linkedIssues) claimed.add(issue.id);
+      }
+    }
+    if (claimed.size === 0) return visible;
+    return visible.map((column) =>
+      column.id === "issues"
+        ? { ...column, items: column.items.filter((item) => !claimed.has(item.id)) }
+        : column,
+    );
   }, [board, hiddenRepos]);
 
   /** Applies a selection locally and saves it, so it survives the next unmount. */
