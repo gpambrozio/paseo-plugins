@@ -2,7 +2,43 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { parseFrontmatter } from "./frontmatter";
-import { makeSkillId, type SkillEntry, type SkillSourceKind } from "./skill-entry";
+import { dedupeByName, makeSkillId, type SkillEntry, type SkillSourceKind } from "./skill-entry";
+
+export interface SkillDirectoryCandidate {
+  dir: string;
+  kind: SkillSourceKind;
+  label: string;
+  /** Plugin skills are invoked as `plugin:skill`; everything else keeps its name. */
+  nameFor?: (frontmatterName: string) => string;
+}
+
+/**
+ * Reads a provider's whole search path. Candidates arrive in precedence order
+ * and the first copy of a name wins, so a project skill shadows a personal one
+ * without either being listed twice.
+ *
+ * The same directory can be named twice — a repository rooted at `$HOME` puts
+ * `~/.claude/skills` in both the repo walk and the personal scope — so a
+ * directory is read once, under the first scope that reached it.
+ */
+export async function readSkillCandidates(
+  candidates: SkillDirectoryCandidate[],
+): Promise<SkillEntry[]> {
+  const seen = new Set<string>();
+  const unique = candidates.filter((candidate) => {
+    const resolved = path.resolve(candidate.dir);
+    if (seen.has(resolved)) return false;
+    seen.add(resolved);
+    return true;
+  });
+
+  const groups = await Promise.all(
+    unique.map((candidate) =>
+      readSkillsFromDirectory(candidate.dir, candidate.kind, candidate.label, candidate.nameFor),
+    ),
+  );
+  return dedupeByName(groups.flat()).sort((a, b) => a.name.localeCompare(b.name));
+}
 
 /**
  * Scans one `skills` directory. Each direct child directory (or symlink to one)

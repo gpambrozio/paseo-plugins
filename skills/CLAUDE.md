@@ -28,6 +28,15 @@ entries there exist because a reviewer proved the code was wrong about the real 
 - **The plugin id is `skills`, not `paseo-skills`.** `paseo plugin init` took it from the directory
   basename, and the folder was renamed when this moved into `paseo-plugins`. Every CLI command uses
   `skills`.
+- **Codex scans `.agents/skills`, not `.codex/skills`.** Its documented search path is
+  `<dir>/.agents/skills` for every dir from cwd to the repo root, then `~/.agents/skills`, then
+  `/etc/codex/skills`. `.codex/skills` is read one rank lower only because Paseo's orchestration
+  sync writes there and older builds read it. Paseo's own `listCodexSkills` is stale on this; do
+  not "fix" the resolver back to matching it.
+- **A source kind lives in three files.** `SkillSourceKind` (`resolve/skill-entry.ts`), the zod
+  enum (`skills.shared.ts`), and `SOURCE_ORDER` (`panel.client.tsx`). The first two disagreeing
+  fails validation at runtime; a kind missing from the third sorts to the top of the panel, since
+  `indexOf` returns `-1`.
 - **Claude plugin scoping keys on `projectPath`, not on `scope`.** Real manifests carry
   `scope: "local"` entries that are per-project. An entry with a `projectPath` applies only inside
   it; one without applies everywhere.

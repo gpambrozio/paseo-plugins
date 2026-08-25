@@ -156,3 +156,39 @@ Final fix wave re-review clean: all 6 findings ADDRESSED. Schema/type coherence 
 Re-reviewer noted one out-of-scope UX quirk (deferred): if the agent disappears while the detail sub-screen is open, the selectedSkillId branch still renders SkillDetail rather than the "agent no longer available" message, because it is checked first.
 Re-reviewer noted one parse edge (deferred): `user-invocable: False` with a capital F would be misread as invocable. Every real occurrence on this machine is lowercase.
 PROJECT COMPLETE: 13 commits, 47 tests passing, plugin running in the user's daemon at ~/.paseo.
+
+## 2026-08-25 — issue #3, "Doesn't load all skills that the workspace has access to"
+
+Reporter sees 7 Codex skills in the panel and has 113 in `~/.agents/skills`.
+
+Ruling 27 (root cause): the panel mirrored Paseo's `listCodexSkills`, which scans `.codex/skills`.
+Codex's own docs scan `.agents/skills` — repo walk, then `$HOME/.agents/skills`, then
+`/etc/codex/skills`. Paseo's function is a fallback used only when Codex's `skills/list` RPC
+fails, so it can be stale without anyone noticing; the composer lists what Codex reports. Ruling:
+follow the documented search path, and treat "agrees with Paseo's fallback" as no longer a goal.
+Cost if wrong: if a Codex build still keyed on `.codex/skills` alone, nothing regresses — that
+directory is still read, one rank lower.
+
+Ruling 28: `docs/design.md`'s "Deliberately not read: `~/.agents/skills`" was wrong twice.
+`dedupeByName` collapses same-named entries, so reading it doubles nothing (verified: `~/.agents/skills`
+and `~/.codex/skills` on this machine hold byte-identical copies of the same seven Paseo skills,
+and the resolver now lists them once, sourced from `.agents`). And the orchestration sync only
+mirrors the skills Paseo ships — a user's own `~/.agents/skills` entries were mirrored nowhere.
+Cost if wrong: none found; the claim was checked against the real directories, not fixtures.
+
+Ruling 29: fix the same bug class in the Claude resolver in the same pass, though the issue does
+not mention it. Claude loads `.claude/skills` from every parent of cwd up to the repo root; the
+resolver read `<cwd>/.claude/skills` alone, so an agent started in a subdirectory saw none of the
+repository's skills. Cost if wrong: a wider walk lists a skill the agent does not have — bounded
+by the repo root, which is where Claude stops too.
+
+Ruling 30: rename the source kinds from directory-shaped (`codex-home`, `codex-repo`) to
+scope-shaped (`project`, `repo`, `personal`, `admin`, `plugin`). Several directories now feed one
+scope, so a kind cannot name a directory any more. Ids are transient — `skills.read` re-runs
+discovery — so nothing persisted breaks. Cost if wrong: three files to edit back
+(`skill-entry.ts`, `skills.shared.ts`, `panel.client.tsx`).
+
+Ruling 31: NOT reading `~/.codex/config.toml` for `[[skills.config]]` disables, NOT scanning
+`~/.codex/skills/.system`, and NOT rendering shadowed duplicates, though Codex shows them. All
+three are recorded under Limitations and Future seams instead. Cost if wrong: a disabled skill
+still shows an Invoke button, as it did before this change.
