@@ -33,6 +33,33 @@ lives in another repository.
 The fold happens after the repository filter, so hiding a pull request's
 repository puts its issue back on the board rather than taking both cards away.
 
+## Configuring the prompts
+
+**Configure prompts** in the header opens the settings view. It holds the GitHub
+login the board queries for, and the first message each kind of card is sent
+with:
+
+| Column | Default prompt |
+| --- | --- |
+| Issues | `Read issue {url}, investigate and give me ways to address it.` |
+| Draft PRs | `Read draft pull request {url} and help me finish it.` |
+| Open PRs | `Review pull request {url} and tell me what needs attention.` |
+| Discussions | `Read discussion {url} and summarise what is being decided.` |
+
+Templates can use `{url}`, `{title}`, `{number}` and `{repository}`. Anything
+else in braces is passed through untouched. A template is only the starting
+point — the launch dialog lets you rewrite the message before it is sent.
+
+Pick a Paseo project from the row of chips to override those four prompts for
+that project alone; a dot on a chip means it has overrides. Cards are matched to
+a project by the repository's git remote, the same way sending one is — so a
+fork and the repository it was forked from share one set of prompts, and a
+repository with no project needs none, since it cannot be sent anywhere either.
+
+**Clearing a field is how you reset it** — a blank project prompt falls back to
+the one for all projects, and a blank prompt for all projects falls back to the
+built-in default above. Nothing is saved until you press **Save prompts**.
+
 ## Filtering by repository
 
 The header dropdown next to **Set** lists every repository with a card anywhere
@@ -45,6 +72,39 @@ survive it. It is stored as the *hidden* repositories rather than the visible
 ones, so a repository the filter has never seen — a new one, or one whose first
 card only appears on a later refresh — arrives selected rather than silently
 filtered out.
+
+## Send to chat
+
+Hover a card and a **Send to chat** button appears in its bottom-right corner.
+It opens a **New workspace** dialog, the same choices Paseo asks for when you
+start a chat yourself:
+
+- **Local** or **New worktree** — a worktree is offered only for git projects.
+- The **agent**, picked the way Paseo picks one: a menu of providers with their
+  model counts, then that provider's models behind a back arrow, with a search
+  box that ranks across every provider.
+- **Thinking**, for models that have levels, and the **permission mode**, for
+  providers that have modes. Both follow the model you pick.
+- The **first message**, pre-filled from that column's prompt template and
+  yours to rewrite.
+
+Press **Send** and the plugin creates the workspace on the project checked out
+from that card's repository, titled after the issue, pull request or discussion,
+starts the agent you chose in it, sends your message, and opens the new
+workspace in the app.
+
+Your choices are remembered, so the next card opens on the same agent. A model
+or provider that has since disappeared quietly falls back to what the host
+actually offers.
+
+If no project has a git remote pointing at the repository, the dialog says so
+and creates nothing.
+
+The host is not one of the choices: a plugin surface talks to the daemon it was
+installed on, and the board is that daemon's `gh`. Use the host switcher in the
+surface header to work from another one.
+
+On phones and tablets there is no hover, so the button is always visible.
 
 ## Caching
 
@@ -102,9 +162,10 @@ The login resolves in this order:
 2. the saved login at `$PASEO_HOME/plugins/github-board/settings.json`,
 3. the account `gh` is authenticated as.
 
-The settings file holds `login` and `hiddenRepositories`, and each handler
-merges rather than overwrites, so saving one never drops the other. A file from
-an older version with only `login` is read and upgraded in place.
+The settings file holds `login`, `hiddenRepositories`, the `prompts`, and the
+`launch` defaults the send dialog reopens on, and each handler merges rather
+than overwrites, so saving one never drops the others. A file from an older
+version with only `login` is read and upgraded in place.
 
 `@me` is always resolved to a concrete login before any query runs, because
 GitHub's search types disagree about the alias and an unresolved `@me` in the
@@ -122,3 +183,12 @@ header tells you nothing about which account you are looking at.
   request falls past that cap keeps its own card, since nothing on the board
   claims it.
 - A column that fails renders its own error; the other three still load.
+- **Only a provider that names its models can be picked.** Paseo creates agents
+  as `provider/model`, so a provider that offers no selectable model is left out
+  of the agent list rather than shown and then refused.
+- **Send to chat matches a repository against every git remote** of every
+  project — `origin` first, then the rest. A pull request you opened from a fork
+  lives in the upstream repository, so it matches the fork you have checked out
+  only if that checkout keeps the upstream as a remote, which `gh repo clone`
+  and `gh repo fork` both set up. A project with no remote pointing at the
+  card's repository will not match.

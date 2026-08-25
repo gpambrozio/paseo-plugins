@@ -90,6 +90,9 @@ called from the client with `useRpc(contract)` and answered by `plugin.handle`. 
 - **Six theme tokens exist**: `surface0`, `foreground`, `foregroundMuted`, `accent`,
   `accentForeground`, `statusDanger`. Any other name renders as undefined at runtime. Never
   hardcode a colour.
+- **`icon` is any Lucide component name**, typed as a bare `string`. The host resolves it with
+  `Reflect.get` over the Lucide barrel and throws `Unknown Lucide icon: <name>` at contribution
+  time, so a typo load-fails the plugin. Brand icons are in there too — `Github`.
 - **Relative imports are extensionless** — `./frontmatter`, not `./frontmatter.js`.
 - **`Linking.openURL` is `window.open` on the desktop renderer**, which opens a bare child window
   because the Electron window installs no window-open handler. Route external URLs through

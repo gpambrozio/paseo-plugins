@@ -41,6 +41,44 @@ export const BoardItemSchema = z.object({
   linkedIssues: z.array(LinkedIssueSchema),
 });
 
+/**
+ * The first message a card is sent with, one template per column — the four
+ * columns are the four kinds of work the board shows, so the column id doubles
+ * as the template key. It is what the launch dialog opens on; the user is free
+ * to rewrite it before sending.
+ *
+ * Templates carry `{url}`, `{title}`, `{number}` and `{repository}`; anything
+ * else in braces is left alone rather than blanked, so an unknown placeholder
+ * shows up in the prompt instead of vanishing.
+ */
+export const PromptSetSchema = z.object({
+  issues: z.string(),
+  "draft-prs": z.string(),
+  "open-prs": z.string(),
+  discussions: z.string(),
+});
+
+export const PromptSettingsSchema = z.object({
+  /** Always complete on the way out: the server fills a blank with its default. */
+  byType: PromptSetSchema,
+  /**
+   * Keyed by Paseo project id, and partial on purpose — a type absent here, or
+   * present but blank, inherits `byType`. Storing the inherited value instead
+   * would freeze a copy that stops tracking the default it came from.
+   *
+   * Projects rather than repositories: a card can only be sent to a project in
+   * the first place, and a fork's origin and upstream are two repositories but
+   * one project, which should not need configuring twice.
+   */
+  byProject: z.record(z.string(), PromptSetSchema.partial()),
+});
+
+/** A Paseo project, as the settings view lists it to be configured. */
+export const ProjectRefSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
 export const BoardColumnSchema = z.object({
   id: z.enum(COLUMN_IDS),
   title: z.string(),
@@ -62,9 +100,27 @@ export const BoardSchema = z.object({
    * of flashing an unfiltered board while a second round trip lands.
    */
   hiddenRepositories: z.array(z.string()),
+  /**
+   * Rides along for the same reason the filter does: the launch dialog opens
+   * with the card's prompt already rendered, so the template has to be on the
+   * client before the button is pressed rather than a round trip behind it.
+   */
+  prompts: PromptSettingsSchema,
+  /** Every live Paseo project, so the settings view can list them all. */
+  projects: z.array(ProjectRefSchema),
+  /**
+   * `owner/name` to project id, for the repositories on this board only. The
+   * surface needs it to pick a template during the press gesture, and it is
+   * keyed the way a card spells its repository so no host parsing is needed on
+   * the client.
+   */
+  repositoryProjects: z.record(z.string(), z.string()),
   fetchedAt: z.string(),
 });
 
+export type ProjectRef = z.output<typeof ProjectRefSchema>;
+export type PromptSet = z.output<typeof PromptSetSchema>;
+export type PromptSettings = z.output<typeof PromptSettingsSchema>;
 export type LinkedIssue = z.output<typeof LinkedIssueSchema>;
 export type BoardItem = z.output<typeof BoardItemSchema>;
 export type BoardColumn = z.output<typeof BoardColumnSchema>;
@@ -97,4 +153,120 @@ export const saveRepositoryFilter = defineRpc({
   name: "board.save-filter",
   input: z.object({ hiddenRepositories: z.array(z.string()) }),
   output: z.object({ hiddenRepositories: z.array(z.string()) }),
+});
+
+/**
+ * How the workspace is cut: on the project's own checkout, or on a fresh Paseo
+ * worktree branched off it. The daemon spells these as the two `source` kinds
+ * of `workspace.create`, and only a git project can be worktreed.
+ */
+export const IsolationSchema = z.enum(["local", "worktree"]);
+
+export type Isolation = z.output<typeof IsolationSchema>;
+
+/**
+ * What the launch dialog was set to the last time a card was sent, so the next
+ * card opens on the same agent rather than back at the daemon's defaults.
+ *
+ * Every field is nullable because a saved choice is a *preference*, not a
+ * promise: a model that has since disappeared, or a provider that is no longer
+ * installed, must fall back to what the host actually offers rather than fail
+ * the send.
+ */
+export const LaunchDefaultsSchema = z.object({
+  /** Provider id as the providers snapshot spells it, e.g. `claude`. */
+  provider: z.string().nullable(),
+  /** Model id within that provider. Never blank: the SDK needs `provider/model`. */
+  model: z.string().nullable(),
+  /** The provider's permission mode, when it has any. */
+  modeId: z.string().nullable(),
+  /** The model's thinking level, when it has any. */
+  thinkingOptionId: z.string().nullable(),
+  isolation: IsolationSchema,
+});
+
+export type LaunchDefaults = z.output<typeof LaunchDefaultsSchema>;
+
+/**
+ * Everything the launch dialog needs that only the daemon can answer: which
+ * project this card belongs to, whether that project can be worktreed, and what
+ * the last send was configured with.
+ *
+ * The provider, model, thinking and permission options are *not* here — the
+ * dialog reads those from the host directly with `usePaseo().providers`, the
+ * same snapshot Paseo's own composer renders, so this plugin never has to
+ * mirror a provider catalogue that changes underneath it.
+ */
+export const sendOptions = defineRpc({
+  name: "board.send-options",
+  input: z.object({
+    /** `owner/name`, matched against the project's GitHub remotes. */
+    repository: z.string(),
+    /** The card's URL, which is where the forge host comes from. */
+    url: z.string(),
+  }),
+  output: z.object({
+    project: z.object({
+      id: z.string(),
+      name: z.string(),
+      /**
+       * The checkout the workspace is cut from, and the cwd the provider
+       * snapshot is resolved against — models can differ per directory.
+       */
+      rootPath: z.string(),
+      /** False for a non-git project, where "New worktree" cannot be offered. */
+      supportsWorktree: z.boolean(),
+    }),
+    defaults: LaunchDefaultsSchema,
+  }),
+});
+
+/**
+ * Hands one card to a fresh workspace and starts the conversation: the
+ * repository is matched to a Paseo project on the daemon, a workspace is
+ * created on that project (locally or as a worktree), an agent is created in it
+ * with the chosen provider, model, thinking level and permission mode, and the
+ * prompt is sent as its first message.
+ *
+ * The chosen configuration is saved as the next card's defaults, in the same
+ * round trip — a second RPC to persist it would be a second failure mode for no
+ * gain.
+ */
+export const sendToChat = defineRpc({
+  name: "board.send-to-chat",
+  input: z.object({
+    /** `owner/name`, matched against the project's GitHub remote. */
+    repository: z.string(),
+    number: z.number().int(),
+    title: z.string(),
+    /** The card's URL, and the source of the forge host. */
+    url: z.string(),
+    /** The first message, as the dialog left it — already rendered from the template. */
+    prompt: z.string().min(1),
+    isolation: IsolationSchema,
+    provider: z.string().min(1),
+    /** Required: the SDK creates agents by `provider/model` and rejects a bare provider. */
+    model: z.string().min(1),
+    modeId: z.string().nullable(),
+    thinkingOptionId: z.string().nullable(),
+  }),
+  output: z.object({
+    workspaceId: z.string(),
+    /** What the new workspace ended up called, for the confirmation message. */
+    workspaceName: z.string(),
+    projectName: z.string(),
+    /** The agent the prompt was sent to, so the app can open straight into it. */
+    agentId: z.string(),
+  }),
+});
+
+/**
+ * Saves every template at once. A blank `byType` entry is stored as the
+ * built-in default and a blank override is dropped, so "clear the field" is how
+ * a template is reset rather than a separate action.
+ */
+export const savePrompts = defineRpc({
+  name: "board.save-prompts",
+  input: PromptSettingsSchema,
+  output: PromptSettingsSchema,
 });

@@ -4,13 +4,20 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { z } from "zod";
+import type { PluginHandlerContext } from "@getpaseo/plugin";
 import type {
   BoardColumn,
   BoardItem,
+  LaunchDefaults,
   LinkedIssue,
+  PromptSet,
+  PromptSettings,
   loadBoard,
+  savePrompts,
   saveLogin,
   saveRepositoryFilter,
+  sendOptions,
+  sendToChat,
 } from "./board.shared";
 
 const execFileAsync = promisify(execFile);
@@ -18,19 +25,114 @@ const execFileAsync = promisify(execFile);
 /** gh search caps out well under this; the ceiling only guards a runaway page. */
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
-function settingsPath(): string {
-  const home = process.env.PASEO_HOME ?? join(homedir(), ".paseo");
-  return join(home, "plugins", "github-board", "settings.json");
+function paseoHome(): string {
+  return process.env.PASEO_HOME ?? join(homedir(), ".paseo");
 }
+
+function settingsPath(): string {
+  return join(paseoHome(), "plugins", "github-board", "settings.json");
+}
+
+/**
+ * What the clipboard gets when a card is sent, before the user changes it. Each
+ * one names the kind of work its column holds, because "read this URL" alone
+ * tells an agent nothing about whether it is being asked to fix, finish, or
+ * review.
+ */
+const DEFAULT_PROMPTS: PromptSet = {
+  issues: "Read issue {url}, investigate and give me ways to address it.",
+  "draft-prs": "Read draft pull request {url} and help me finish it.",
+  "open-prs": "Review pull request {url} and tell me what needs attention.",
+  discussions: "Read discussion {url} and summarise what is being decided.",
+};
+
+const PROMPT_KEYS = Object.keys(DEFAULT_PROMPTS) as (keyof PromptSet)[];
+
+/**
+ * What the launch dialog opens on before the user touches it. Written by the
+ * send itself, so the second card starts where the first one finished.
+ *
+ * Nothing here is authoritative: the dialog validates every field against the
+ * host's live provider snapshot and drops what no longer exists, which is why
+ * the whole record is nullable rather than seeded with a guess.
+ */
+const EMPTY_LAUNCH: LaunchDefaults = {
+  provider: null,
+  model: null,
+  modeId: null,
+  thinkingOptionId: null,
+  isolation: "local",
+};
 
 interface Settings {
   /** Null until the user pins one; the caller falls back to the gh viewer. */
   login: string | null;
   /** Repositories the board hides, saved as the filter's complement. */
   hiddenRepositories: string[];
+  prompts: PromptSettings;
+  launch: LaunchDefaults;
 }
 
-const EMPTY_SETTINGS: Settings = { login: null, hiddenRepositories: [] };
+const EMPTY_SETTINGS: Settings = {
+  login: null,
+  hiddenRepositories: [],
+  prompts: { byType: { ...DEFAULT_PROMPTS }, byProject: {} },
+  launch: { ...EMPTY_LAUNCH },
+};
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+/**
+ * Blank means "inherit", at both levels: a missing or empty `byType` entry
+ * becomes the built-in default, and a missing or empty override is dropped so
+ * the card falls back to `byType`. That is what makes clearing a field the way
+ * to reset it.
+ */
+function readPrompts(value: unknown): PromptSettings {
+  const raw = (typeof value === "object" && value !== null ? value : {}) as {
+    byType?: unknown;
+    byProject?: unknown;
+  };
+  const savedByType = (typeof raw.byType === "object" && raw.byType !== null ? raw.byType : {}) as
+    Record<string, unknown>;
+  const byType = { ...DEFAULT_PROMPTS };
+  for (const key of PROMPT_KEYS) {
+    byType[key] = asString(savedByType[key]) ?? DEFAULT_PROMPTS[key];
+  }
+
+  const savedByProject = (
+    typeof raw.byProject === "object" && raw.byProject !== null ? raw.byProject : {}
+  ) as Record<string, unknown>;
+  const byProject: PromptSettings["byProject"] = {};
+  for (const [repository, overrides] of Object.entries(savedByProject)) {
+    if (typeof overrides !== "object" || overrides === null) continue;
+    const kept: Partial<PromptSet> = {};
+    for (const key of PROMPT_KEYS) {
+      const template = asString((overrides as Record<string, unknown>)[key]);
+      if (template !== null) kept[key] = template;
+    }
+    if (Object.keys(kept).length > 0) byProject[repository] = kept;
+  }
+  return { byType, byProject };
+}
+
+/**
+ * Reads back a saved launch selection, defaulting every field it cannot make
+ * sense of. A settings file written by an older version of this plugin has no
+ * `launch` key at all, which is the same case as a blank one.
+ */
+function readLaunch(value: unknown): LaunchDefaults {
+  const raw = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+  return {
+    provider: asString(raw.provider),
+    model: asString(raw.model),
+    modeId: asString(raw.modeId),
+    thinkingOptionId: asString(raw.thinkingOptionId),
+    isolation: raw.isolation === "worktree" ? "worktree" : "local",
+  };
+}
 
 async function readSettings(): Promise<Settings> {
   try {
@@ -45,6 +147,8 @@ async function readSettings(): Promise<Settings> {
       hiddenRepositories: Array.isArray(hiddenRepositories)
         ? hiddenRepositories.filter((entry): entry is string => typeof entry === "string")
         : [],
+      prompts: readPrompts((parsed as { prompts?: unknown }).prompts),
+      launch: readLaunch((parsed as { launch?: unknown }).launch),
     };
   } catch {
     // No settings yet, or a file we can no longer parse. Either way the caller
@@ -54,8 +158,9 @@ async function readSettings(): Promise<Settings> {
 }
 
 /**
- * Read-modify-write, because the login and the repository filter are saved by
- * separate handlers and a whole-file write from either would drop the other.
+ * Read-modify-write, because the login, the repository filter, the prompts and
+ * the launch defaults are saved by separate handlers and a whole-file write
+ * from any of them would drop the others.
  */
 async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
   const next = { ...(await readSettings()), ...patch };
@@ -334,6 +439,39 @@ const BOARD_TTL_MS = 5 * 60_000;
 
 let cachedBoard: CachedBoard | null = null;
 
+/**
+ * The project each repository on the board belongs to, keyed the way a card
+ * spells its repository so the surface needs no host parsing to look one up.
+ *
+ * A board carrying the same `owner/name` from two different forges would
+ * collapse to one entry; the send button is unaffected, because it resolves
+ * from the card's own URL rather than from this map.
+ */
+async function describeProjects(
+  columns: readonly BoardColumn[],
+): Promise<{ projects: { id: string; name: string }[]; repositoryProjects: Record<string, string> }> {
+  const index = await loadProjectIndex();
+
+  const repositoryProjects: Record<string, string> = {};
+  for (const column of columns) {
+    for (const item of column.items) {
+      if (item.repository === "" || repositoryProjects[item.repository] !== undefined) continue;
+      const repositoryId = repositoryIdFor(item.repository, item.url);
+      if (repositoryId === null) continue;
+      const project = index.byRepositoryId.get(repositoryId);
+      if (project !== undefined) repositoryProjects[item.repository] = project.projectId;
+    }
+  }
+
+  return {
+    projects: index.projects.map((project) => ({
+      id: project.projectId,
+      name: project.displayName,
+    })),
+    repositoryProjects,
+  };
+}
+
 async function settle(
   id: BoardColumn["id"],
   title: string,
@@ -368,6 +506,8 @@ export async function loadBoardHandler({
     return {
       login: resolved,
       hiddenRepositories: settings.hiddenRepositories,
+      prompts: settings.prompts,
+      ...(await describeProjects(cachedBoard.columns)),
       columns: cachedBoard.columns,
       fetchedAt: cachedBoard.fetchedAt,
     };
@@ -405,9 +545,20 @@ export async function loadBoardHandler({
   return {
     login: resolved,
     hiddenRepositories: settings.hiddenRepositories,
+    prompts: settings.prompts,
+    ...(await describeProjects(columns)),
     columns,
     fetchedAt,
   };
+}
+
+export async function savePromptsHandler(
+  prompts: z.output<typeof savePrompts.input>,
+): Promise<z.input<typeof savePrompts.output>> {
+  // Round-tripped through the same reader the settings file goes through, so
+  // saving a cleared field and reloading it produce the same value.
+  const saved = await updateSettings({ prompts: readPrompts(prompts) });
+  return saved.prompts;
 }
 
 export async function saveLoginHandler({
@@ -426,4 +577,332 @@ export async function saveRepositoryFilterHandler({
 > {
   const saved = await updateSettings({ hiddenRepositories: [...hiddenRepositories].sort() });
   return { hiddenRepositories: saved.hiddenRepositories };
+}
+
+/**
+ * Paseo's own project registry, read straight off disk because the plugin
+ * `PaseoApi` exposes workspaces but not projects. Only the fields this plugin
+ * matches on are named; the daemon writes more.
+ *
+ * A project with a git remote is keyed `remote:<host>/<owner>/<name>`, always
+ * lowercased, which is exactly the identity a board card carries — so a card is
+ * matched to a project by that key rather than by guessing at directory names.
+ * A project without a remote is keyed `host:<serverId>:<path>` and can never
+ * match, which is correct: the board only ever shows remote repositories.
+ */
+interface ProjectRecord {
+  projectId: string;
+  rootPath: string;
+  displayName: string;
+  projectKey: string;
+  /**
+   * `git` or `non_git`, as the daemon records it. Paseo offers a worktree for
+   * exactly the git ones (`workspace-structure.ts`), so this is what decides
+   * whether the launch dialog can offer one.
+   */
+  kind: string;
+  archivedAt: string | null;
+}
+
+function projectsPath(): string {
+  return join(paseoHome(), "projects", "projects.json");
+}
+
+async function readProjects(): Promise<ProjectRecord[]> {
+  let raw: string;
+  try {
+    raw = await readFile(projectsPath(), "utf8");
+  } catch (error) {
+    throw new Error(
+      `Paseo's project list could not be read at ${projectsPath()}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Paseo's project list at ${projectsPath()} is not a list of projects.`);
+  }
+  return parsed
+    .filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null)
+    .map((entry) => ({
+      projectId: typeof entry.projectId === "string" ? entry.projectId : "",
+      rootPath: typeof entry.rootPath === "string" ? entry.rootPath : "",
+      displayName: typeof entry.displayName === "string" ? entry.displayName : "",
+      projectKey: typeof entry.projectKey === "string" ? entry.projectKey : "",
+      kind: typeof entry.kind === "string" ? entry.kind : "",
+      archivedAt: typeof entry.archivedAt === "string" ? entry.archivedAt : null,
+    }))
+    .filter((project) => project.projectId !== "" && project.rootPath !== "");
+}
+
+/**
+ * A repository's identity as both a project key and a git remote spell it:
+ * `<host>/<owner>/<name>`, lowercased. The host comes from the item's own URL
+ * rather than a hardcoded `github.com`, so a GitHub Enterprise card matches the
+ * enterprise project and not a same-named repository on github.com.
+ */
+function repositoryIdFor(repository: string, url: string): string | null {
+  if (!repository.includes("/")) return null;
+  let host: string;
+  try {
+    host = new URL(url).host;
+  } catch {
+    return null;
+  }
+  if (host === "") return null;
+  return `${host}/${repository}`.toLowerCase();
+}
+
+/**
+ * Normalises any git remote URL to the same `<host>/<owner>/<name>` form,
+ * covering the scp-like `git@host:owner/name.git` that `new URL` cannot parse
+ * alongside the `https://` and `ssh://` spellings.
+ */
+function normalizeRemoteUrl(remote: string): string | null {
+  const trimmed = remote.trim();
+  if (trimmed === "") return null;
+
+  let host: string;
+  let path: string;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      host = parsed.host;
+      path = parsed.pathname;
+    } catch {
+      return null;
+    }
+  } else {
+    const scp = /^(?:[^@/]+@)?([^/:]+):(.+)$/.exec(trimmed);
+    if (scp === null || scp[1] === undefined || scp[2] === undefined) return null;
+    host = scp[1];
+    path = scp[2];
+  }
+
+  const name = path
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/i, "");
+  if (host === "" || name === "") return null;
+  return `${host}/${name}`.toLowerCase();
+}
+
+/**
+ * Every repository the checkout at `root` points at, not just `origin`. A fork
+ * conventionally keeps the repository it was forked from as `upstream`, and a
+ * card always names the repository the issue or pull request lives in — the
+ * parent — so `origin` alone cannot match work done from a fork.
+ *
+ * A directory that is not a git checkout, or has gone missing, contributes
+ * nothing rather than failing the search for every other project.
+ */
+async function gitRemotes(root: string): Promise<string[]> {
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync("git", ["-C", root, "remote", "-v"], {
+      maxBuffer: MAX_OUTPUT_BYTES,
+    }));
+  } catch {
+    return [];
+  }
+  const seen = new Set<string>();
+  for (const line of stdout.split("\n")) {
+    const url = line.trim().split(/\s+/)[1];
+    if (url === undefined) continue;
+    const normalized = normalizeRemoteUrl(url);
+    if (normalized !== null) seen.add(normalized);
+  }
+  return [...seen];
+}
+
+/**
+ * Every live project, and every repository id that reaches one. Built once and
+ * shared by the board (which labels each card's project) and by the send button
+ * (which needs the project's directory), so the `git` subprocess per project is
+ * paid once rather than per lookup.
+ */
+interface ProjectIndex {
+  projects: ProjectRecord[];
+  /** `<host>/<owner>/<name>` to the project it belongs to. */
+  byRepositoryId: Map<string, ProjectRecord>;
+}
+
+const PROJECT_INDEX_TTL_MS = 5 * 60_000;
+
+let cachedProjectIndex: { index: ProjectIndex; storedAt: number } | null = null;
+
+async function buildProjectIndex(): Promise<ProjectIndex> {
+  const projects = (await readProjects()).filter((project) => project.archivedAt === null);
+  const byRepositoryId = new Map<string, ProjectRecord>();
+
+  // `projectKey` first, across all projects, because it is the repository Paseo
+  // itself considers a project's home. Only then the other remotes, and only
+  // where nothing has claimed the id — so a repository that is one project's
+  // origin and another's upstream resolves to the one it belongs to.
+  for (const project of projects) {
+    const key = project.projectKey.toLowerCase();
+    if (!key.startsWith("remote:")) continue;
+    const repositoryId = key.slice("remote:".length);
+    if (!byRepositoryId.has(repositoryId)) byRepositoryId.set(repositoryId, project);
+  }
+
+  const scanned = await Promise.all(
+    projects.map(async (project) => ({ project, remotes: await gitRemotes(project.rootPath) })),
+  );
+  for (const { project, remotes } of scanned) {
+    for (const repositoryId of remotes) {
+      if (!byRepositoryId.has(repositoryId)) byRepositoryId.set(repositoryId, project);
+    }
+  }
+
+  return { projects, byRepositoryId };
+}
+
+async function loadProjectIndex(force = false): Promise<ProjectIndex> {
+  if (
+    !force &&
+    cachedProjectIndex !== null &&
+    Date.now() - cachedProjectIndex.storedAt < PROJECT_INDEX_TTL_MS
+  ) {
+    return cachedProjectIndex.index;
+  }
+  const index = await buildProjectIndex();
+  cachedProjectIndex = { index, storedAt: Date.now() };
+  return index;
+}
+
+/**
+ * A miss is retried against a freshly built index, so a project added moments
+ * ago is found instead of being denied for the rest of the cache window.
+ */
+async function findProject(repositoryId: string): Promise<ProjectRecord | undefined> {
+  const cached = await loadProjectIndex();
+  const hit = cached.byRepositoryId.get(repositoryId);
+  if (hit !== undefined) return hit;
+  const fresh = await loadProjectIndex(true);
+  return fresh.byRepositoryId.get(repositoryId);
+}
+
+/** Workspace titles are capped at the same length the daemon caps agent titles. */
+const MAX_TITLE_CHARS = 200;
+
+/**
+ * The project one card can be sent to, or a refusal that says what to do about
+ * it. Both handlers below start here, so "no project" reads the same whether
+ * the dialog is opening or the send is running.
+ */
+async function requireProject(repository: string, url: string): Promise<ProjectRecord> {
+  const repositoryId = repositoryIdFor(repository, url);
+  if (repositoryId === null) {
+    throw new Error(`${repository} has no repository URL to match a project against.`);
+  }
+
+  const project = await findProject(repositoryId);
+  if (project === undefined) {
+    throw new Error(
+      `No Paseo project has a git remote pointing at ${repository}. Add it as a project — or add it as a remote on the fork you already have — then send this card again.`,
+    );
+  }
+  return project;
+}
+
+export async function sendOptionsHandler({
+  repository,
+  url,
+}: z.output<typeof sendOptions.input>): Promise<z.input<typeof sendOptions.output>> {
+  const [project, settings] = await Promise.all([requireProject(repository, url), readSettings()]);
+  const supportsWorktree = project.kind === "git";
+  return {
+    project: {
+      id: project.projectId,
+      name: project.displayName,
+      rootPath: project.rootPath,
+      supportsWorktree,
+    },
+    // A worktree preference saved against a git project must not survive into a
+    // project that has no worktrees to offer, or the dialog opens on a choice
+    // its own picker cannot show.
+    defaults: supportsWorktree ? settings.launch : { ...settings.launch, isolation: "local" },
+  };
+}
+
+export async function sendToChatHandler(
+  {
+    repository,
+    number,
+    title,
+    url,
+    prompt,
+    isolation,
+    provider,
+    model,
+    modeId,
+    thinkingOptionId,
+  }: z.output<typeof sendToChat.input>,
+  { paseo }: PluginHandlerContext,
+): Promise<z.input<typeof sendToChat.output>> {
+  const project = await requireProject(repository, url);
+  if (isolation === "worktree" && project.kind !== "git") {
+    throw new Error(`${project.displayName} is not a git checkout, so it cannot be worktreed.`);
+  }
+
+  const trimmed = title.trim();
+  /**
+   * `firstAgentContext` is passed here and *only* here, because this handler
+   * really does create the agent it promises. The daemon reads it two ways: as
+   * naming context for the workspace and its branch, and as `expectsInitialAgent`,
+   * which flips the new workspace to an optimistic `running`. A caller that
+   * passes it and then creates nothing leaves a workspace spinning until it
+   * settles on `done`.
+   */
+  const workspace = await paseo.workspaces.create({
+    title: (trimmed === "" ? `${repository} #${number}` : trimmed).slice(0, MAX_TITLE_CHARS),
+    firstAgentContext: { prompt, attachments: [] },
+    source:
+      isolation === "worktree"
+        ? {
+            // No `worktreeSlug`: the daemon mints a mnemonic one, and then
+            // renames the branch after the prompt once the agent is running.
+            kind: "worktree",
+            cwd: project.rootPath,
+            projectId: project.projectId,
+          }
+        : { kind: "directory", path: project.rootPath, projectId: project.projectId },
+  });
+
+  /**
+   * The agent is created *in* the workspace, so the SDK places it on the
+   * workspace's own directory — the worktree's path, not the project root, when
+   * one was cut. `prompt` rides along as the first message rather than being
+   * sent afterwards, so there is no window where the workspace exists with a
+   * silent agent in it.
+   */
+  const agent = await workspace.agents
+    .create({
+      config: {
+        // `provider/model`, which is the only spelling the SDK accepts.
+        provider: `${provider}/${model}`,
+        ...(modeId === null ? {} : { modeId }),
+        ...(thinkingOptionId === null ? {} : { thinkingOptionId }),
+      },
+      prompt,
+    })
+    .catch((cause: unknown) => {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(
+        `Workspace “${workspace.name ?? project.displayName}” was created, but the agent could not be started: ${detail}`,
+      );
+    });
+
+  // Saved only once the send has actually worked, so a configuration that the
+  // host rejected is not what the next card opens on.
+  await updateSettings({ launch: { provider, model, modeId, thinkingOptionId, isolation } });
+
+  return {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name ?? project.displayName,
+    projectName: project.displayName,
+    agentId: agent.id,
+  };
 }
