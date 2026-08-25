@@ -55,10 +55,10 @@ A failed reload stays failed; Paseo does not restore the previous code.
 | `index.ts`                      | Contribution wiring only.                                 |
 | `skills.shared.ts`              | zod RPC contracts, imported by both runtimes.             |
 | `skills.server.ts`              | RPC handlers; resolves the agent, dispatches by provider. |
-| `resolve/claude.server.ts`      | Claude project, personal, and plugin skills.               |
-| `resolve/codex.server.ts`       | Codex workspace, repository, and home skills.              |
-| `resolve/repo-root.server.ts`   | Walks up from the working directory for `.git`.            |
-| `resolve/skill-directory.server.ts` | Scans one `skills` directory.                         |
+| `resolve/claude.server.ts`      | Claude project, repository, personal, and plugin skills.   |
+| `resolve/codex.server.ts`       | Codex project, repository, personal, and admin skills.     |
+| `resolve/repo-root.server.ts`   | Walks up for `.git`, and lists the directories in between. |
+| `resolve/skill-directory.server.ts` | Scans one `skills` directory, and a whole search path. |
 | `resolve/skill-entry.ts`        | Entry types, skill id construction, first-wins dedupe.     |
 | `resolve/frontmatter.ts`        | `SKILL.md` frontmatter parsing.                            |
 | `panel.client.tsx`              | The panel: list, search, detail, invoke.                  |

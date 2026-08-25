@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { findRepoRoot } from "./repo-root.server";
+import { dirsUpToRepoRoot, findRepoRoot } from "./repo-root.server";
 
 let root: string;
 
@@ -34,5 +34,30 @@ describe("findRepoRoot", () => {
     await mkdir(plain, { recursive: true });
 
     expect(await findRepoRoot(plain)).toBeNull();
+  });
+});
+
+describe("dirsUpToRepoRoot", () => {
+  test("yields every directory from cwd up to the repository root, cwd first", async () => {
+    const repo = path.join(root, "repo");
+    const cwd = path.join(repo, "packages", "app");
+    await mkdir(path.join(repo, ".git"), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+
+    expect(await dirsUpToRepoRoot(cwd)).toEqual([cwd, path.join(repo, "packages"), repo]);
+  });
+
+  test("yields the repository root alone when cwd is the root", async () => {
+    const repo = path.join(root, "repo");
+    await mkdir(path.join(repo, ".git"), { recursive: true });
+
+    expect(await dirsUpToRepoRoot(repo)).toEqual([repo]);
+  });
+
+  test("yields cwd alone outside a repository, rather than climbing to /", async () => {
+    const plain = path.join(root, "no-repo", "deep");
+    await mkdir(plain, { recursive: true });
+
+    expect(await dirsUpToRepoRoot(plain)).toEqual([plain]);
   });
 });

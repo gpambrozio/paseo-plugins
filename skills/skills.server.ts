@@ -12,13 +12,22 @@ import type { SkillEntry } from "./resolve/skill-entry";
 export interface SkillRoots {
   claudeHome: string;
   codexHome: string;
+  agentsHome: string;
+  adminSkillsDir: string;
 }
 
+/**
+ * `~/.agents` has no environment override — Codex documents the literal path.
+ * `/etc/codex/skills` is a constant for the same reason; on a machine without
+ * one it reads as an absent directory, which is the normal case.
+ */
 export function defaultSkillRoots(env: NodeJS.ProcessEnv = process.env): SkillRoots {
   const home = os.homedir();
   return {
     claudeHome: path.join(home, ".claude"),
     codexHome: env.CODEX_HOME ?? path.join(home, ".codex"),
+    agentsHome: path.join(home, ".agents"),
+    adminSkillsDir: path.join(path.sep, "etc", "codex", "skills"),
   };
 }
 
@@ -42,7 +51,12 @@ async function resolveForAgent(agent: ResolvedAgent, roots: SkillRoots): Promise
     return resolveClaudeSkills({ cwd: agent.cwd, claudeHome: roots.claudeHome });
   }
   if (agent.provider === "codex") {
-    return resolveCodexSkills({ cwd: agent.cwd, codexHome: roots.codexHome });
+    return resolveCodexSkills({
+      cwd: agent.cwd,
+      codexHome: roots.codexHome,
+      agentsHome: roots.agentsHome,
+      adminSkillsDir: roots.adminSkillsDir,
+    });
   }
   return [];
 }

@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { readSkillsFromDirectory } from "./skill-directory.server";
-import { dedupeByName, type SkillEntry } from "./skill-entry";
+import { dirsUpToRepoRoot } from "./repo-root.server";
+import { readSkillCandidates, type SkillDirectoryCandidate } from "./skill-directory.server";
+import type { SkillEntry } from "./skill-entry";
 
 export interface ClaudeResolveOptions {
   cwd: string;
@@ -64,19 +65,37 @@ async function readInstalledPluginDirs(
 }
 
 /**
- * Precedence: project, then personal, then plugins. Plugin skills are namespaced
- * `plugin:skill`, so in practice they never collide with the first two.
+ * Precedence: the working directory, then each directory up to the repository
+ * root, then personal, then plugins. Claude loads `.claude/skills` from every
+ * one of those ancestors, so an agent working in a subdirectory still sees the
+ * skills checked in at the repo root. Plugin skills are namespaced
+ * `plugin:skill`, so in practice they never collide with the rest.
  */
 export async function resolveClaudeSkills(options: ClaudeResolveOptions): Promise<SkillEntry[]> {
-  const pluginDirs = await readInstalledPluginDirs(options.claudeHome, options.cwd);
-
-  const resolved = await Promise.all([
-    readSkillsFromDirectory(path.join(options.cwd, ".claude", "skills"), "project", "Project"),
-    readSkillsFromDirectory(path.join(options.claudeHome, "skills"), "personal", "Personal"),
-    ...pluginDirs.map(({ pluginName, dir }) =>
-      readSkillsFromDirectory(dir, "plugin", pluginName, (name) => `${pluginName}:${name}`),
-    ),
+  const [pluginDirs, dirs] = await Promise.all([
+    readInstalledPluginDirs(options.claudeHome, options.cwd),
+    dirsUpToRepoRoot(options.cwd),
   ]);
 
-  return dedupeByName(resolved.flat()).sort((a, b) => a.name.localeCompare(b.name));
+  const candidates: SkillDirectoryCandidate[] = dirs.map((dir, index) => ({
+    dir: path.join(dir, ".claude", "skills"),
+    kind: index === 0 ? "project" : "repo",
+    label: index === 0 ? "Project" : "Repository",
+  }));
+
+  candidates.push({
+    dir: path.join(options.claudeHome, "skills"),
+    kind: "personal",
+    label: "Personal",
+  });
+  for (const { pluginName, dir } of pluginDirs) {
+    candidates.push({
+      dir,
+      kind: "plugin",
+      label: pluginName,
+      nameFor: (name) => `${pluginName}:${name}`,
+    });
+  }
+
+  return readSkillCandidates(candidates);
 }

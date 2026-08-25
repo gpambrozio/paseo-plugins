@@ -50,6 +50,60 @@ describe("resolveClaudeSkills", () => {
     expect(paseo?.source.label).toBe("Personal");
   });
 
+  test("reads every directory from the working directory up to the repository root", async () => {
+    const repo = path.join(root, "repo");
+    const cwd = path.join(repo, "packages", "app");
+    await mkdir(path.join(repo, ".git"), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeSkill(path.join(repo, ".claude", "skills"), "release", "Cuts a release");
+    await writeSkill(path.join(repo, "packages", ".claude", "skills"), "bump", "Bumps versions");
+
+    const skills = await resolveClaudeSkills({ cwd, claudeHome });
+
+    expect(skills.map((skill) => skill.name)).toEqual(["bump", "release"]);
+    expect(skills.every((skill) => skill.source.kind === "repo")).toBe(true);
+    expect(skills.every((skill) => skill.source.label === "Repository")).toBe(true);
+  });
+
+  test("the working directory wins a name collision with the repository root", async () => {
+    const repo = path.join(root, "repo");
+    const cwd = path.join(repo, "packages", "app");
+    await mkdir(path.join(repo, ".git"), { recursive: true });
+    await writeSkill(path.join(cwd, ".claude", "skills"), "release", "Package version");
+    await writeSkill(path.join(repo, ".claude", "skills"), "release", "Root version");
+
+    const skills = await resolveClaudeSkills({ cwd, claudeHome });
+
+    expect(skills).toHaveLength(1);
+    expect(skills[0]?.description).toBe("Package version");
+    expect(skills[0]?.source.kind).toBe("project");
+  });
+
+  test("does not climb above the working directory outside a repository", async () => {
+    const cwd = path.join(root, "loose", "work");
+    await mkdir(cwd, { recursive: true });
+    await writeSkill(path.join(root, "loose", ".claude", "skills"), "stray", "Not in a repo");
+
+    const skills = await resolveClaudeSkills({ cwd, claudeHome });
+
+    expect(skills).toEqual([]);
+  });
+
+  test("reads a repository rooted at the claude home only once", async () => {
+    // A dotfiles repo at $HOME puts ~/.claude/skills in both the repo walk and
+    // the personal scope. The nearer scope wins; the skill is not listed twice.
+    const home = path.join(root, "home");
+    const cwd = path.join(home, "notes");
+    await mkdir(path.join(home, ".git"), { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeSkill(path.join(home, ".claude", "skills"), "paseo", "Operates Paseo");
+
+    const skills = await resolveClaudeSkills({ cwd, claudeHome: path.join(home, ".claude") });
+
+    expect(skills.map((skill) => skill.name)).toEqual(["paseo"]);
+    expect(skills[0]?.source.kind).toBe("repo");
+  });
+
   test("a project skill wins a name collision with a personal skill", async () => {
     const cwd = path.join(root, "work");
     await writeSkill(path.join(cwd, ".claude", "skills"), "review", "Project version");

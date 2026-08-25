@@ -1,4 +1,9 @@
-export type SkillSourceKind = "project" | "personal" | "plugin" | "codex-home" | "codex-repo";
+/**
+ * Scopes, not directories. Both providers scan several directories per scope —
+ * Codex reads `.agents/skills` and legacy `.codex/skills` in the same walk — so
+ * a kind names where a skill applies, and `SkillSource.dir` names where it is.
+ */
+export type SkillSourceKind = "project" | "repo" | "personal" | "admin" | "plugin";
 
 export interface SkillSource {
   kind: SkillSourceKind;

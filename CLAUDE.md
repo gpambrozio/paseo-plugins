@@ -116,9 +116,9 @@ its root, so a new subdirectory there is invisible to `tsc` until the `include` 
 
 ## skills
 
-Discovers skills by scanning the filesystem — `~/.claude`, `~/.codex`, and the workspace — because
-the live session's command list is unreachable from plugin code. Consequence: Claude's bundled
-skills never appear. `skills.server.ts` dispatches on `agent.provider`; only `claude` and `codex`
+Discovers skills by scanning the filesystem — `~/.claude`, `~/.agents`, `~/.codex`, `/etc/codex`,
+and every directory from the agent's cwd up to the repo root — because the live session's command
+list is unreachable from plugin code. Consequence: Claude's bundled skills never appear. `skills.server.ts` dispatches on `agent.provider`; only `claude` and `codex`
 resolve, everything else reports unsupported.
 
 `SkillEntry` (`resolve/skill-entry.ts`) and `SkillEntrySchema` (`skills.shared.ts`) are separate

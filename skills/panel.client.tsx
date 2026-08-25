@@ -24,9 +24,9 @@ const MONO = Platform.select({ ios: "Menlo", default: "monospace" });
 // alphabetically-sorted skill list happens to introduce them.
 const SOURCE_ORDER: ReadonlyArray<Skill["source"]["kind"]> = [
   "project",
+  "repo",
   "personal",
-  "codex-repo",
-  "codex-home",
+  "admin",
   "plugin",
 ];
 
