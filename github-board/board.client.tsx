@@ -647,6 +647,9 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         fontWeight: "600" as const,
       },
       cardRepo: { color: colors.foregroundMuted, fontSize: 11 },
+      // Muted like the rest of the footer but weighted, so "someone else's"
+      // reads at a glance without competing with the title above it.
+      cardAuthor: { color: colors.foregroundMuted, fontSize: 12, fontWeight: "600" as const },
       cardTitle: { color: colors.foreground, fontSize: 13, lineHeight: 18 },
       cardFooter: {
         flexDirection: "row" as const,
@@ -777,12 +780,15 @@ function linkedIssueLabel(issue: LinkedIssue, repository: string): string {
 
 function Card({
   item,
+  viewerLogin,
   styles,
   hoverToReveal,
   onSend,
   type,
 }: {
   item: BoardItem;
+  /** The login the board was queried for, so a card of someone else's reads as one. */
+  viewerLogin: string;
   styles: Styles;
   /** False on touch platforms, where nothing ever hovers and the action would hide forever. */
   hoverToReveal: boolean;
@@ -819,12 +825,19 @@ function Card({
     .map((issue) => linkedIssueLabel(issue, item.repository))
     .join(", ");
 
+  /**
+   * Named only when it is not the viewer's own work. Most of the board still is
+   * the viewer's, so a byline on every card would be noise hiding the one thing
+   * it is there to say: someone else opened this.
+   */
+  const byline = item.author !== null && item.author !== viewerLogin ? item.author : null;
+
   return (
     <Pressable
       accessibilityRole="link"
       accessibilityLabel={`${item.repository} #${item.number}: ${item.title}${
-        closes === "" ? "" : `, closes ${closes}`
-      }`}
+        byline === null ? "" : `, opened by ${byline}`
+      }${closes === "" ? "" : `, closes ${closes}`}`}
       onPress={open}
       onHoverIn={() => setCardHovered(true)}
       onHoverOut={() => setCardHovered(false)}
@@ -837,6 +850,7 @@ function Card({
         {item.title}
       </Text>
       <View style={styles.cardFooter}>
+        {byline !== null ? <Text style={styles.cardAuthor}>by {byline}</Text> : null}
         <Text style={styles.subtle}>{relativeTime(item.updatedAt)}</Text>
         {item.commentsCount > 0 ? (
           <Text style={styles.subtle}>{item.commentsCount} comments</Text>
@@ -1871,11 +1885,13 @@ function PromptSettingsView({
 
 function Column({
   column,
+  viewerLogin,
   styles,
   hoverToReveal,
   onSend,
 }: {
   column: BoardColumn;
+  viewerLogin: string;
   styles: Styles;
   hoverToReveal: boolean;
   onSend: (item: BoardItem, type: ColumnId) => void;
@@ -1896,6 +1912,7 @@ function Column({
             <Card
               key={item.id}
               item={item}
+              viewerLogin={viewerLogin}
               styles={styles}
               hoverToReveal={hoverToReveal}
               onSend={onSend}
@@ -2234,6 +2251,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
             <Column
               key={column.id}
               column={column}
+              viewerLogin={board.login}
               styles={styles}
               hoverToReveal={hoverToReveal}
               onSend={openSendDialog}
@@ -2246,6 +2264,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
             <Column
               key={column.id}
               column={column}
+              viewerLogin={board.login}
               styles={styles}
               hoverToReveal={hoverToReveal}
               onSend={openSendDialog}

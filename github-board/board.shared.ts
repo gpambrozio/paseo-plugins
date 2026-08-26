@@ -31,6 +31,13 @@ export const BoardItemSchema = z.object({
   updatedAt: z.string(),
   commentsCount: z.number().int(),
   labels: z.array(z.string()),
+  /**
+   * Who opened it, or null when GitHub reports no author because the account is
+   * gone. The board queries its own repositories as well as its own work, so a
+   * card is not necessarily the viewer's; the card names the author when it is
+   * someone else's.
+   */
+  author: z.string().nullable(),
   /** Column-specific trailing detail, e.g. a discussion's category. */
   detail: z.string().nullable(),
   /**

@@ -1,17 +1,25 @@
 # paseo-github-board
 
-A Paseo plugin that adds a **GitHub** sidebar surface showing your work in four columns:
+A Paseo plugin that adds a **GitHub** sidebar surface showing your work — and the
+work waiting on you — in four columns:
 
 | Column | Source |
 | --- | --- |
-| Issues | `gh search issues --author <login> --state open` |
+| Issues | `gh api graphql`, `search(type: ISSUE)` for `is:issue state:open` |
 | Draft PRs | `gh api graphql`, `search(type: ISSUE)` for `is:pr state:open`, filtered to `isDraft` |
 | Open PRs | the same search, filtered to non-draft |
 | Discussions | `gh api graphql`, `search(type: DISCUSSION)` |
 
-Both pull request columns come from one search, so the board makes three `gh`
-calls per refresh, not four. Pull requests go through GraphQL rather than
-`gh search prs` because only GraphQL exposes `closingIssuesReferences` — see
+Every column runs its search **twice**: once for `author:<login>`, and once for
+`user:<login>` — everything in the repositories that login owns, whoever opened
+it. That second half is why an issue somebody else filed on your own repository
+shows up here, and the card names its author when it is not you. GitHub search
+ANDs its qualifiers, so the two cannot be folded into one query; they are two
+aliased searches inside one `gh api graphql` request instead.
+
+Both pull request columns come from one search, so the board still makes three
+`gh` calls per refresh, not four or six. Everything goes through GraphQL rather
+than `gh search`, because only GraphQL exposes `closingIssuesReferences` — see
 below.
 
 ![The GitHub board: Issues, Draft PRs, Open PRs, and Discussions columns, with a
@@ -173,15 +181,20 @@ header tells you nothing about which account you are looking at.
 
 ## Known limits
 
-- **Discussions are authored-only.** GitHub's discussion search accepts
-  `author:` but silently returns nothing for `involves:` and `commenter:`, so
-  there is no "discussions I participated in" column to build.
-- **Issues and PRs are authored-only too**, for symmetry. Widening them to
-  anything you touched means `--involves` for the issues search and `involves:`
-  in the pull request query, both in `board.server.ts`.
-- Each column caps at `limit` (default 30, max 100) items. An issue whose pull
-  request falls past that cap keeps its own card, since nothing on the board
-  claims it.
+- **Nothing you merely participated in appears.** Every column is what you
+  authored plus what is open on repositories you own; a thread you only
+  commented on elsewhere is neither. GitHub's discussion search silently returns
+  nothing for `involves:` and `commenter:`, so a "discussions I participated in"
+  column cannot be built at all; for issues and pull requests it would mean a
+  third aliased `involves:<login>` search in `board.server.ts`.
+- **"Repositories you own" means `user:<login>`.** An organisation whose
+  repositories you maintain but do not own contributes only what you authored
+  yourself. Widening that means an `org:` search per organisation, and a list of
+  organisations to keep somewhere.
+- Each column caps at `limit` (default 30, max 100) items — both halves of the
+  search are allowed that many rows, and the merged column is cut back to one
+  budget's worth of the most recently updated. An issue whose pull request falls
+  past that cap keeps its own card, since nothing on the board claims it.
 - A column that fails renders its own error; the other three still load.
 - **Only a provider that names its models can be picked.** Paseo creates agents
   as `provider/model`, so a provider that offers no selectable model is left out

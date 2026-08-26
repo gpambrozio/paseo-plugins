@@ -5,7 +5,7 @@ Plugins for [Paseo](https://paseo.sh). One folder per plugin, each self-containe
 | Plugin | ID | What it does |
 | --- | --- | --- |
 | [`skills/`](skills) | `skills` | Lists the agent skills available to a session, shows where each comes from, renders its `SKILL.md`, and invokes it. |
-| [`github-board/`](github-board) | `github-board` | A sidebar board of your open issues, draft PRs, open PRs, and discussions, in four columns. |
+| [`github-board/`](github-board) | `github-board` | A sidebar board of open issues, draft PRs, open PRs, and discussions — yours, plus whatever is open on the repos you own — in four columns. |
 
 ## Install
 

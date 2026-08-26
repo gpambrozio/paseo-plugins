@@ -210,102 +210,180 @@ async function resolveViewerLogin(): Promise<string> {
   return login;
 }
 
-interface GhSearchRow {
+interface GhSearchNode {
   id?: unknown;
   number?: unknown;
   title?: unknown;
   url?: unknown;
   updatedAt?: unknown;
-  commentsCount?: unknown;
-  isDraft?: unknown;
-  labels?: unknown;
+  author?: { login?: unknown };
+  comments?: { totalCount?: unknown };
+  labels?: { nodes?: unknown };
   repository?: { nameWithOwner?: unknown; isArchived?: unknown };
 }
 
-function toItem(row: GhSearchRow, detail: string | null): BoardItem {
-  const labels = Array.isArray(row.labels)
-    ? row.labels
+function toItem(node: GhSearchNode, detail: string | null): BoardItem {
+  const labelNodes = node.labels?.nodes;
+  const labels = Array.isArray(labelNodes)
+    ? labelNodes
         .map((label) => (label as { name?: unknown }).name)
         .filter((name): name is string => typeof name === "string")
     : [];
+  const comments = node.comments?.totalCount;
   return {
-    id: typeof row.id === "string" ? row.id : String(row.url),
-    number: typeof row.number === "number" ? row.number : 0,
-    title: typeof row.title === "string" ? row.title : "",
-    url: typeof row.url === "string" ? row.url : "",
-    repository: typeof row.repository?.nameWithOwner === "string" ? row.repository.nameWithOwner : "",
-    updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : "",
-    commentsCount: typeof row.commentsCount === "number" ? row.commentsCount : 0,
+    id: typeof node.id === "string" ? node.id : String(node.url),
+    number: typeof node.number === "number" ? node.number : 0,
+    title: typeof node.title === "string" ? node.title : "",
+    url: typeof node.url === "string" ? node.url : "",
+    repository:
+      typeof node.repository?.nameWithOwner === "string" ? node.repository.nameWithOwner : "",
+    updatedAt: typeof node.updatedAt === "string" ? node.updatedAt : "",
+    commentsCount: typeof comments === "number" ? comments : 0,
     labels,
+    // Null rather than empty for a deleted account, which GitHub returns as no
+    // author at all; the card shows nothing instead of an authorless byline.
+    author: typeof node.author?.login === "string" ? node.author.login : null,
     detail,
     // Only pull requests link issues; every other caller keeps the empty list.
     linkedIssues: [],
   };
 }
 
-const SEARCH_FIELDS = "id,number,title,repository,url,updatedAt,commentsCount,labels";
-
 /**
  * An archived repository is read-only, so its open issues and pull requests can
- * never be closed and sit on the board forever. Both the `gh search` flag and
- * the GraphQL query qualifier filter them out server-side; discussions have no
- * such qualifier and are filtered on the response.
+ * never be closed and sit on the board forever. The qualifier filters them out
+ * server-side; discussions have no such qualifier and are filtered on the
+ * response.
  */
-const UNARCHIVED_ONLY_FLAG = "--archived=false";
 const UNARCHIVED_ONLY = "archived:false";
 
-async function fetchIssues(login: string, limit: number): Promise<BoardItem[]> {
-  const raw = await gh([
-    "search",
-    "issues",
-    "--author",
-    login,
-    "--state",
-    "open",
-    UNARCHIVED_ONLY_FLAG,
-    "--sort",
-    "updated",
-    "--order",
-    "desc",
-    "--limit",
-    String(limit),
-    "--json",
-    SEARCH_FIELDS,
-  ]);
-  const rows: GhSearchRow[] = JSON.parse(raw);
-  return rows.map((row) => toItem(row, null));
+/**
+ * Every column is two searches: what this login authored, anywhere, and
+ * everything in the repositories this login owns, whoever opened it. The second
+ * is what puts other people's work on the board — an issue someone files on
+ * your own repository is yours to answer even though you did not write it.
+ *
+ * They cannot be one query. GitHub search ANDs its qualifiers, so
+ * `author:x user:x` is "authored by x, in x's repositories" — narrower than
+ * either half, not their union. Two aliased searches are still one request,
+ * which is what keeps a refresh at three subprocesses rather than six.
+ */
+function dualSearchQuery(type: "ISSUE" | "DISCUSSION", selection: string): string {
+  return `query($mine: String!, $owned: String!, $limit: Int!) {
+  mine: search(query: $mine, type: ${type}, first: $limit) { nodes { ${selection} } }
+  owned: search(query: $owned, type: ${type}, first: $limit) { nodes { ${selection} } }
+}`;
+}
+
+function nodesOf(result: unknown): unknown[] {
+  const nodes = (result as { nodes?: unknown } | undefined)?.nodes;
+  return Array.isArray(nodes) ? nodes : [];
 }
 
 /**
- * Pull requests go through GraphQL rather than `gh search prs`, which exposes no
- * linked-issue field. `closingIssuesReferences` is the only source that sees
- * both closing keywords in the body and issues attached by hand from the
- * Development panel, and the board needs it to fold an issue into the pull
- * request that closes it.
+ * Runs both halves in one request and returns their nodes back to back. They
+ * overlap wherever the login authored something on a repository it owns, which
+ * is what `mergeItems` deduplicates.
  */
-const PULL_REQUEST_QUERY = `query($q: String!, $limit: Int!) {
-  search(query: $q, type: ISSUE, first: $limit) {
-    nodes {
-      ... on PullRequest {
-        id
-        number
-        title
-        url
-        updatedAt
-        isDraft
-        comments { totalCount }
-        labels(first: 20) { nodes { name } }
-        repository { nameWithOwner isArchived }
-        closingIssuesReferences(first: 20) {
-          nodes { id number repository { nameWithOwner } }
-        }
-      }
-    }
+async function dualSearch(
+  query: string,
+  mine: string,
+  owned: string,
+  limit: number,
+): Promise<unknown[]> {
+  const raw = await gh([
+    "api",
+    "graphql",
+    "-f",
+    `query=${query}`,
+    "-f",
+    `mine=${mine}`,
+    "-f",
+    `owned=${owned}`,
+    "-F",
+    `limit=${limit}`,
+  ]);
+  const parsed: unknown = JSON.parse(raw);
+  const data = (parsed as { data?: Record<string, unknown> }).data;
+  return [...nodesOf(data?.mine), ...nodesOf(data?.owned)];
+}
+
+/**
+ * The two searches overlap on everything the login authored in its own
+ * repositories, so the union is deduplicated by node id. Each half is sorted
+ * only within itself, hence the re-sort; and each half was allowed `limit`
+ * rows, so the merged column is cut back to the one budget it was asked for.
+ */
+function mergeItems(items: readonly BoardItem[], limit: number): BoardItem[] {
+  const byId = new Map<string, BoardItem>();
+  for (const item of items) {
+    if (!byId.has(item.id)) byId.set(item.id, item);
+  }
+  return [...byId.values()]
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, limit);
+}
+
+const ISSUE_SELECTION = `... on Issue {
+  id
+  number
+  title
+  url
+  updatedAt
+  author { login }
+  comments { totalCount }
+  labels(first: 20) { nodes { name } }
+  repository { nameWithOwner isArchived }
+}`;
+
+/**
+ * `type: ISSUE` covers issues and pull requests both, so the search itself has
+ * to say `is:issue` — the inline fragment alone would leave every pull request
+ * in the response as an empty node.
+ */
+const ISSUE_QUERY = dualSearchQuery("ISSUE", ISSUE_SELECTION);
+
+async function fetchIssues(login: string, limit: number): Promise<BoardItem[]> {
+  const scope = `is:issue state:open ${UNARCHIVED_ONLY} sort:updated-desc`;
+  const nodes = await dualSearch(
+    ISSUE_QUERY,
+    `${scope} author:${login}`,
+    `${scope} user:${login}`,
+    limit,
+  );
+  const items = nodes
+    .filter((node): node is GhSearchNode => typeof node === "object" && node !== null)
+    .filter((node) => typeof node.id === "string")
+    .map((node) => toItem(node, null));
+  return mergeItems(items, limit);
+}
+
+/**
+ * Pull requests carry `closingIssuesReferences` — the link from a pull request
+ * to the issues it closes, and the only source that sees both closing keywords
+ * in the body and issues attached by hand from the Development panel. The board
+ * needs it to fold an issue into the pull request that closes it.
+ */
+const PULL_REQUEST_SELECTION = `... on PullRequest {
+  id
+  number
+  title
+  url
+  updatedAt
+  isDraft
+  author { login }
+  comments { totalCount }
+  labels(first: 20) { nodes { name } }
+  repository { nameWithOwner isArchived }
+  closingIssuesReferences(first: 20) {
+    nodes { id number repository { nameWithOwner } }
   }
 }`;
 
-interface GhPullRequestNode extends GhSearchRow {
-  comments?: { totalCount?: unknown };
+const PULL_REQUEST_QUERY = dualSearchQuery("ISSUE", PULL_REQUEST_SELECTION);
+
+interface GhPullRequestNode extends GhSearchNode {
+  isDraft?: unknown;
   closingIssuesReferences?: { nodes?: unknown };
 }
 
@@ -328,94 +406,78 @@ function toLinkedIssues(node: GhPullRequestNode): LinkedIssue[] {
 
 /**
  * One search backs two columns. Splitting client-side would ship draft pull
- * requests the open column discards, so the split happens here.
+ * requests the open column discards, so the split happens here — after the
+ * merge, so the `limit` is spent on the pull requests that exist rather than on
+ * one column's share of them.
  */
 async function fetchPullRequests(
   login: string,
   limit: number,
 ): Promise<{ draft: BoardItem[]; open: BoardItem[] }> {
-  const raw = await gh([
-    "api",
-    "graphql",
-    "-f",
-    `query=${PULL_REQUEST_QUERY}`,
-    "-f",
-    `q=author:${login} is:pr state:open ${UNARCHIVED_ONLY} sort:updated-desc`,
-    "-F",
-    `limit=${limit}`,
-  ]);
-  const parsed: unknown = JSON.parse(raw);
-  const nodes = (parsed as { data?: { search?: { nodes?: unknown } } }).data?.search?.nodes;
-  if (!Array.isArray(nodes)) return { draft: [], open: [] };
+  const scope = `is:pr state:open ${UNARCHIVED_ONLY} sort:updated-desc`;
+  const nodes = await dualSearch(
+    PULL_REQUEST_QUERY,
+    `${scope} author:${login}`,
+    `${scope} user:${login}`,
+    limit,
+  );
 
-  const draft: BoardItem[] = [];
-  const open: BoardItem[] = [];
+  const drafts = new Set<string>();
+  const items: BoardItem[] = [];
   for (const node of nodes) {
     if (typeof node !== "object" || node === null) continue;
     const row = node as GhPullRequestNode;
     // The search returns issues and pull requests under one type; a node that
     // matched neither inline fragment comes back as an empty object.
     if (typeof row.id !== "string") continue;
-    const labels = (row.labels as { nodes?: unknown } | undefined)?.nodes;
-    const item = toItem({ ...row, labels: Array.isArray(labels) ? labels : [] }, null);
-    const total = row.comments?.totalCount;
-    (row.isDraft === true ? draft : open).push({
-      ...item,
-      commentsCount: typeof total === "number" ? total : 0,
-      linkedIssues: toLinkedIssues(row),
-    });
+    if (row.isDraft === true) drafts.add(row.id);
+    items.push({ ...toItem(row, null), linkedIssues: toLinkedIssues(row) });
   }
-  return { draft, open };
+
+  const merged = mergeItems(items, limit);
+  return {
+    draft: merged.filter((item) => drafts.has(item.id)),
+    open: merged.filter((item) => !drafts.has(item.id)),
+  };
 }
 
-const DISCUSSION_QUERY = `query($q: String!, $limit: Int!) {
-  search(query: $q, type: DISCUSSION, first: $limit) {
-    nodes {
-      ... on Discussion {
-        id
-        number
-        title
-        url
-        updatedAt
-        category { name }
-        comments { totalCount }
-        repository { nameWithOwner isArchived }
-      }
-    }
-  }
+const DISCUSSION_SELECTION = `... on Discussion {
+  id
+  number
+  title
+  url
+  updatedAt
+  author { login }
+  category { name }
+  comments { totalCount }
+  repository { nameWithOwner isArchived }
 }`;
 
-interface GhDiscussionNode extends GhSearchRow {
+const DISCUSSION_QUERY = dualSearchQuery("DISCUSSION", DISCUSSION_SELECTION);
+
+interface GhDiscussionNode extends GhSearchNode {
   category?: { name?: unknown };
-  comments?: { totalCount?: unknown };
 }
 
 /**
- * GitHub's discussion search accepts `author:` but ignores `involves:` and
- * `commenter:`, so this column is authored discussions only.
+ * GitHub's discussion search accepts `author:` and `user:` but ignores
+ * `involves:` and `commenter:`, so this column is what the login wrote plus
+ * whatever is being discussed on its own repositories — never a thread it only
+ * replied to elsewhere.
  */
 async function fetchDiscussions(login: string, limit: number): Promise<BoardItem[]> {
-  const raw = await gh([
-    "api",
-    "graphql",
-    "-f",
-    `query=${DISCUSSION_QUERY}`,
-    "-f",
-    `q=author:${login} sort:updated-desc`,
-    "-F",
-    `limit=${limit}`,
-  ]);
-  const parsed: unknown = JSON.parse(raw);
-  const nodes = (parsed as { data?: { search?: { nodes?: unknown } } }).data?.search?.nodes;
-  if (!Array.isArray(nodes)) return [];
-  return nodes
+  const nodes = await dualSearch(
+    DISCUSSION_QUERY,
+    `author:${login} sort:updated-desc`,
+    `user:${login} sort:updated-desc`,
+    limit,
+  );
+  const items = nodes
     .filter((node): node is GhDiscussionNode => typeof node === "object" && node !== null)
+    .filter((node) => typeof node.id === "string")
     .filter((node) => node.repository?.isArchived !== true)
-    .map((node) => {
-      const item = toItem(node, typeof node.category?.name === "string" ? node.category.name : null);
-      const total = node.comments?.totalCount;
-      return { ...item, commentsCount: typeof total === "number" ? total : 0 };
-    });
+    .map((node) => toItem(node, typeof node.category?.name === "string" ? node.category.name : null));
+  return mergeItems(items, limit);
 }
 
 /**
