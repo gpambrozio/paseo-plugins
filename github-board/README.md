@@ -17,10 +17,11 @@ shows up here, and the card names its author when it is not you. GitHub search
 ANDs its qualifiers, so the two cannot be folded into one query; they are two
 aliased searches inside one `gh api graphql` request instead.
 
-Both pull request columns come from one search, so the board still makes three
-`gh` calls per refresh, not four or six. Everything goes through GraphQL rather
-than `gh search`, because only GraphQL exposes `closingIssuesReferences` — see
-below.
+Both pull request columns come from one search, so the four columns cost three
+`gh` calls per refresh, not four or six — plus one more for the check runs on
+the open pull requests, when there are any. Everything goes through GraphQL
+rather than `gh search`, because only GraphQL exposes `closingIssuesReferences`
+and `statusCheckRollup` — see below.
 
 ![The GitHub board: Issues, Draft PRs, Open PRs, and Discussions columns, with a
 login field and Refresh button in the header.](docs/screenshot.png)
@@ -40,6 +41,36 @@ lives in another repository.
 
 The fold happens after the repository filter, so hiding a pull request's
 repository puts its issue back on the board rather than taking both cards away.
+
+## Checks on open pull requests
+
+An open pull request card leads its footer with the state of CI on the head
+commit, the same three counts Paseo's own sidebar shows on a workspace:
+
+| Pill | Means |
+| --- | --- |
+| `✓ 12` | checks that passed |
+| `✕ 1` | checks that failed, timed out, or need action — in the theme's danger colour |
+| `● 3` | checks still queued or running, in the accent colour |
+
+An outcome nobody has is left out, so a green pull request shows one pill rather
+than two zeroes, and a pull request whose head commit nothing reported on shows
+none at all. Skipped and cancelled checks are counted nowhere: they are neither
+a result nor something to wait for. Where a check has been re-run, only the
+latest attempt counts.
+
+**Draft pull requests show no checks.** A draft says the work is not finished,
+so its CI is not yet anyone's business — and asking for fewer pull requests
+keeps the extra request small.
+
+The checks are a **separate `gh` call** from the search on purpose. A token
+without permission to read checks — a fine-grained PAT, usually — makes GitHub
+fail the whole GraphQL request, and folding the rollup into the search would
+turn that into two blank pull request columns. On its own, it costs only the
+pills, and the reason lands in `paseo plugin logs github-board`.
+
+Checks are cached with the rest of the board for five minutes; **Refresh** is
+what re-reads a run that has finished since.
 
 ## Configuring the prompts
 
@@ -123,7 +154,7 @@ in memory and both five minutes:
   which unmounts it — repaints instantly. Past the window the stale board stays
   on screen while a refresh runs underneath it.
 - The handler keeps the last board per login, so even a cold mount usually skips
-  the three `gh` calls. A board with a failed column is not cached, so the retry
+  the `gh` calls. A board with a failed column is not cached, so the retry
   is not held off for five minutes.
 
 **Refresh** bypasses both. The repository filter is read from settings on every

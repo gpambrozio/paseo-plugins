@@ -53,10 +53,11 @@ rather than denied for the rest of the cache window.
 Shells out to `gh` via `execFile` on the **daemon machine**, not the device running the app, so `gh`
 must be installed and authenticated there.
 
-Three calls per refresh, not four: both PR columns split one search result by `isDraft`. Every
-search is `gh api graphql` rather than `gh search`, because `closingIssuesReferences` — the link
-from a pull request to the issues it closes — has no `gh search` field, and because two searches
-can share one request as aliases (below).
+Three search calls per refresh, not four: both PR columns split one search result by `isDraft`.
+Every search is `gh api graphql` rather than `gh search`, because `closingIssuesReferences` — the
+link from a pull request to the issues it closes — has no `gh search` field, and because two
+searches can share one request as aliases (below). A fourth call fetches the check runs on the open
+pull requests, and only when there are any; it is separate for a reason, below.
 
 **Each column is two searches, `author:<login>` and `user:<login>`.** The second is what puts other
 people's work on the board: an issue filed on a repository you own is yours to answer whether or not
@@ -83,6 +84,45 @@ An issue claimed by an open pull request is dropped from the Issues column and r
 `Issue #123` pill on the pull request card. The claiming happens in the client's `columns` memo,
 *after* the repository filter, so a pull request the filter hides stops claiming its issue instead
 of taking the issue's card off the board with it. Drafts claim too.
+
+## Checks on open pull requests
+
+`BoardItem.checks` is three counts — `passed`, `failed`, `pending` — or null, which is the same
+fold Paseo's `getChecksSummaryCounts` does in `workspace-hover-card.tsx`, so the board and the
+sidebar cannot disagree about a pull request they both show. Skipped and cancelled runs are counted
+nowhere: neither a result nor a wait.
+
+**It is its own `gh api graphql` request, not a field on the pull request search.** A token without
+the Checks permission answers `statusCheckRollup` with "Resource not accessible", `gh` treats any
+GraphQL error as a failed command, and the rollup lives under the search's own selection — so
+asking there would blank Draft PRs *and* Open PRs for those users. `attachChecks` swallows its
+failure to `console.warn` instead, which costs pills nobody with that token could have seen anyway.
+That is also why it does not go through `settle`: the column already loaded.
+
+The query is `nodes(ids: [...])` over the open pull requests only. GitHub caps `nodes` at 100 ids
+and the caller cannot exceed it — `mergeItems` already cut to `limit`, whose own ceiling is 100.
+`gh` spells a list variable as a repeated `-f 'ids[]=…'` field. Drafts are skipped deliberately, not
+incidentally: a draft's CI is not yet anyone's business, and fewer ids is a smaller request.
+
+`commits(last: 1)` is the head commit — the only one whose checks describe the pull request as it
+stands — and the rollup mixes `CheckRun` (a `status` plus a `conclusion`) with `StatusContext` (a
+`state`), so both inline fragments are needed or half a repository's CI reads as nothing.
+
+`foldChecks` deduplicates by check name, keeping the highest `recency`, because a re-run leaves the
+attempt it replaced in the rollup and counting both reports one check as a failure *and* a pass.
+Recency prefers `checkSuite.workflowRun.databaseId`, which orders two attempts before either has a
+timestamp, and falls back to `completedAt ?? startedAt`.
+
+`checkRunOutcome` mirrors Paseo's `mapCheckRunStatus` with one deliberate difference:
+`STARTUP_FAILURE` counts as failed and `STALE` as ignored, where Paseo's `default` makes both
+pending. Both are terminal, and a run reported as still going that will never report again is worse
+than a disagreement with the sidebar.
+
+The three counts render as one grouped pill leading the card footer. **Leading, because the footer
+wraps** — anything appended lands on a second line — and because the Send button covers the
+bottom-right corner. The plugin theme has exactly one status colour, so failure takes `statusDanger`,
+still-running takes `accent`, and passed takes `foregroundMuted`; the `✓ ✕ ●` glyphs are what
+actually carries the meaning, which is also what makes the summary readable without colour vision.
 
 ## Send to chat
 
@@ -300,7 +340,7 @@ read and upgraded in place rather than rejected.
 A plugin surface unmounts whenever the user switches workspaces, so anything that should outlive
 that (the repository filter, the launch defaults) belongs in settings, not component state. The same unmount is why both
 halves cache the board for five minutes — module scope in `board.client.tsx` for an instant repaint,
-and a keyed value in `board.server.ts` so a cold mount still skips the three `gh` calls. `force` on
+and a keyed value in `board.server.ts` so a cold mount still skips the `gh` calls. `force` on
 `board.load` is the Refresh button bypassing both. Keep `hiddenRepositories` out of the server's
 cached value: settings are read per load, or a filter saved after that board was built comes back
 stale on the next hit.

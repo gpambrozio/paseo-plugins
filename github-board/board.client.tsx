@@ -13,6 +13,7 @@ import type {
   Board,
   BoardColumn,
   BoardItem,
+  CheckSummary,
   ColumnId,
   Isolation,
   LaunchDefaults,
@@ -681,6 +682,32 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         borderColor: withAlpha(colors.accent, "66"),
         backgroundColor: withAlpha(colors.accent, "1a"),
       },
+      /**
+       * One pill per outcome, grouped so they read as a single summary the way
+       * Paseo's own checks row does. It leads the footer rather than trailing
+       * it: the footer wraps, so anything appended lands on a second line, and
+       * the Send button covers the bottom-right corner where it would sit.
+       */
+      checksGroup: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: separator,
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+      },
+      /**
+       * Danger is the only status colour the plugin theme offers, so failure
+       * takes it and the other two are spelled in what is left: accent for work
+       * still running, muted for the checks that are simply done. Glyphs carry
+       * the meaning where colour cannot, which is also what makes the summary
+       * readable to anyone who does not separate red from grey.
+       */
+      checksFailed: { color: colors.statusDanger, fontSize: 10, fontWeight: "600" as const },
+      checksPending: { color: colors.accent, fontSize: 10, fontWeight: "600" as const },
+      checksPassed: { color: colors.foregroundMuted, fontSize: 10, fontWeight: "600" as const },
       empty: { color: colors.foregroundMuted, fontSize: 12, padding: 12 },
     };
   }, [theme, layout.compact]);
@@ -778,6 +805,38 @@ function linkedIssueLabel(issue: LinkedIssue, repository: string): string {
     : `Issue ${issue.repository}#${issue.number}`;
 }
 
+/**
+ * The three counts in words, for the card's accessibility label and nothing
+ * else — the pills themselves are glyph and number, which a screen reader would
+ * otherwise read out as punctuation.
+ */
+function checksSentence(checks: CheckSummary): string {
+  const parts: string[] = [];
+  if (checks.passed > 0) parts.push(`${checks.passed} passed`);
+  if (checks.failed > 0) parts.push(`${checks.failed} failed`);
+  if (checks.pending > 0) parts.push(`${checks.pending} running`);
+  return parts.join(", ");
+}
+
+/**
+ * A pull request's checks, as Paseo's sidebar hover card spells them: a count
+ * per outcome rather than one verdict, because "12 passed, 1 failed" is the
+ * fact a reader acts on and "failed" alone is not.
+ *
+ * An outcome nobody has is left out entirely — a green pull request shows one
+ * pill, not two zeroes — and a pull request with no checks at all arrives with
+ * `checks` null and shows nothing.
+ */
+function ChecksPills({ checks, styles }: { checks: CheckSummary; styles: Styles }) {
+  return (
+    <View style={styles.checksGroup}>
+      {checks.passed > 0 ? <Text style={styles.checksPassed}>✓ {checks.passed}</Text> : null}
+      {checks.failed > 0 ? <Text style={styles.checksFailed}>✕ {checks.failed}</Text> : null}
+      {checks.pending > 0 ? <Text style={styles.checksPending}>● {checks.pending}</Text> : null}
+    </View>
+  );
+}
+
 function Card({
   item,
   viewerLogin,
@@ -837,7 +896,9 @@ function Card({
       accessibilityRole="link"
       accessibilityLabel={`${item.repository} #${item.number}: ${item.title}${
         byline === null ? "" : `, opened by ${byline}`
-      }${closes === "" ? "" : `, closes ${closes}`}`}
+      }${closes === "" ? "" : `, closes ${closes}`}${
+        item.checks === null ? "" : `, checks ${checksSentence(item.checks)}`
+      }`}
       onPress={open}
       onHoverIn={() => setCardHovered(true)}
       onHoverOut={() => setCardHovered(false)}
@@ -850,6 +911,7 @@ function Card({
         {item.title}
       </Text>
       <View style={styles.cardFooter}>
+        {item.checks !== null ? <ChecksPills checks={item.checks} styles={styles} /> : null}
         {byline !== null ? <Text style={styles.cardAuthor}>by {byline}</Text> : null}
         <Text style={styles.subtle}>{relativeTime(item.updatedAt)}</Text>
         {item.commentsCount > 0 ? (
@@ -2006,7 +2068,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   );
 
   useEffect(() => {
-    // A cached board renders straight away. Fetching again is only worth three
+    // A cached board renders straight away. Fetching again is only worth the
     // `gh` calls once it has aged out, and that refresh runs underneath the
     // board already on screen rather than behind a spinner.
     if (cachedBoard !== null && Date.now() - cachedFetchedAt < STALE_AFTER_MS) return;

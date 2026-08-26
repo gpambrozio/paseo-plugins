@@ -21,6 +21,19 @@ export const LinkedIssueSchema = z.object({
   repository: z.string(),
 });
 
+/**
+ * A pull request's checks, folded to the three counts a card shows: passed,
+ * failed, and still running. Skipped and cancelled checks are counted nowhere —
+ * they are neither a result nor a wait — which is the same fold Paseo's own
+ * workspace hover card does, so the board and the sidebar agree about a pull
+ * request they both show.
+ */
+export const CheckSummarySchema = z.object({
+  passed: z.number().int().min(0),
+  failed: z.number().int().min(0),
+  pending: z.number().int().min(0),
+});
+
 export const BoardItemSchema = z.object({
   id: z.string(),
   number: z.number().int(),
@@ -46,6 +59,12 @@ export const BoardItemSchema = z.object({
    * column, so one piece of work occupies one card.
    */
   linkedIssues: z.array(LinkedIssueSchema),
+  /**
+   * Open pull requests only. Null wherever the board shows no pills at all: an
+   * item that is not a pull request, a draft — whose CI is not yet anyone's
+   * business — or a head commit nothing has ever reported a check on.
+   */
+  checks: CheckSummarySchema.nullable(),
 });
 
 /**
@@ -129,6 +148,7 @@ export type ProjectRef = z.output<typeof ProjectRefSchema>;
 export type PromptSet = z.output<typeof PromptSetSchema>;
 export type PromptSettings = z.output<typeof PromptSettingsSchema>;
 export type LinkedIssue = z.output<typeof LinkedIssueSchema>;
+export type CheckSummary = z.output<typeof CheckSummarySchema>;
 export type BoardItem = z.output<typeof BoardItemSchema>;
 export type BoardColumn = z.output<typeof BoardColumnSchema>;
 export type Board = z.output<typeof BoardSchema>;
