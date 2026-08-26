@@ -2403,8 +2403,16 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    */
   const filterHydrated = useRef(cachedHidden !== null);
 
+  /**
+   * Async **function expressions**, never async arrows, anywhere in the client
+   * bundle: the app `eval`s this bundle, and Hermes's eval compiler on iOS and
+   * Android evaluates an async arrow to `undefined` instead of a function —
+   * silently, no SyntaxError. The mount effect then calls `refresh()` and the
+   * surface dies with "Plugin failed: undefined is not a function". Desktop
+   * runs the web export on V8 and never sees it.
+   */
   const refresh = useCallback(
-    async (login?: string, force = false) => {
+    async function refresh(login?: string, force = false) {
       setBusy(true);
       setError(null);
       try {
@@ -2609,7 +2617,8 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   );
 
   const applyLogin = useCallback(
-    async (next: string) => {
+    // Async function expression, not an async arrow — see `refresh`.
+    async function applyLogin(next: string) {
       const trimmed = next.trim();
       if (trimmed === "" || trimmed === board?.login) return;
       try {
@@ -2623,7 +2632,8 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   );
 
   const applyPrompts = useCallback(
-    async (next: PromptSettings) => {
+    // Async function expression, not an async arrow — see `refresh`.
+    async function applyPrompts(next: PromptSettings) {
       try {
         const saved = await persistPrompts(next);
         cachedPrompts = saved;

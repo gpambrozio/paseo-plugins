@@ -84,6 +84,14 @@ called from the client with `useRpc(contract)` and answered by `plugin.handle`. 
 
 ### Constraints nothing catches at compile time
 
+- **No async arrows in client-bundle code** (`*.client.tsx`, `*.shared.ts`, unsuffixed files). The
+  app `eval`s the client bundle, and on iOS/Android Hermes's eval compiler evaluates an async
+  **arrow** to `undefined` instead of a function — no compile error, no load error; the surface
+  renders until something calls the value and dies with "Plugin failed: undefined is not a
+  function". Async `function` expressions work. For the same reason, a closure created inside a
+  `for (let|const … of …)` body captures the loop binding's **final** value — reach for `.map` when
+  a callback must capture the element. Desktop runs the web export on V8 and shows neither, so a
+  working desktop surface proves nothing about mobile.
 - **RPC wire names must match `/^[a-z][a-z0-9._-]*$/`.** camelCase names load-fail with "Invalid
   plugin RPC method" and the plugin never starts. Use Paseo's dotted namespacing: `board.load`,
   `skills.list`. The exported identifier is unrelated to the wire name.
