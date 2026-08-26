@@ -1,20 +1,24 @@
 import type { PluginContext } from "@getpaseo/plugin";
 import { GitHubBoard } from "./board.client";
 import {
+  listLabelsHandler,
   loadBoardHandler,
   saveLoginHandler,
   savePromptsHandler,
   saveRepositoryFilterHandler,
   sendOptionsHandler,
   sendToChatHandler,
+  toggleLabelHandler,
 } from "./board.server";
 import {
+  listLabels,
   loadBoard,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
   sendOptions,
   sendToChat,
+  toggleLabel,
 } from "./board.shared";
 
 export default function contribute(plugin: PluginContext) {
@@ -24,6 +28,8 @@ export default function contribute(plugin: PluginContext) {
   plugin.handle(savePrompts, savePromptsHandler);
   plugin.handle(sendOptions, sendOptionsHandler);
   plugin.handle(sendToChat, sendToChatHandler);
+  plugin.handle(listLabels, listLabelsHandler);
+  plugin.handle(toggleLabel, toggleLabelHandler);
 
   plugin.addSurface("board", GitHubBoard);
   plugin.addSidebarItem({

@@ -112,6 +112,21 @@ ones, so a repository the filter has never seen — a new one, or one whose firs
 card only appears on a later refresh — arrives selected rather than silently
 filtered out.
 
+## Labels
+
+**Right-click** an issue or pull request card — **long-press** on a phone or tablet — and its
+repository's labels open where you clicked. Press a label to add it, press it again to remove it.
+Each press is applied to GitHub straight away and the card's pills update with whatever GitHub
+reports back, so a label a teammate added in the meantime shows up rather than being wiped by your
+edit.
+
+Discussions have no label menu. Cards show three labels and then a `+2`, so an edit past the third
+is still visible as a change.
+
+Editing labels needs a `gh` login with write access to the repository; without it the menu says so
+and leaves the label alone. The menu lists the repository's first 100 labels by name, with a filter
+box once there are more than eight.
+
 ## Send to chat
 
 Hover a card and a **Send to chat** button appears in its bottom-right corner.
@@ -227,6 +242,8 @@ header tells you nothing about which account you are looking at.
   budget's worth of the most recently updated. An issue whose pull request falls
   past that cap keeps its own card, since nothing on the board claims it.
 - A column that fails renders its own error; the other three still load.
+- **The label menu offers existing labels only**, the first 100 by name. Creating a
+  label, or renaming one, still happens on GitHub.
 - **Only a provider that names its models can be picked.** Paseo creates agents
   as `provider/model`, so a provider that offers no selectable model is left out
   of the agent list rather than shown and then refused.

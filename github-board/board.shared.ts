@@ -68,6 +68,18 @@ export const BoardItemSchema = z.object({
 });
 
 /**
+ * A label as its repository defines it. `color` is six hex digits with no `#`,
+ * exactly as GitHub stores it — it is data belonging to the label, not one of
+ * the plugin theme's tokens, which is why the menu is allowed to paint with it.
+ */
+export const RepositoryLabelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  color: z.string(),
+  description: z.string().nullable(),
+});
+
+/**
  * The first message a card is sent with, one template per column — the four
  * columns are the four kinds of work the board shows, so the column id doubles
  * as the template key. It is what the launch dialog opens on; the user is free
@@ -148,6 +160,7 @@ export type ProjectRef = z.output<typeof ProjectRefSchema>;
 export type PromptSet = z.output<typeof PromptSetSchema>;
 export type PromptSettings = z.output<typeof PromptSettingsSchema>;
 export type LinkedIssue = z.output<typeof LinkedIssueSchema>;
+export type RepositoryLabel = z.output<typeof RepositoryLabelSchema>;
 export type CheckSummary = z.output<typeof CheckSummarySchema>;
 export type BoardItem = z.output<typeof BoardItemSchema>;
 export type BoardColumn = z.output<typeof BoardColumnSchema>;
@@ -296,4 +309,37 @@ export const savePrompts = defineRpc({
   name: "board.save-prompts",
   input: PromptSettingsSchema,
   output: PromptSettingsSchema,
+});
+
+/**
+ * Every label the repository defines, for the menu a card opens on right-click.
+ * Which of them the card already carries is `BoardItem.labels`, so this is the
+ * catalogue and the item is the selection.
+ */
+export const listLabels = defineRpc({
+  name: "board.labels",
+  input: z.object({ repository: z.string().min(1) }),
+  output: z.object({ labels: z.array(RepositoryLabelSchema) }),
+});
+
+/**
+ * Adds or removes one label, and answers with the item's labels as GitHub
+ * reports them *after* the change rather than with what the caller assumed.
+ * Someone else editing the same issue therefore corrects the card instead of
+ * being silently overwritten by it.
+ *
+ * One label per call, because the menu applies each toggle as it is pressed:
+ * a menu that batched until it closed would leave the user unsure whether
+ * anything had happened, and a dropped press impossible to notice.
+ */
+export const toggleLabel = defineRpc({
+  name: "board.toggle-label",
+  input: z.object({
+    /** The issue or pull request node id — GitHub calls the type `Labelable`. */
+    itemId: z.string().min(1),
+    labelId: z.string().min(1),
+    /** True adds the label, false removes it. */
+    add: z.boolean(),
+  }),
+  output: z.object({ labels: z.array(z.string()) }),
 });

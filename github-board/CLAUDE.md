@@ -12,7 +12,7 @@ compile time. This file covers only what is specific to `github-board`.
 
 | File               | What it owns                                                                |
 | ------------------ | --------------------------------------------------------------------------- |
-| `index.ts`         | Wiring only — binds the six RPC contracts and registers the sidebar surface. |
+| `index.ts`         | Wiring only — binds the eight RPC contracts and registers the sidebar surface. |
 | `board.shared.ts`  | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `board.server.ts`  | Every `gh` subprocess, the settings file, and the server-side board cache.  |
 | `board.client.tsx` | The surface: columns, cards, the repository filter, and the client cache.   |
@@ -123,6 +123,58 @@ wraps** — anything appended lands on a second line — and because the Send bu
 bottom-right corner. The plugin theme has exactly one status colour, so failure takes `statusDanger`,
 still-running takes `accent`, and passed takes `foregroundMuted`; the `✓ ✕ ●` glyphs are what
 actually carries the meaning, which is also what makes the summary readable without colour vision.
+
+## Editing labels from a card
+
+Right-click an issue or pull request card — long-press on a touch platform — and its repository's
+labels open as a menu at the pointer, each row a toggle. Discussions are excluded: GitHub would
+label them fine, but they are not work whose labels a reader acts on.
+
+**Each press is one `board.toggle-label` call, applied immediately.** Both GraphQL mutations
+(`addLabelsToLabelable`, `removeLabelsFromLabelable`) answer with the labelable they changed, so the
+item's new label set comes back in the same round trip that set it — no read-after-write, and a
+label someone else added meanwhile lands on the card instead of being overwritten by what the client
+assumed. `Labelable` is an interface, so the selection needs an inline fragment per concrete type.
+
+The row waits for that answer rather than moving optimistically, and is dimmed while it does. A
+failure — no write access, most likely — is shown *inside* the menu, which stays open, because the
+error belongs to the label the user just pressed and not to the board.
+
+`board.labels` lists the first 100 labels by name and caches them for five minutes on both sides.
+Label sets change far more slowly than the work they are put on, and the menu is reopened card after
+card on the same few repositories. Paging past 100 would mean a cursor loop for a menu nobody could
+read; a repository with more edits them on GitHub.
+
+`toggleLabelHandler` also patches the **server's cached board**, and the client patches its own
+module-scope copy. Both are load-bearing: the board is remembered for five minutes and the surface
+remounts on every workspace switch, so an unpatched cache would repaint the labels the edit
+replaced.
+
+### Opening at the pointer
+
+`onContextMenu` is web-only and absent from the React Native types, so it goes on the `Pressable`
+behind a `@ts-expect-error`, exactly as Paseo's own `ContextMenuTrigger` does it — `preventDefault`
+first, or the browser's menu opens on top. **Long press is native-only**: on web a long press is a
+held left click, which right-click already covers, and wiring both opens the menu twice on one
+gesture. That is why `Card` takes `platform` rather than the old `hoverToReveal` boolean — one prop
+answers both "does anything hover here" and "is a long press a duplicate".
+
+The gesture reports a point in window coordinates; the menu is positioned inside the surface. The
+surface measures itself with `measureInWindow` **in the callback, per open** — a scrolled column or
+a resized window makes a remembered origin wrong — and clamps: the menu opens right and down from
+the pointer unless that leaves the surface, and when it opens upward it hangs from `bottom`, so its
+foot sits at the pointer whatever height it ends up with. `LABEL_MENU_WIDTH` and
+`LABEL_MENU_MAX_HEIGHT` exist because that decision is made before the menu has ever laid out.
+
+On Android the gesture's `pageY` excludes the status bar and the measured window includes it, so
+`StatusBar.currentHeight` is added back. Paseo corrects the same offset the same way.
+
+The menu's scrim is transparent, unlike the modal backdrop: a context menu dismisses on the next
+press without dimming the thing it is a menu about. It also carries an explicit **Close** row,
+because a plugin surface receives no key events — there is no Escape to fall back on.
+
+Cards now show `+N` when they hold more labels than the three that fit. Silent truncation was fine
+when labels were read-only; now it would read as an edit that did nothing.
 
 ## Send to chat
 

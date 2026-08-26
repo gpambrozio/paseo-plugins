@@ -3,8 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   Text,
   TextInput,
   View,
@@ -21,14 +23,17 @@ import type {
   ProjectRef,
   PromptSet,
   PromptSettings,
+  RepositoryLabel,
 } from "./board.shared";
 import {
+  listLabels,
   loadBoard,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
   sendOptions,
   sendToChat,
+  toggleLabel,
 } from "./board.shared";
 
 /**
@@ -195,6 +200,14 @@ let cachedBoard: Board | null = null;
 let cachedFetchedAt = 0;
 let cachedHidden: ReadonlySet<string> | null = null;
 let cachedPrompts: PromptSettings | null = null;
+/**
+ * Each repository's label catalogue, by `owner/name`. A label set changes far
+ * more slowly than the work it is put on, and the menu is reopened card after
+ * card on the same handful of repositories, so the second open should not wait
+ * on a round trip. Held at module scope for the same reason the board is: the
+ * surface unmounts on every workspace switch.
+ */
+const cachedRepositoryLabels = new Map<string, { labels: RepositoryLabel[]; storedAt: number }>();
 
 /**
  * Stands in until the first board lands. Blank templates are what the server
@@ -209,6 +222,16 @@ const EMPTY_PROMPTS: PromptSettings = {
 const NO_PROJECTS: readonly ProjectRef[] = [];
 
 const STALE_AFTER_MS = 5 * 60_000;
+
+/**
+ * The label menu's footprint, needed *before* it renders: opening at the
+ * pointer means deciding on which side of the pointer it fits, and the answer
+ * cannot wait for a layout pass the user would see happen.
+ */
+const LABEL_MENU_WIDTH = 260;
+const LABEL_MENU_MAX_HEIGHT = 300;
+/** Kept off the surface's own edges, whichever way the menu opens. */
+const MENU_MARGIN = 8;
 
 /**
  * The theme exposes six opaque tokens and no border or hover colour, so
@@ -708,6 +731,84 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       checksFailed: { color: colors.statusDanger, fontSize: 10, fontWeight: "600" as const },
       checksPending: { color: colors.accent, fontSize: 10, fontWeight: "600" as const },
       checksPassed: { color: colors.foregroundMuted, fontSize: 10, fontWeight: "600" as const },
+      /**
+       * The context menu's own layer. It clears the repository filter's
+       * backdrop (20) and the header (30) but stays under the launch dialog
+       * (40), which is modal and must never have a menu floating over it.
+       */
+      menuLayer: {
+        position: "absolute" as const,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 35,
+      },
+      /**
+       * Transparent, unlike the modal backdrop: a context menu dismisses on the
+       * next press without dimming what it is a menu *about*.
+       */
+      menuScrim: {
+        position: "absolute" as const,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+      },
+      /** Positioned at the pointer; `left` plus `top` or `bottom` come inline. */
+      labelMenu: {
+        position: "absolute" as const,
+        width: LABEL_MENU_WIDTH,
+        maxHeight: LABEL_MENU_MAX_HEIGHT,
+        backgroundColor: colors.surface0,
+        borderWidth: 1,
+        borderColor: separator,
+        borderRadius: 10,
+        overflow: "hidden" as const,
+      },
+      labelMenuTitle: {
+        color: colors.foregroundMuted,
+        fontSize: 11,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: separator,
+      },
+      /**
+       * A label's own colour, straight from GitHub. It is the label's identity
+       * rather than a theme decision — the same dot the forge draws — which is
+       * why this is the one place the surface paints with a colour the theme
+       * did not give it. The name next to it carries the meaning on its own.
+       */
+      labelDot: { width: 10, height: 10, borderRadius: 5 },
+      labelName: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13 },
+      /** Dimmed while its toggle is in flight, so a second press reads as ignored. */
+      labelRowPending: { opacity: 0.5 },
+      labelMenuError: {
+        color: colors.statusDanger,
+        fontSize: 11,
+        lineHeight: 15,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderTopWidth: 1,
+        borderTopColor: separator,
+      },
+      /** Holds the spinner while the repository's label catalogue loads. */
+      centeredRow: { padding: 16, alignItems: "center" as const },
+      /**
+       * An explicit dismissal, because a plugin surface gets no key events —
+       * there is no Escape to fall back on, and on a touch platform "press
+       * outside the menu" is a guess rather than an affordance.
+       */
+      menuCloseRow: {
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        alignItems: "flex-end" as const,
+        borderTopWidth: 1,
+        borderTopColor: separator,
+      },
+      /** The count of labels the card had no room for; see `Card`. */
+      labelMore: { color: colors.foregroundMuted, fontSize: 10, paddingHorizontal: 2 },
       empty: { color: colors.foregroundMuted, fontSize: 12, padding: 12 },
     };
   }, [theme, layout.compact]);
@@ -837,24 +938,231 @@ function ChecksPills({ checks, styles }: { checks: CheckSummary; styles: Styles 
   );
 }
 
+/**
+ * Where a right-click or a long-press landed, in the coordinate space
+ * `measureInWindow` reports — which is what the surface converts against.
+ *
+ * A React Native gesture carries `pageX` on its `nativeEvent`; a DOM
+ * `MouseEvent` is read as `clientX`, deliberately in preference to its own
+ * `pageX`, because `pageX` counts document scroll and the surface's measured
+ * origin does not.
+ */
+function pointerPoint(event: unknown): { x: number; y: number } | null {
+  if (typeof event !== "object" || event === null) return null;
+
+  const nativeEvent = Reflect.get(event, "nativeEvent");
+  if (typeof nativeEvent === "object" && nativeEvent !== null) {
+    const pageX = Reflect.get(nativeEvent, "pageX");
+    const pageY = Reflect.get(nativeEvent, "pageY");
+    if (typeof pageX === "number" && typeof pageY === "number") return { x: pageX, y: pageY };
+  }
+
+  const clientX = Reflect.get(event, "clientX");
+  const clientY = Reflect.get(event, "clientY");
+  if (typeof clientX === "number" && typeof clientY === "number") return { x: clientX, y: clientY };
+  return null;
+}
+
+/** Where the menu was opened, in coordinates local to the surface. */
+interface LabelMenuTarget {
+  item: BoardItem;
+  left: number;
+  /** Exactly one of these is set: the menu hangs from whichever fits. */
+  top: number | null;
+  bottom: number | null;
+}
+
+/**
+ * The labels of one issue or pull request, opened where the user clicked.
+ *
+ * Each press is applied on its own, immediately, and the row waits on GitHub
+ * rather than assuming: the answer to a toggle *is* the item's new label set,
+ * so a label someone else added in the meantime lands on the card instead of
+ * being quietly dropped.
+ */
+function LabelMenu({
+  target,
+  styles,
+  accentColor,
+  onClose,
+  onChanged,
+}: {
+  target: LabelMenuTarget;
+  styles: Styles;
+  accentColor: string;
+  onClose: () => void;
+  /** Reports the item's labels as GitHub now has them, for the card behind. */
+  onChanged: (itemId: string, labels: string[]) => void;
+}) {
+  const { item } = target;
+  const list = useRpc(listLabels);
+  const apply = useRpc(toggleLabel);
+
+  const cached = cachedRepositoryLabels.get(item.repository);
+  const fresh = cached !== undefined && Date.now() - cached.storedAt < STALE_AFTER_MS;
+  const [labels, setLabels] = useState<RepositoryLabel[] | null>(fresh ? cached.labels : null);
+  const [applied, setApplied] = useState<ReadonlySet<string>>(() => new Set(item.labels));
+  /** Label ids with a toggle in flight; a row will not fire twice. */
+  const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (fresh) return;
+    let live = true;
+    list({ repository: item.repository })
+      .then((result) => {
+        cachedRepositoryLabels.set(item.repository, {
+          labels: result.labels,
+          storedAt: Date.now(),
+        });
+        if (live) setLabels(result.labels);
+      })
+      .catch((cause: unknown) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      live = false;
+    };
+  }, [fresh, item.repository, list]);
+
+  const press = useCallback(
+    (label: RepositoryLabel) => {
+      if (pending.has(label.id)) return;
+      const add = !applied.has(label.name);
+      setPending((current) => new Set(current).add(label.id));
+      setError(null);
+      apply({ itemId: item.id, labelId: label.id, add })
+        .then((result) => {
+          setApplied(new Set(result.labels));
+          onChanged(item.id, result.labels);
+        })
+        .catch((cause: unknown) => {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        })
+        .finally(() => {
+          setPending((current) => {
+            const next = new Set(current);
+            next.delete(label.id);
+            return next;
+          });
+        });
+    },
+    [applied, apply, item.id, onChanged, pending],
+  );
+
+  const shown = useMemo(() => {
+    if (labels === null) return [];
+    const needle = query.trim().toLowerCase();
+    if (needle === "") return labels;
+    return labels.filter((label) => label.name.toLowerCase().includes(needle));
+  }, [labels, query]);
+
+  /**
+   * A filter only once the list is long enough to need one: on a repository
+   * with six labels it would be one more thing between the pointer and the
+   * label it came for.
+   */
+  const searchable = labels !== null && labels.length > 8;
+
+  return (
+    <View
+      accessibilityViewIsModal
+      style={[
+        styles.labelMenu,
+        { left: target.left },
+        target.top !== null ? { top: target.top } : { bottom: target.bottom ?? MENU_MARGIN },
+      ]}
+    >
+      <Text style={styles.labelMenuTitle} numberOfLines={1}>
+        Labels · {item.repository} #{item.number}
+      </Text>
+      {searchable ? (
+        <TextInput
+          style={styles.popoverSearch}
+          placeholder="Filter labels…"
+          placeholderTextColor={styles.popoverEmpty.color}
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      ) : null}
+      {labels === null ? (
+        <View style={styles.centeredRow}>
+          <ActivityIndicator color={accentColor} />
+        </View>
+      ) : shown.length === 0 ? (
+        <Text style={styles.popoverEmpty}>
+          {labels.length === 0 ? "This repository defines no labels." : "No label matches."}
+        </Text>
+      ) : (
+        <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
+          {shown.map((label) => {
+            const on = applied.has(label.name);
+            return (
+              <Pressable
+                key={label.id}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: on }}
+                accessibilityLabel={`${label.name}${on ? ", applied" : ""}`}
+                onPress={() => press(label)}
+                style={({ pressed }) => [
+                  styles.popoverRow,
+                  pending.has(label.id) ? styles.labelRowPending : null,
+                  pressed ? styles.popoverRowPressed : null,
+                ]}
+              >
+                <View style={[styles.labelDot, { backgroundColor: `#${label.color}` }]} />
+                <Text style={styles.labelName} numberOfLines={1}>
+                  {label.name}
+                </Text>
+                {on ? <Text style={styles.popoverTick}>✓</Text> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+      {error !== null ? <Text style={styles.labelMenuError}>{error}</Text> : null}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Close labels menu"
+        onPress={onClose}
+        style={styles.menuCloseRow}
+      >
+        <Text style={styles.popoverTrailing}>Close</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function Card({
   item,
   viewerLogin,
   styles,
-  hoverToReveal,
+  platform,
   onSend,
+  onLabels,
   type,
 }: {
   item: BoardItem;
   /** The login the board was queried for, so a card of someone else's reads as one. */
   viewerLogin: string;
   styles: Styles;
-  /** False on touch platforms, where nothing ever hovers and the action would hide forever. */
-  hoverToReveal: boolean;
+  /**
+   * Decides two things the card cannot ask about itself: whether hovering
+   * exists at all, and whether a long press is the way to open a menu or the
+   * duplicate of a right-click that already did.
+   */
+  platform: PluginSurfaceProps["layout"]["platform"];
   onSend: (item: BoardItem, type: ColumnId) => void;
+  /** Null where labels cannot be edited, which takes the gesture away entirely. */
+  onLabels: ((item: BoardItem, point: { x: number; y: number }) => void) | null;
   /** Chooses the prompt template; the card is otherwise column-agnostic. */
   type: ColumnId;
 }) {
+  /** Nothing hovers on a touch platform, and the action would hide forever. */
+  const isWeb = platform === "web";
   /**
    * Two hover states, not one. The action sits inside the card, and moving onto
    * it takes the pointer off the card as far as the card's own hover is
@@ -868,7 +1176,7 @@ function Card({
    * Revealed by style rather than by mounting: an action that unmounts under the
    * cursor can never report the hover that would have kept it alive.
    */
-  const revealed = !hoverToReveal || cardHovered || actionHovered;
+  const revealed = !isWeb || cardHovered || actionHovered;
 
   const open = useCallback(() => {
     openExternalUrl(item.url);
@@ -879,6 +1187,31 @@ function Card({
   const send = useCallback(() => {
     onSend(item, type);
   }, [item, onSend, type]);
+
+  const openLabels = useCallback(
+    (event: unknown) => {
+      const point = pointerPoint(event);
+      if (point === null || onLabels === null) return;
+      onLabels(item, point);
+    },
+    [item, onLabels],
+  );
+
+  /**
+   * Web only, and `preventDefault` first: without it the browser's own menu
+   * opens on top of this one. The left-click that opens the card is a separate
+   * handler, so a right-click never follows the link.
+   */
+  const openLabelsFromContextMenu = useCallback(
+    (event: unknown) => {
+      if (typeof event === "object" && event !== null) {
+        const preventDefault = Reflect.get(event, "preventDefault");
+        if (typeof preventDefault === "function") preventDefault.call(event);
+      }
+      openLabels(event);
+    },
+    [openLabels],
+  );
 
   const closes = item.linkedIssues
     .map((issue) => linkedIssueLabel(issue, item.repository))
@@ -899,9 +1232,21 @@ function Card({
       }${closes === "" ? "" : `, closes ${closes}`}${
         item.checks === null ? "" : `, checks ${checksSentence(item.checks)}`
       }`}
+      accessibilityHint={
+        onLabels === null
+          ? undefined
+          : isWeb
+            ? "Right-click to edit labels."
+            : "Press and hold to edit labels."
+      }
       onPress={open}
+      // A web long press is a *held* left click, which right-click already
+      // covers — wiring both would open the menu twice on the same gesture.
+      onLongPress={onLabels === null || isWeb ? undefined : openLabels}
       onHoverIn={() => setCardHovered(true)}
       onHoverOut={() => setCardHovered(false)}
+      // @ts-expect-error - onContextMenu is web-only and absent from the React Native types.
+      onContextMenu={onLabels === null ? undefined : openLabelsFromContextMenu}
       style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
     >
       <Text style={styles.cardRepo} numberOfLines={1}>
@@ -928,6 +1273,11 @@ function Card({
             {label}
           </Text>
         ))}
+        {/* Labels are editable now, so the card has to admit when it is not
+            showing all of them rather than look like the edit did nothing. */}
+        {item.labels.length > 3 ? (
+          <Text style={styles.labelMore}>+{item.labels.length - 3}</Text>
+        ) : null}
       </View>
       <Pressable
         accessibilityRole="button"
@@ -1949,15 +2299,23 @@ function Column({
   column,
   viewerLogin,
   styles,
-  hoverToReveal,
+  platform,
   onSend,
+  onLabels,
 }: {
   column: BoardColumn;
   viewerLogin: string;
   styles: Styles;
-  hoverToReveal: boolean;
+  platform: PluginSurfaceProps["layout"]["platform"];
   onSend: (item: BoardItem, type: ColumnId) => void;
+  onLabels: (item: BoardItem, point: { x: number; y: number }) => void;
 }) {
+  /**
+   * Only issues and pull requests. A discussion is labelable on GitHub too, but
+   * the board does not offer it: the columns it does offer are the ones whose
+   * labels a reader acts on.
+   */
+  const labelable = column.id !== "discussions";
   return (
     <View style={styles.column}>
       <View style={styles.columnHeader}>
@@ -1976,8 +2334,9 @@ function Column({
               item={item}
               viewerLogin={viewerLogin}
               styles={styles}
-              hoverToReveal={hoverToReveal}
+              platform={platform}
               onSend={onSend}
+              onLabels={labelable ? onLabels : null}
               type={column.id}
             />
           ))
@@ -1989,8 +2348,6 @@ function Column({
 
 export function GitHubBoard(props: PluginSurfaceProps) {
   const styles = useStyles(props);
-  /** Only a pointer platform can hover; on iOS and Android the action stays visible. */
-  const hoverToReveal = props.layout.platform === "web";
   const load = useRpc(loadBoard);
   const persistLogin = useRpc(saveLogin);
   const persistFilter = useRpc(saveRepositoryFilter);
@@ -2019,6 +2376,14 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const [prompts, setPrompts] = useState<PromptSettings | null>(cachedPrompts);
   /** The card the launch dialog is open on, with its prompt already rendered. */
   const [sendTarget, setSendTarget] = useState<{ item: BoardItem; prompt: string } | null>(null);
+  /** The card the label menu is open on, and where on this surface to draw it. */
+  const [labelTarget, setLabelTarget] = useState<LabelMenuTarget | null>(null);
+  /**
+   * The surface's own view, measured when a menu opens. A right-click reports
+   * where it happened in the window; the menu is positioned inside this view,
+   * so the two have to be reconciled — and only this view knows where it sits.
+   */
+  const rootRef = useRef<View | null>(null);
   /**
    * Whether this surface is still on screen, read after a navigation attempt:
    * routing away unmounts it, so still being here means nothing routed.
@@ -2152,6 +2517,57 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   }, [commitHidden, repositories]);
 
   /**
+   * Opens the label menu where the user clicked.
+   *
+   * `measureInWindow` is asynchronous, so the point is converted in its
+   * callback rather than from a remembered layout — a column that has been
+   * scrolled, or a window that has been resized, would make a remembered one
+   * wrong. The menu is then clamped to the surface: it opens rightwards and
+   * downwards from the pointer unless that would take it off the edge, and
+   * hanging it from `bottom` when it opens upward anchors the menu's foot at
+   * the pointer whatever height it turns out to have.
+   *
+   * Android needs the status bar added to the gesture's `pageY`: the window a
+   * view is measured in includes it, and a touch's page coordinates do not.
+   * Paseo's own `ContextMenuTrigger` corrects the same offset the same way.
+   */
+  const openLabelMenu = useCallback((item: BoardItem, point: { x: number; y: number }) => {
+    const node = rootRef.current;
+    if (node === null) return;
+    const statusBar = Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
+    node.measureInWindow((originX, originY, width, height) => {
+      const x = point.x - originX;
+      const y = point.y + statusBar - originY;
+      const rightmost = Math.max(MENU_MARGIN, width - LABEL_MENU_WIDTH - MENU_MARGIN);
+      const left = Math.min(Math.max(x, MENU_MARGIN), rightmost);
+      const opensUp = y + LABEL_MENU_MAX_HEIGHT + MENU_MARGIN > height;
+      setLabelTarget({
+        item,
+        left,
+        top: opensUp ? null : y,
+        bottom: opensUp ? Math.max(MENU_MARGIN, height - y) : null,
+      });
+    });
+  }, []);
+
+  /**
+   * Adopts the labels GitHub reported after a toggle. The cached board is
+   * patched alongside the rendered one, or the next remount — which happens on
+   * every workspace switch — would repaint the labels the edit replaced.
+   */
+  const applyItemLabels = useCallback((itemId: string, labels: string[]) => {
+    const patch = (current: Board): Board => ({
+      ...current,
+      columns: current.columns.map((column) => ({
+        ...column,
+        items: column.items.map((item) => (item.id === itemId ? { ...item, labels } : item)),
+      })),
+    });
+    if (cachedBoard !== null) cachedBoard = patch(cachedBoard);
+    setBoard((current) => (current === null ? current : patch(current)));
+  }, []);
+
+  /**
    * Opens the launch dialog on this card, with the card's template already
    * rendered into the first message. Everything else — the project lookup, the
    * provider snapshot, the send itself — belongs to the dialog.
@@ -2226,7 +2642,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   );
 
   return (
-    <View style={styles.screen}>
+    <View ref={rootRef} style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.title}>{showSettings ? "GitHub settings" : "GitHub"}</Text>
         {showSettings ? null : repositories.length > 0 ? (
@@ -2315,8 +2731,9 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               column={column}
               viewerLogin={board.login}
               styles={styles}
-              hoverToReveal={hoverToReveal}
+              platform={props.layout.platform}
               onSend={openSendDialog}
+              onLabels={openLabelMenu}
             />
           ))}
         </ScrollView>
@@ -2328,12 +2745,34 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               column={column}
               viewerLogin={board.login}
               styles={styles}
-              hoverToReveal={hoverToReveal}
+              platform={props.layout.platform}
               onSend={openSendDialog}
+              onLabels={openLabelMenu}
             />
           ))}
         </View>
       )}
+
+      {labelTarget !== null ? (
+        <View style={styles.menuLayer}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close labels menu"
+            style={styles.menuScrim}
+            onPress={() => setLabelTarget(null)}
+          />
+          <LabelMenu
+            // Keyed by card: opening the menu on a second card must not inherit
+            // the first one's applied set or its in-flight toggles.
+            key={labelTarget.item.id}
+            target={labelTarget}
+            styles={styles}
+            accentColor={props.theme.colors.accent}
+            onClose={() => setLabelTarget(null)}
+            onChanged={applyItemLabels}
+          />
+        </View>
+      ) : null}
 
       {sendTarget !== null ? (
         <SendDialog
