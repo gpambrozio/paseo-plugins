@@ -743,9 +743,10 @@ let cachedBoard: CachedBoard | null = null;
  * from the card's own URL rather than from this map.
  */
 async function describeProjects(
+  paseo: PaseoApi,
   columns: readonly BoardColumn[],
 ): Promise<{ projects: { id: string; name: string }[]; repositoryProjects: Record<string, string> }> {
-  const index = await loadProjectIndex();
+  const index = await loadProjectIndex(paseo);
 
   const repositoryProjects: Record<string, string> = {};
   for (const column of columns) {
@@ -779,11 +780,10 @@ async function settle(
   }
 }
 
-export async function loadBoardHandler({
-  login,
-  limit,
-  force,
-}: z.output<typeof loadBoard.input>): Promise<z.input<typeof loadBoard.output>> {
+export async function loadBoardHandler(
+  { login, limit, force }: z.output<typeof loadBoard.input>,
+  { paseo }: PluginHandlerContext,
+): Promise<z.input<typeof loadBoard.output>> {
   const requested = login?.trim();
   const settings = await readSettings();
   const resolved =
@@ -802,7 +802,7 @@ export async function loadBoardHandler({
       login: resolved,
       hiddenRepositories: settings.hiddenRepositories,
       prompts: settings.prompts,
-      ...(await describeProjects(cachedBoard.columns)),
+      ...(await describeProjects(paseo, cachedBoard.columns)),
       columns: cachedBoard.columns,
       fetchedAt: cachedBoard.fetchedAt,
     };
@@ -841,7 +841,7 @@ export async function loadBoardHandler({
     login: resolved,
     hiddenRepositories: settings.hiddenRepositories,
     prompts: settings.prompts,
-    ...(await describeProjects(columns)),
+    ...(await describeProjects(paseo, columns)),
     columns,
     fetchedAt,
   };
@@ -1024,15 +1024,22 @@ export async function toggleLabelHandler({
 }
 
 /**
- * Paseo's own project registry, read straight off disk because the plugin
- * `PaseoApi` exposes workspaces but not projects. Only the fields this plugin
- * matches on are named; the daemon writes more.
+ * The host API a handler is given. Every project lookup below needs it, so it
+ * is threaded down from the handler rather than reached for globally.
+ */
+type PaseoApi = PluginHandlerContext["paseo"];
+
+/**
+ * Paseo's own project registry, as the daemon reports it. Only the fields this
+ * plugin matches on are named; the descriptor carries more.
  *
  * A project with a git remote is keyed `remote:<host>/<owner>/<name>`, always
  * lowercased, which is exactly the identity a board card carries — so a card is
  * matched to a project by that key rather than by guessing at directory names.
  * A project without a remote is keyed `host:<serverId>:<path>` and can never
- * match, which is correct: the board only ever shows remote repositories.
+ * match, which is correct: the board only ever shows remote repositories. The
+ * key is optional on the wire, and a project missing one simply matches
+ * nothing by key — its git remotes still get their turn.
  */
 interface ProjectRecord {
   projectId: string;
@@ -1040,44 +1047,30 @@ interface ProjectRecord {
   displayName: string;
   projectKey: string;
   /**
-   * `git` or `non_git`, as the daemon records it. Paseo offers a worktree for
-   * exactly the git ones (`workspace-structure.ts`), so this is what decides
-   * whether the launch dialog can offer one.
+   * `git`, `non_git`, or `directory`, as the daemon records it. Paseo offers a
+   * worktree for exactly the git ones (`workspace-structure.ts`), so this is
+   * what decides whether the launch dialog can offer one.
    */
   kind: string;
-  archivedAt: string | null;
 }
 
-function projectsPath(): string {
-  return join(paseoHome(), "projects", "projects.json");
-}
-
-async function readProjects(): Promise<ProjectRecord[]> {
-  let raw: string;
-  try {
-    raw = await readFile(projectsPath(), "utf8");
-  } catch (error) {
-    throw new Error(
-      `Paseo's project list could not be read at ${projectsPath()}: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-  const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) {
-    throw new Error(`Paseo's project list at ${projectsPath()} is not a list of projects.`);
-  }
-  return parsed
-    .filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null)
-    .map((entry) => ({
-      projectId: typeof entry.projectId === "string" ? entry.projectId : "",
-      rootPath: typeof entry.rootPath === "string" ? entry.rootPath : "",
-      displayName: typeof entry.displayName === "string" ? entry.displayName : "",
-      projectKey: typeof entry.projectKey === "string" ? entry.projectKey : "",
-      kind: typeof entry.kind === "string" ? entry.kind : "",
-      archivedAt: typeof entry.archivedAt === "string" ? entry.archivedAt : null,
-    }))
-    .filter((project) => project.projectId !== "" && project.rootPath !== "");
+/**
+ * Every project Paseo knows about, asked of the daemon rather than read off
+ * disk. `projects.list` is the daemon's own view: it covers projects that have
+ * no workspace open, it drops archived ones for us, and its display name is the
+ * one the user renamed the project to — none of which reading `projects.json`
+ * gave us. Requested without a `sync` cursor, so the answer is always the whole
+ * list rather than a diff against a cursor this plugin does not keep.
+ */
+async function readProjects(paseo: PaseoApi): Promise<ProjectRecord[]> {
+  const { projects } = await paseo.projects.list();
+  return projects.map((project) => ({
+    projectId: project.projectId,
+    rootPath: project.projectRootPath,
+    displayName: project.projectDisplayName,
+    projectKey: project.projectKey ?? "",
+    kind: project.projectKind,
+  }));
 }
 
 /**
@@ -1176,8 +1169,8 @@ const PROJECT_INDEX_TTL_MS = 5 * 60_000;
 
 let cachedProjectIndex: { index: ProjectIndex; storedAt: number } | null = null;
 
-async function buildProjectIndex(): Promise<ProjectIndex> {
-  const projects = (await readProjects()).filter((project) => project.archivedAt === null);
+async function buildProjectIndex(paseo: PaseoApi): Promise<ProjectIndex> {
+  const projects = await readProjects(paseo);
   const byRepositoryId = new Map<string, ProjectRecord>();
 
   // `projectKey` first, across all projects, because it is the repository Paseo
@@ -1203,7 +1196,7 @@ async function buildProjectIndex(): Promise<ProjectIndex> {
   return { projects, byRepositoryId };
 }
 
-async function loadProjectIndex(force = false): Promise<ProjectIndex> {
+async function loadProjectIndex(paseo: PaseoApi, force = false): Promise<ProjectIndex> {
   if (
     !force &&
     cachedProjectIndex !== null &&
@@ -1211,7 +1204,7 @@ async function loadProjectIndex(force = false): Promise<ProjectIndex> {
   ) {
     return cachedProjectIndex.index;
   }
-  const index = await buildProjectIndex();
+  const index = await buildProjectIndex(paseo);
   cachedProjectIndex = { index, storedAt: Date.now() };
   return index;
 }
@@ -1220,11 +1213,14 @@ async function loadProjectIndex(force = false): Promise<ProjectIndex> {
  * A miss is retried against a freshly built index, so a project added moments
  * ago is found instead of being denied for the rest of the cache window.
  */
-async function findProject(repositoryId: string): Promise<ProjectRecord | undefined> {
-  const cached = await loadProjectIndex();
+async function findProject(
+  paseo: PaseoApi,
+  repositoryId: string,
+): Promise<ProjectRecord | undefined> {
+  const cached = await loadProjectIndex(paseo);
   const hit = cached.byRepositoryId.get(repositoryId);
   if (hit !== undefined) return hit;
-  const fresh = await loadProjectIndex(true);
+  const fresh = await loadProjectIndex(paseo, true);
   return fresh.byRepositoryId.get(repositoryId);
 }
 
@@ -1236,13 +1232,17 @@ const MAX_TITLE_CHARS = 200;
  * it. Both handlers below start here, so "no project" reads the same whether
  * the dialog is opening or the send is running.
  */
-async function requireProject(repository: string, url: string): Promise<ProjectRecord> {
+async function requireProject(
+  paseo: PaseoApi,
+  repository: string,
+  url: string,
+): Promise<ProjectRecord> {
   const repositoryId = repositoryIdFor(repository, url);
   if (repositoryId === null) {
     throw new Error(`${repository} has no repository URL to match a project against.`);
   }
 
-  const project = await findProject(repositoryId);
+  const project = await findProject(paseo, repositoryId);
   if (project === undefined) {
     throw new Error(
       `No Paseo project has a git remote pointing at ${repository}. Add it as a project — or add it as a remote on the fork you already have — then send this card again.`,
@@ -1251,11 +1251,14 @@ async function requireProject(repository: string, url: string): Promise<ProjectR
   return project;
 }
 
-export async function sendOptionsHandler({
-  repository,
-  url,
-}: z.output<typeof sendOptions.input>): Promise<z.input<typeof sendOptions.output>> {
-  const [project, settings] = await Promise.all([requireProject(repository, url), readSettings()]);
+export async function sendOptionsHandler(
+  { repository, url }: z.output<typeof sendOptions.input>,
+  { paseo }: PluginHandlerContext,
+): Promise<z.input<typeof sendOptions.output>> {
+  const [project, settings] = await Promise.all([
+    requireProject(paseo, repository, url),
+    readSettings(),
+  ]);
   const supportsWorktree = project.kind === "git";
   return {
     project: {
@@ -1286,7 +1289,7 @@ export async function sendToChatHandler(
   }: z.output<typeof sendToChat.input>,
   { paseo }: PluginHandlerContext,
 ): Promise<z.input<typeof sendToChat.output>> {
-  const project = await requireProject(repository, url);
+  const project = await requireProject(paseo, repository, url);
   if (isolation === "worktree" && project.kind !== "git") {
     throw new Error(`${project.displayName} is not a git checkout, so it cannot be worktreed.`);
   }

@@ -44,7 +44,8 @@ paseo plugin logs skills          # load errors and stderr
   basename. The ids are `skills` and `github-board`.
 - **A failed reload stays failed.** Paseo does not restore the previous code.
 - **Never restart the daemon** — it manages the user's running agents.
-- The daemon needs `"pluginsEnabled": true` in its `config.json`, and Paseo 0.5.0-beta or newer.
+- The daemon needs `"pluginsEnabled": true` in its `config.json`, and Paseo 0.5.0-beta or newer —
+  0.5.2 or newer for `github-board`, which calls `paseo.projects.list()`.
 - There is no harness for plugin UI. A clean typecheck and a clean reload prove a `*.client.tsx`
   change compiles and loads, nothing more; a human has to look at the panel.
 
@@ -118,6 +119,11 @@ means adding it to that shim first.
 
 Because `skipLibCheck: true` is set in both, an unresolvable `@getpaseo/client` import is swallowed
 silently and the entire Paseo API types as `any`. Keep that dependency at `^0.5.0-beta.3` or newer.
+
+`@getpaseo/plugin` peer-depends on the *exact* `@getpaseo/client` it ships against, so in
+`github-board` the two move together: `npm install @getpaseo/plugin@<v> @getpaseo/client@<v>` in one
+command. Bumping either alone fails `ERESOLVE`. Track the daemon's version — `paseo daemon status`
+prints it.
 
 The tsconfigs also differ: `skills` includes `**/*`, `github-board` includes only `*.ts`/`*.tsx` at
 its root, so a new subdirectory there is invisible to `tsc` until the `include` is widened.

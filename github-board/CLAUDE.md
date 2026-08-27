@@ -436,18 +436,28 @@ draft and persists on Save — writing per keystroke would save half-typed templ
 trip per character — and both its draft and its login field adopt a new prop only when the prop
 actually changes, so neither fights what is being typed.
 
-The match reads `$PASEO_HOME/projects/projects.json` directly, because the plugin `PaseoApi` exposes
-workspaces, agents, providers, and config, but not projects. The alternative — deriving projects
-from `paseo.workspaces.list()` — only sees repositories that already have a live workspace, which is
-a minority of them. That same record is where the project's `kind` comes from, which is what decides
-whether the dialog can offer a worktree. The cost is a dependency on a daemon-internal file format:
-if that file moves or its `projectKey` changes shape, every card reports "no Paseo project is
-checked out from …".
+The match asks the daemon, through `paseo.projects.list()` — added to the plugin `PaseoApi` in
+Paseo 0.5.2 ([getpaseo/paseo#3899](https://github.com/getpaseo/paseo/pull/3899)) for exactly this
+reason. It replaced reading `$PASEO_HOME/projects/projects.json` off disk, which was the only way to
+see a project before that call existed: the other candidate, deriving projects from
+`paseo.workspaces.list()`, only sees repositories that already have a live workspace, which is a
+minority of them. The descriptor is also where the project's `kind` comes from, which is what
+decides whether the dialog can offer a worktree.
+
+Going through the daemon buys three things the file read did not have: no dependency on a
+daemon-internal file format, archived projects filtered out by the daemon rather than by this
+plugin, and `projectDisplayName` already resolved through the project's custom name, so a renamed
+project reads on a card the way it reads everywhere else in Paseo. The list is requested with no
+`sync` cursor, so the answer is always the full list rather than a diff against a cursor this plugin
+does not keep. It costs no reach: a handler already holds a daemon session, so a board that can load
+at all can list projects. It does raise the floor to Paseo 0.5.2, and the SDK dependency to a version
+that declares `paseo.projects`.
 
 `projectKey` is `remote:<host>/<owner>/<name>`, lowercased by the daemon, which is exactly a card's
-identity — so the lookup is an equality test on that key, not a guess at directory names. The host
-comes from the card's own URL rather than a hardcoded `github.com`, so an Enterprise card cannot
-match a same-named repository on github.com. Archived projects are skipped.
+identity — so the lookup is an equality test on that key, not a guess at directory names. It is
+optional on the wire; a project without one matches nothing by key and is reached, if at all, by its
+git remotes. The host comes from the card's own URL rather than a hardcoded `github.com`, so an
+Enterprise card cannot match a same-named repository on github.com.
 
 **`projectKey` only records `origin`, so it cannot match work done from a fork.** A pull request
 opened from `you/paseo` still *lives* in `getpaseo/paseo`, which is what the card names, so a fork
@@ -456,10 +466,10 @@ checkout misses on the key every time. When the key matches nothing, the search 
 where the conventional `upstream` is found. Both stages normalise to the same `<host>/<owner>/<name>`
 form, so the scp-like `git@host:owner/name.git` and the `https://` spelling compare equal.
 
-The key stage runs first because it is a single file read and it names the repository Paseo itself
-considers the project's home; the remote scan costs one `git` subprocess per project and only runs on
-a miss. A directory that is not a checkout, or has gone missing, contributes no remotes rather than
-failing the search for every other project.
+The key stage runs first because it costs nothing beyond the list already fetched and it names the
+repository Paseo itself considers the project's home; the remote scan costs one `git` subprocess per
+project and only runs on a miss. A directory that is not a checkout, or has gone missing,
+contributes no remotes rather than failing the search for every other project.
 
 The launch outcome lands in a modal centred over the surface — the last child of the screen view, so
 it paints above the columns by order and not only where `zIndex` is honoured. It is separate from
