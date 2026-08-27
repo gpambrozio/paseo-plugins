@@ -42,6 +42,19 @@ lives in another repository.
 The fold happens after the repository filter, so hiding a pull request's
 repository puts its issue back on the board rather than taking both cards away.
 
+## Empty columns come off the board
+
+A column with nothing in it is left out: the remaining columns share the full
+width, and on a phone the tab bar lists only the tabs that lead somewhere. It is
+counted after the repository filter and the issue fold, so filtering a repository
+down to nothing, or a pull request claiming the last issue, takes that column
+with it.
+
+A column that **failed** to load stays, error and all — it is empty because the
+query broke, not because there is no work. And when every column is empty the
+whole board comes back, four "Nothing here." columns saying it loaded and found
+nothing.
+
 ## Checks on open pull requests
 
 An open pull request card leads its footer with the state of CI on the head

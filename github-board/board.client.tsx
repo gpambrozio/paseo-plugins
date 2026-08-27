@@ -2781,12 +2781,29 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         for (const issue of item.linkedIssues) claimed.add(issue.id);
       }
     }
-    if (claimed.size === 0) return visible;
-    return visible.map((column) =>
-      column.id === "issues"
-        ? { ...column, items: column.items.filter((item) => !claimed.has(item.id)) }
-        : column,
+    const resolved =
+      claimed.size === 0
+        ? visible
+        : visible.map((column) =>
+            column.id === "issues"
+              ? { ...column, items: column.items.filter((item) => !claimed.has(item.id)) }
+              : column,
+          );
+
+    /**
+     * A column with nothing in it costs a quarter of the width, or a tab, to say
+     * nothing, so it comes off the board. A column that failed to load is empty
+     * too and stays: there, the emptiness is the error rather than the answer.
+     *
+     * When that leaves nothing at all, every column comes back. Four "Nothing
+     * here." columns read as a board that loaded and found nothing, and on
+     * compact they keep the tab bar and the pull-to-refresh that are the only
+     * way off an otherwise blank surface.
+     */
+    const populated = resolved.filter(
+      (column) => column.items.length > 0 || column.error !== null,
     );
+    return populated.length === 0 ? resolved : populated;
   }, [board, hiddenRepos]);
 
   /**

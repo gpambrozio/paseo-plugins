@@ -85,6 +85,21 @@ An issue claimed by an open pull request is dropped from the Issues column and r
 *after* the repository filter, so a pull request the filter hides stops claiming its issue instead
 of taking the issue's card off the board with it. Drafts claim too.
 
+## Empty columns come off the board
+
+The `columns` memo drops any column holding no items, after the repository filter and after the
+issue fold, so both can empty a column out of existence. A column whose `error` is non-null is kept:
+it is empty because the query failed, and the error is the only thing that says so.
+
+The all-empty case is guarded explicitly — when the filter would leave nothing, every column comes
+back. Four "Nothing here." columns are a board that loaded and found nothing, where a blank surface
+is indistinguishable from a broken one; on compact they also keep the tab bar and the
+`RefreshControl`, which are the only things on that layout that can load the board again.
+
+`cachedColumnId` may name a column that is no longer on the board. `activeColumn` already falls back
+to `columns[0]`, and the id is left alone rather than rewritten, so the tab comes back selected once
+its column has items again.
+
 ## Checks on open pull requests
 
 `BoardItem.checks` is three counts — `passed`, `failed`, `pending` — or null, which is the same
