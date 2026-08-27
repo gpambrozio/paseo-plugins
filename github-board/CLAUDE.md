@@ -212,6 +212,18 @@ that daemon's client (`surface-runtime.ts`), the board's `gh` runs there, and no
 API reaches another host. Switching hosts is the surface header's own `PluginHostSwitcher`. The
 dialog names the host instead of offering it.
 
+**The backdrop does not cancel.** The dialog opens with a prompt the user is expected to edit, and a
+modal that closes on any press outside itself puts that edit one stray thumb away from being lost —
+on a phone, where the card is small and the backdrop is most of the screen, that is a matter of time
+rather than of luck. Cancel is the only way out, and it is labelled. The backdrop still *catches* the
+press so nothing reaches the board underneath: an open popover swallows it the way every menu does,
+and otherwise it dismisses the keyboard, which is what a press outside a field means on a touch
+platform. It is hidden from screen readers unless it has a menu to close, because a button that does
+nothing is worse than no button.
+
+This is the opposite of the label context menu, which *does* dismiss on the next press — a menu holds
+no unsaved work, and pressing away from one is how every menu is closed.
+
 ### The popovers
 
 Each control opens a popover, the way Paseo's own composer does, not a view that takes over the
@@ -297,10 +309,13 @@ this plugin **tried it and reverted it** (see git history for `board.search-atta
 handler returned items that passed the host's own `PluginAttachmentSearchPayloadSchema` and the
 picker still showed nothing. Budget for debugging the host before reaching for that API again.
 
-The button is hover-gated only when `layout.platform === "web"`; a touch platform never hovers and
-would hide the action forever. It is absolutely positioned so revealing it neither reflows the card
-nor nudges the cards below it, which means it sits over the footer's trailing labels — hence the
-opaque accent fill rather than a tint.
+**The overlay is the wide layout's button, and only its.** Where the columns share a row the button
+is absolutely positioned in the card's bottom-right corner, so revealing it neither reflows the card
+nor nudges the cards below it — which means it sits over the footer's trailing labels, hence the
+opaque accent fill rather than a tint. On `layout.compact` it is an ordinary row under a divider
+instead: an overlay is only unobtrusive while hover keeps it hidden, and a phone never hovers, so
+the compact card would permanently cover its own metadata. Everything below about hover applies to
+the wide layout; the compact button has no hover state at all.
 
 **It is revealed by opacity, and stays mounted and hit-testable when hidden.** The card and the
 button track hover separately and either one reveals it. Both halves of that are load-bearing:
@@ -313,6 +328,62 @@ back to the card, which reveals it, which takes the pointer back.
 
 Hidden-but-clickable is safe here because a pointer cannot reach the button without first crossing
 the card, which reveals it — there is no invisible click target.
+
+## The compact layout
+
+`layout.compact` is a **different layout, not the same one narrowed**: a tab bar over one
+full-width column, where the wide layout is four columns sharing a row. The host sets the flag; a
+phone and a narrow desktop window both get it, so nothing here may assume touch — that is what
+`layout.platform` is for, and the two are decided separately on purpose.
+
+**The tab bar carries every column's count, not just the selected one's.** It replaced a horizontal
+scroller of 300pt columns, which on a phone showed one column, slivers of its neighbours, and no
+way to tell what was in the other three without swiping to them — the opposite of what a board is
+for. The counts are what makes one-column-at-a-time acceptable. A column that failed to load shows
+`!` rather than its count, because an errored column holds no items and a `0` would read as
+"nothing to do".
+
+The `Column` is keyed by id in that branch, so switching tabs starts the new list at the top instead
+of inheriting the previous one's scroll offset. The selected id lives at module scope
+(`cachedColumnId`) for the same reason the board does: the surface unmounts on every workspace
+switch, and snapping back to Issues after deliberately choosing Open PRs reads as the board
+forgetting.
+
+**Compact has no Refresh button — it has `RefreshControl`.** That is why the "Updated …" timestamp,
+which used to be hidden on compact, now shows there: it is the only thing left saying how old the
+board is. `refreshing` is bound to `busy`, so a refresh started any other way spins the same
+control. The header also drops its own "GitHub" title, because the surface chrome above it already
+carries the name and the icon, and shortens "Configure prompts" to "Prompts" — the row does not
+wrap, so anything that does not fit is clipped off the right edge rather than moved.
+
+### The keyboard
+
+The launch dialog is centred in a layer that fills the surface, so on a phone the keyboard opens
+straight over it. `useKeyboardInset` shortens that layer by the keyboard's height and the card
+recentres in what is left — **padding, not a translation**, so the card can also *shrink* into the
+remaining space, which moving it could not.
+
+It is **iOS-only on purpose**: Android resizes the window itself when the keyboard opens, so the
+layout has already shrunk by the time the event lands and padding again would push the dialog off
+the top. It listens on `keyboardWillShow`, which fires with the opening animation rather than after
+it — and which Android does not emit at all, the other reason this is not shared. The settings view
+needs none of it: a `ScrollView` can be told to inset itself with
+`automaticallyAdjustKeyboardInsets`, and that is what it does.
+
+Shrinking needs two `flexShrink: 1`s, because **Yoga does not shrink flex children by default** the
+way CSS does. One on `dialogCard`, so the card obeys the shortened layer instead of overflowing it;
+one on `promptInput`, so the height comes out of the prompt — which scrolls itself, being multiline
+— rather than off the bottom row with the Send button on it.
+
+Opening any picker calls `Keyboard.dismiss()` first (`togglePicker`). The popovers are sized to the
+card and the card is sized to what the keyboard leaves, so a menu opened mid-typing would otherwise
+get the smallest card of the session. The prompt survives the blur; it is state, not the field's
+value.
+
+Compact also drops the column's own header (the tab already names it and counts it) and its border
+(it is the whole body, not one of four), and scales the card up: two title lines instead of three
+because a full-width card fits more per line, and larger pills, rows and checkboxes because on a
+phone those are touch targets and not just text.
 
 ## Prompts, and the settings view
 

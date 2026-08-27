@@ -2,9 +2,11 @@ import { type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Linking,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StatusBar,
   Text,
@@ -26,6 +28,7 @@ import type {
   RepositoryLabel,
 } from "./board.shared";
 import {
+  COLUMN_IDS,
   listLabels,
   loadBoard,
   savePrompts,
@@ -181,9 +184,6 @@ function renderTemplate(template: string, item: BoardItem): string {
   });
 }
 
-/** Width of one column when columns scroll horizontally instead of sharing the row. */
-const COMPACT_COLUMN_WIDTH = 300;
-
 /**
  * Switching workspaces unmounts this surface and mounting it again used to cost
  * three `gh` subprocesses before anything rendered. The last board is kept at
@@ -200,6 +200,12 @@ let cachedBoard: Board | null = null;
 let cachedFetchedAt = 0;
 let cachedHidden: ReadonlySet<string> | null = null;
 let cachedPrompts: PromptSettings | null = null;
+/**
+ * Which column the compact layout is showing. Module scope for the same reason
+ * the board is: the surface unmounts on every workspace switch, and coming back
+ * to Issues after deliberately choosing Open PRs reads as the board forgetting.
+ */
+let cachedColumnId: ColumnId = COLUMN_IDS[0];
 /**
  * Each repository's label catalogue, by `owner/name`. A label set changes far
  * more slowly than the work it is put on, and the menu is reopened card after
@@ -282,6 +288,12 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       },
       headerSpacer: { flex: 1 },
       subtle: { color: colors.foregroundMuted, fontSize: 12 },
+      /**
+       * Compact drops the Refresh button for the pull-to-refresh gesture, which
+       * leaves nothing in the header saying how old the board is — so the
+       * timestamp moves in, and shrinks rather than pushing Prompts off-screen.
+       */
+      headerAge: { color: colors.foregroundMuted, fontSize: 12, flexShrink: 1 },
       loginInput: {
         color: colors.foreground,
         borderWidth: 1,
@@ -313,8 +325,8 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         top: "100%" as const,
         left: 0,
         marginTop: 4,
-        minWidth: 220,
-        maxHeight: 320,
+        minWidth: layout.compact ? 260 : 220,
+        maxHeight: layout.compact ? 380 : 320,
         backgroundColor: colors.surface0,
         borderWidth: 1,
         borderColor: separator,
@@ -334,7 +346,7 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         borderColor: separator,
         borderRadius: 6,
         paddingHorizontal: 10,
-        paddingVertical: 3,
+        paddingVertical: layout.compact ? 6 : 3,
       },
       chipLabel: { color: colors.foreground, fontSize: 12 },
       dropdownList: { paddingVertical: 4 },
@@ -343,11 +355,12 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         alignItems: "center" as const,
         gap: 8,
         paddingHorizontal: 10,
-        paddingVertical: 6,
+        // A row is a touch target on compact, not just a line of text.
+        paddingVertical: layout.compact ? 10 : 6,
       },
       checkbox: {
-        width: 14,
-        height: 14,
+        width: layout.compact ? 18 : 14,
+        height: layout.compact ? 18 : 14,
         borderRadius: 3,
         borderWidth: 1,
         borderColor: separator,
@@ -361,7 +374,7 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         lineHeight: 12,
         fontWeight: "700" as const,
       },
-      dropdownLabel: { color: colors.foreground, fontSize: 12 },
+      dropdownLabel: { color: colors.foreground, fontSize: layout.compact ? 14 : 12 },
       backdrop: {
         position: "absolute" as const,
         top: 0,
@@ -433,6 +446,14 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       dialogCard: {
         width: "100%" as const,
         maxWidth: 560,
+        /**
+         * Yoga does not shrink flex children by default, so without this the
+         * card keeps its full height and overflows a layer the keyboard has
+         * shortened — clipped on Android, and off the top on both. The prompt
+         * is the child that gives the height back; everything else keeps its
+         * size.
+         */
+        flexShrink: 1,
         gap: 12,
         backgroundColor: colors.surface0,
         borderWidth: 1,
@@ -469,7 +490,11 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         paddingVertical: 8,
         fontSize: 13,
         lineHeight: 18,
-        minHeight: 120,
+        // The one part of the card that gives up height when the keyboard takes
+        // it. Multiline inputs scroll themselves, so a prompt longer than what
+        // is left stays reachable rather than being cut off.
+        flexShrink: 1,
+        minHeight: layout.compact ? 88 : 120,
         textAlignVertical: "top" as const,
       },
       /**
@@ -612,14 +637,59 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       buttonDisabled: { opacity: 0.5 },
       columns: { flexDirection: "row" as const, flex: 1, gap },
       columnsContent: { padding: gap, gap },
+      /**
+       * Compact shows one column at a time, chosen from the tab bar, so the
+       * column is the whole body and drops the frame it needed when it sat
+       * beside three others.
+       */
       column: {
-        flex: layout.compact ? undefined : 1,
-        width: layout.compact ? COMPACT_COLUMN_WIDTH : undefined,
-        borderWidth: 1,
+        flex: 1,
+        borderWidth: layout.compact ? 0 : 1,
         borderColor: separator,
-        borderRadius: 10,
+        borderRadius: layout.compact ? 0 : 10,
         overflow: "hidden" as const,
       },
+      /**
+       * The compact column picker. Horizontally scrollable because four titles
+       * with counts do not fit a phone, and `flexGrow: 0` because a horizontal
+       * ScrollView in a column parent otherwise claims the height the list
+       * needs. It keeps every column's count on screen while you are inside
+       * one of them, which is what a board is for.
+       */
+      tabBar: {
+        flexGrow: 0,
+        flexShrink: 0,
+        borderBottomWidth: 1,
+        borderBottomColor: separator,
+      },
+      tabBarContent: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+      },
+      tab: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        minHeight: 36,
+        borderWidth: 1,
+        borderColor: separator,
+        borderRadius: 18,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+      },
+      tabActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+      tabLabel: { color: colors.foreground, fontSize: 13, fontWeight: "600" as const },
+      tabLabelActive: { color: colors.accentForeground },
+      tabCount: { color: colors.foregroundMuted, fontSize: 12, fontWeight: "600" as const },
+      tabCountActive: { color: colors.accentForeground },
+      /**
+       * A column that failed to load holds no items, and a count of 0 would
+       * read as "nothing to do" rather than "this did not load".
+       */
+      tabError: { color: colors.statusDanger, fontSize: 12, fontWeight: "700" as const },
       columnHeader: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
@@ -639,13 +709,18 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         paddingVertical: 2,
         backgroundColor: withAlpha(colors.foregroundMuted, "22"),
       },
-      columnBody: { padding: 8, gap: 8 },
+      columnBody: {
+        padding: layout.compact ? 12 : 8,
+        gap: layout.compact ? 10 : 8,
+        // Clears the home indicator, and leaves somewhere to pull from.
+        paddingBottom: layout.compact ? 32 : 8,
+      },
       card: {
         borderWidth: 1,
         borderColor: separator,
         borderRadius: 8,
-        padding: 10,
-        gap: 6,
+        padding: layout.compact ? 12 : 10,
+        gap: layout.compact ? 8 : 6,
       },
       cardPressed: { backgroundColor: withAlpha(colors.foregroundMuted, "1a") },
       // Bottom-right and out of flow, so revealing it on hover never reflows the
@@ -670,11 +745,42 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         fontSize: 11,
         fontWeight: "600" as const,
       },
-      cardRepo: { color: colors.foregroundMuted, fontSize: 11 },
+      /**
+       * Compact takes the action out of the corner and gives it a row. The
+       * overlay only ever worked because hover kept it out of the way until it
+       * was wanted; where nothing hovers it is permanently on top of the
+       * footer's trailing labels, hiding the card's own metadata.
+       */
+      cardActions: {
+        flexDirection: "row" as const,
+        justifyContent: "flex-end" as const,
+        borderTopWidth: 1,
+        borderTopColor: separator,
+        paddingTop: 8,
+      },
+      sendButtonInline: {
+        backgroundColor: colors.accent,
+        borderRadius: 6,
+        minHeight: 34,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+      },
+      sendButtonInlineLabel: {
+        color: colors.accentForeground,
+        fontSize: 13,
+        fontWeight: "600" as const,
+      },
+      cardRepo: { color: colors.foregroundMuted, fontSize: layout.compact ? 12 : 11 },
       // Muted like the rest of the footer but weighted, so "someone else's"
       // reads at a glance without competing with the title above it.
       cardAuthor: { color: colors.foregroundMuted, fontSize: 12, fontWeight: "600" as const },
-      cardTitle: { color: colors.foreground, fontSize: 13, lineHeight: 18 },
+      cardTitle: {
+        color: colors.foreground,
+        fontSize: layout.compact ? 15 : 13,
+        lineHeight: layout.compact ? 21 : 18,
+      },
       cardFooter: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
@@ -683,11 +789,11 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       },
       label: {
         color: colors.foregroundMuted,
-        fontSize: 10,
+        fontSize: layout.compact ? 11 : 10,
         overflow: "hidden" as const,
         borderRadius: 8,
         paddingHorizontal: 6,
-        paddingVertical: 1,
+        paddingVertical: layout.compact ? 3 : 1,
         borderWidth: 1,
         borderColor: separator,
       },
@@ -695,12 +801,12 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       // than as one more label on the pull request.
       linkedIssue: {
         color: colors.accent,
-        fontSize: 10,
+        fontSize: layout.compact ? 11 : 10,
         fontWeight: "600" as const,
         overflow: "hidden" as const,
         borderRadius: 8,
         paddingHorizontal: 6,
-        paddingVertical: 1,
+        paddingVertical: layout.compact ? 3 : 1,
         borderWidth: 1,
         borderColor: withAlpha(colors.accent, "66"),
         backgroundColor: withAlpha(colors.accent, "1a"),
@@ -719,7 +825,7 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         borderWidth: 1,
         borderColor: separator,
         paddingHorizontal: 6,
-        paddingVertical: 1,
+        paddingVertical: layout.compact ? 3 : 1,
       },
       /**
        * Danger is the only status colour the plugin theme offers, so failure
@@ -728,9 +834,21 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
        * the meaning where colour cannot, which is also what makes the summary
        * readable to anyone who does not separate red from grey.
        */
-      checksFailed: { color: colors.statusDanger, fontSize: 10, fontWeight: "600" as const },
-      checksPending: { color: colors.accent, fontSize: 10, fontWeight: "600" as const },
-      checksPassed: { color: colors.foregroundMuted, fontSize: 10, fontWeight: "600" as const },
+      checksFailed: {
+        color: colors.statusDanger,
+        fontSize: layout.compact ? 11 : 10,
+        fontWeight: "600" as const,
+      },
+      checksPending: {
+        color: colors.accent,
+        fontSize: layout.compact ? 11 : 10,
+        fontWeight: "600" as const,
+      },
+      checksPassed: {
+        color: colors.foregroundMuted,
+        fontSize: layout.compact ? 11 : 10,
+        fontWeight: "600" as const,
+      },
       /**
        * The context menu's own layer. It clears the repository filter's
        * backdrop (20) and the header (30) but stays under the launch dialog
@@ -808,7 +926,11 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         borderTopColor: separator,
       },
       /** The count of labels the card had no room for; see `Card`. */
-      labelMore: { color: colors.foregroundMuted, fontSize: 10, paddingHorizontal: 2 },
+      labelMore: {
+        color: colors.foregroundMuted,
+        fontSize: layout.compact ? 11 : 10,
+        paddingHorizontal: 2,
+      },
       empty: { color: colors.foregroundMuted, fontSize: 12, padding: 12 },
     };
   }, [theme, layout.compact]);
@@ -1141,6 +1263,7 @@ function Card({
   viewerLogin,
   styles,
   platform,
+  compact,
   onSend,
   onLabels,
   type,
@@ -1155,6 +1278,12 @@ function Card({
    * duplicate of a right-click that already did.
    */
   platform: PluginSurfaceProps["layout"]["platform"];
+  /**
+   * Narrow enough that the card owns the width. The send action moves into the
+   * flow and the title gets a line back, because a full-width card holds in two
+   * lines what a 300pt column needed three for.
+   */
+  compact: boolean;
   onSend: (item: BoardItem, type: ColumnId) => void;
   /** Null where labels cannot be edited, which takes the gesture away entirely. */
   onLabels: ((item: BoardItem, point: { x: number; y: number }) => void) | null;
@@ -1252,7 +1381,7 @@ function Card({
       <Text style={styles.cardRepo} numberOfLines={1}>
         {item.repository} #{item.number}
       </Text>
-      <Text style={styles.cardTitle} numberOfLines={3}>
+      <Text style={styles.cardTitle} numberOfLines={compact ? 2 : 3}>
         {item.title}
       </Text>
       <View style={styles.cardFooter}>
@@ -1279,20 +1408,39 @@ function Card({
           <Text style={styles.labelMore}>+{item.labels.length - 3}</Text>
         ) : null}
       </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Send ${item.repository} #${item.number} to a new workspace chat`}
-        onPress={send}
-        onHoverIn={() => setActionHovered(true)}
-        onHoverOut={() => setActionHovered(false)}
-        style={({ pressed }) => [
-          styles.sendButton,
-          revealed ? null : styles.sendButtonHidden,
-          pressed ? styles.sendButtonPressed : null,
-        ]}
-      >
-        <Text style={styles.sendButtonLabel}>Send to chat</Text>
-      </Pressable>
+      {/* Compact gives the action its own row rather than floating it over the
+          footer: the overlay is only unobtrusive while hover keeps it hidden,
+          and a card the width of the screen has room to spare. */}
+      {compact ? (
+        <View style={styles.cardActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Send ${item.repository} #${item.number} to a new workspace chat`}
+            onPress={send}
+            style={({ pressed }) => [
+              styles.sendButtonInline,
+              pressed ? styles.sendButtonPressed : null,
+            ]}
+          >
+            <Text style={styles.sendButtonInlineLabel}>Send to chat</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Send ${item.repository} #${item.number} to a new workspace chat`}
+          onPress={send}
+          onHoverIn={() => setActionHovered(true)}
+          onHoverOut={() => setActionHovered(false)}
+          style={({ pressed }) => [
+            styles.sendButton,
+            revealed ? null : styles.sendButtonHidden,
+            pressed ? styles.sendButtonPressed : null,
+          ]}
+        >
+          <Text style={styles.sendButtonLabel}>Send to chat</Text>
+        </Pressable>
+      )}
     </Pressable>
   );
 }
@@ -1754,6 +1902,38 @@ interface LaunchResult {
 }
 
 /**
+ * How much of the surface the software keyboard is covering, so a modal centred
+ * over it can centre in what is left rather than under it.
+ *
+ * **iOS only, deliberately.** Android resizes the window itself when the
+ * keyboard opens, so the layout has already shrunk by the time the event
+ * arrives and padding by the same amount again would push the dialog off the
+ * top. Web reports nothing and gets 0.
+ *
+ * `keyboardWillShow` rather than `keyboardDidShow`: it fires with the opening
+ * animation, so the dialog travels with the keyboard instead of jumping once it
+ * has arrived. Android has no `will` event, which is the other reason this is
+ * not shared.
+ */
+function useKeyboardInset(): number {
+  const [inset, setInset] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    const shown = Keyboard.addListener("keyboardWillShow", (event) => {
+      setInset(event.endCoordinates.height);
+    });
+    const hidden = Keyboard.addListener("keyboardWillHide", () => setInset(0));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+
+  return inset;
+}
+
+/**
  * What Paseo's own New workspace screen asks before it starts a chat, for one
  * card: where the workspace is cut, which agent runs it, how hard it thinks,
  * which permission mode it runs under, and the first message.
@@ -1796,6 +1976,20 @@ function SendDialog({
   const [busy, setBusy] = useState(false);
 
   const closePicker = useCallback(() => setPicker(null), []);
+
+  const keyboardInset = useKeyboardInset();
+
+  /**
+   * Opening a menu puts the keyboard away first. The popovers are sized to the
+   * card, and the card is sized to what the keyboard leaves — so a menu opened
+   * while typing would be choosing between the smallest card of the session and
+   * the field the user was typing into. Dismissing costs the prompt nothing: it
+   * is state, not the field's own value.
+   */
+  const togglePicker = useCallback((id: PickerId) => {
+    Keyboard.dismiss();
+    setPicker((current) => (current === id ? null : id));
+  }, []);
 
   // Which project this card belongs to, and what the last send was set to.
   useEffect(() => {
@@ -1920,14 +2114,28 @@ function SendDialog({
   const modes = provider?.modes ?? [];
 
   return (
-    <View style={styles.modalLayer}>
+    // The inset is padding rather than a translation: the card is centred in the
+    // layer, so shortening the layer recentres it in the space above the
+    // keyboard and lets it shrink there too, which moving it would not.
+    <View style={[styles.modalLayer, keyboardInset > 0 ? { paddingBottom: keyboardInset } : null]}>
+      {/* The backdrop is not a way out. This dialog opens with a prompt the
+          user is expected to edit, and dismissing on any press outside it puts
+          that edit one stray thumb away from being lost — on a phone, where the
+          card is small and the backdrop is most of the screen, that is a matter
+          of time rather than of luck. Cancel is the way out, and it says so.
+
+          It still catches the press, so nothing lands on the board underneath:
+          an open popover swallows it the way every menu does, and otherwise it
+          puts the keyboard away, which is what a press outside a field means on
+          a touch platform. Inert to a screen reader unless it has a menu to
+          close, since a button that does nothing is worse than no button. */}
       <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={picker === null ? "Cancel" : "Close menu"}
+        accessibilityRole={picker === null ? undefined : "button"}
+        accessibilityLabel={picker === null ? undefined : "Close menu"}
+        accessibilityElementsHidden={picker === null}
+        importantForAccessibility={picker === null ? "no-hide-descendants" : "auto"}
         style={styles.modalBackdrop}
-        // An open popover swallows the first press outside itself, the way every
-        // menu does; a send in flight is not cancellable at all.
-        onPress={picker !== null ? closePicker : busy ? () => {} : onCancel}
+        onPress={picker !== null ? closePicker : Keyboard.dismiss}
       />
       <View accessibilityViewIsModal style={styles.dialogCard}>
         <View style={styles.dialogHeader}>
@@ -1951,7 +2159,7 @@ function SendDialog({
             // A non-git project has no worktree to cut, so the control says
             // Local and stops there rather than offering a choice that fails.
             disabled={project === null || !project.supportsWorktree}
-            onPress={() => setPicker(picker === "isolation" ? null : "isolation")}
+            onPress={() => togglePicker("isolation")}
           />
           {picker === "isolation" ? (
             <ChoicePopover
@@ -2006,7 +2214,7 @@ function SendDialog({
                   : "Select model"
             }
             disabled={providers === null || providers.length === 0}
-            onPress={() => setPicker(picker === "model" ? null : "model")}
+            onPress={() => togglePicker("model")}
           />
           {thinkingOptions.length > 0 ? (
             <ControlChip
@@ -2015,7 +2223,7 @@ function SendDialog({
                 thinkingOptions.find((option) => option.id === configuration?.thinkingOptionId)
                   ?.label ?? "Thinking"
               }
-              onPress={() => setPicker(picker === "thinking" ? null : "thinking")}
+              onPress={() => togglePicker("thinking")}
             />
           ) : null}
           {modes.length > 0 ? (
@@ -2025,7 +2233,7 @@ function SendDialog({
                 modes.find((option) => option.id === configuration?.modeId)?.label ??
                 "Permission mode"
               }
-              onPress={() => setPicker(picker === "mode" ? null : "mode")}
+              onPress={() => togglePicker("mode")}
             />
           ) : null}
 
@@ -2175,7 +2383,15 @@ function PromptSettingsView({
   }, [draft, onSave, saving]);
 
   return (
-    <ScrollView contentContainerStyle={styles.settingsBody}>
+    // The settings view is nothing but text fields, and the keyboard covers the
+    // lower half of them on a phone. This is the iOS-native version of the
+    // dialog's inset — a ScrollView can just be told to inset itself; the
+    // dialog is centred rather than scrolled, so it cannot.
+    <ScrollView
+      automaticallyAdjustKeyboardInsets
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={styles.settingsBody}
+    >
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>GitHub account</Text>
         <Text style={styles.sectionHint}>
@@ -2300,6 +2516,9 @@ function Column({
   viewerLogin,
   styles,
   platform,
+  compact,
+  refreshing,
+  onRefresh,
   onSend,
   onLabels,
 }: {
@@ -2307,6 +2526,11 @@ function Column({
   viewerLogin: string;
   styles: Styles;
   platform: PluginSurfaceProps["layout"]["platform"];
+  /** One column filling the surface, with the tab bar naming it instead of a header. */
+  compact: boolean;
+  refreshing: boolean;
+  /** Pull-to-refresh, which is what replaces the Refresh button on compact. */
+  onRefresh: (() => void) | null;
   onSend: (item: BoardItem, type: ColumnId) => void;
   onLabels: (item: BoardItem, point: { x: number; y: number }) => void;
 }) {
@@ -2318,11 +2542,22 @@ function Column({
   const labelable = column.id !== "discussions";
   return (
     <View style={styles.column}>
-      <View style={styles.columnHeader}>
-        <Text style={styles.columnTitle}>{column.title}</Text>
-        <Text style={styles.countPill}>{column.items.length}</Text>
-      </View>
-      <ScrollView contentContainerStyle={styles.columnBody}>
+      {/* The compact tab bar already names the column and shows its count, so
+          repeating both directly underneath would cost a row for nothing. */}
+      {compact ? null : (
+        <View style={styles.columnHeader}>
+          <Text style={styles.columnTitle}>{column.title}</Text>
+          <Text style={styles.countPill}>{column.items.length}</Text>
+        </View>
+      )}
+      <ScrollView
+        contentContainerStyle={styles.columnBody}
+        refreshControl={
+          onRefresh === null ? undefined : (
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          )
+        }
+      >
         {column.error !== null ? (
           <Text style={styles.danger}>{column.error}</Text>
         ) : column.items.length === 0 ? (
@@ -2335,6 +2570,7 @@ function Column({
               viewerLogin={viewerLogin}
               styles={styles}
               platform={platform}
+              compact={compact}
               onSend={onSend}
               onLabels={labelable ? onLabels : null}
               type={column.id}
@@ -2343,6 +2579,64 @@ function Column({
         )}
       </ScrollView>
     </View>
+  );
+}
+
+/**
+ * The compact layout's column picker. It carries every column's count, not only
+ * the selected one's — the horizontal column scroller it replaces showed one
+ * column and hid the other three behind a gesture, which is the opposite of
+ * what a board is for.
+ */
+function ColumnTabs({
+  columns,
+  activeId,
+  styles,
+  onSelect,
+}: {
+  columns: readonly BoardColumn[];
+  activeId: ColumnId;
+  styles: Styles;
+  onSelect: (id: ColumnId) => void;
+}) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.tabBar}
+      contentContainerStyle={styles.tabBarContent}
+    >
+      {/* `.map`, not `for…of`: a closure made in a loop body captures the
+          binding's final value under Hermes. */}
+      {columns.map((column) => {
+        const active = column.id === activeId;
+        return (
+          <Pressable
+            key={column.id}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={
+              column.error === null
+                ? `${column.title}, ${column.items.length}`
+                : `${column.title}, failed to load`
+            }
+            onPress={() => onSelect(column.id)}
+            style={[styles.tab, active ? styles.tabActive : null]}
+          >
+            <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>
+              {column.title}
+            </Text>
+            {column.error === null ? (
+              <Text style={[styles.tabCount, active ? styles.tabCountActive : null]}>
+                {column.items.length}
+              </Text>
+            ) : (
+              <Text style={[styles.tabError, active ? styles.tabCountActive : null]}>!</Text>
+            )}
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }
 
@@ -2371,6 +2665,8 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     () => cachedHidden ?? new Set(),
   );
   const [filterOpen, setFilterOpen] = useState(false);
+  /** Which column the compact layout shows. Ignored where all four fit at once. */
+  const [columnId, setColumnId] = useState<ColumnId>(cachedColumnId);
   /** The surface shows one of two things; plugins cannot route between surfaces. */
   const [showSettings, setShowSettings] = useState(false);
   const [prompts, setPrompts] = useState<PromptSettings | null>(cachedPrompts);
@@ -2492,6 +2788,19 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         : column,
     );
   }, [board, hiddenRepos]);
+
+  /**
+   * The column the compact layout is showing. Falls back to the first rather
+   * than rendering nothing if a saved id ever names a column the board no
+   * longer has.
+   */
+  const activeColumn =
+    columns.find((column) => column.id === columnId) ?? columns[0] ?? null;
+
+  const selectColumn = useCallback((id: ColumnId) => {
+    cachedColumnId = id;
+    setColumnId(id);
+  }, []);
 
   /** Applies a selection locally and saves it, so it survives the next unmount. */
   const commitHidden = useCallback(
@@ -2654,7 +2963,12 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   return (
     <View ref={rootRef} style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>{showSettings ? "GitHub settings" : "GitHub"}</Text>
+        {/* The surface chrome already names the plugin, and on a phone that
+            title is the width the repository filter needs. The settings view
+            keeps its own, because the chrome does not say which view this is. */}
+        {props.layout.compact && !showSettings ? null : (
+          <Text style={styles.title}>{showSettings ? "GitHub settings" : "GitHub"}</Text>
+        )}
         {showSettings ? null : repositories.length > 0 ? (
           <RepoFilter
             repositories={repositories}
@@ -2678,8 +2992,10 @@ export function GitHubBoard(props: PluginSurfaceProps) {
           </Pressable>
         ) : (
           <>
-            {board !== null && !props.layout.compact ? (
-              <Text style={styles.subtle}>Updated {relativeTime(board.fetchedAt)}</Text>
+            {board !== null ? (
+              <Text style={styles.headerAge} numberOfLines={1}>
+                Updated {relativeTime(board.fetchedAt)}
+              </Text>
             ) : null}
             <Pressable
               accessibilityRole="button"
@@ -2689,16 +3005,23 @@ export function GitHubBoard(props: PluginSurfaceProps) {
                 setShowSettings(true);
               }}
             >
-              <Text style={styles.ghostButtonLabel}>Configure prompts</Text>
+              <Text style={styles.ghostButtonLabel}>
+                {props.layout.compact ? "Prompts" : "Configure prompts"}
+              </Text>
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              style={styles.button}
-              onPress={() => void refresh(undefined, true)}
-              disabled={busy}
-            >
-              <Text style={styles.buttonLabel}>{busy ? "Loading…" : "Refresh"}</Text>
-            </Pressable>
+            {/* Compact refreshes by pulling the list down, so the button would
+                be a second way to do the same thing in the row with the least
+                room for one. */}
+            {props.layout.compact ? null : (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.button}
+                onPress={() => void refresh(undefined, true)}
+                disabled={busy}
+              >
+                <Text style={styles.buttonLabel}>{busy ? "Loading…" : "Refresh"}</Text>
+              </Pressable>
+            )}
           </>
         )}
       </View>
@@ -2734,19 +3057,30 @@ export function GitHubBoard(props: PluginSurfaceProps) {
           {busy ? <ActivityIndicator color={props.theme.colors.accent} /> : null}
         </View>
       ) : props.layout.compact ? (
-        <ScrollView horizontal contentContainerStyle={styles.columnsContent}>
-          {columns.map((column) => (
+        <>
+          <ColumnTabs
+            columns={columns}
+            activeId={activeColumn?.id ?? columnId}
+            styles={styles}
+            onSelect={selectColumn}
+          />
+          {activeColumn === null ? null : (
             <Column
-              key={column.id}
-              column={column}
+              // Keyed by column, so switching tabs starts the new list at the
+              // top instead of inheriting the last one's scroll offset.
+              key={activeColumn.id}
+              column={activeColumn}
               viewerLogin={board.login}
               styles={styles}
               platform={props.layout.platform}
+              compact
+              refreshing={busy}
+              onRefresh={() => void refresh(undefined, true)}
               onSend={openSendDialog}
               onLabels={openLabelMenu}
             />
-          ))}
-        </ScrollView>
+          )}
+        </>
       ) : (
         <View style={[styles.columns, styles.columnsContent]}>
           {columns.map((column) => (
@@ -2756,6 +3090,9 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               viewerLogin={board.login}
               styles={styles}
               platform={props.layout.platform}
+              compact={false}
+              refreshing={false}
+              onRefresh={null}
               onSend={openSendDialog}
               onLabels={openLabelMenu}
             />
