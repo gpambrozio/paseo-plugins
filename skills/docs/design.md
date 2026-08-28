@@ -32,10 +32,10 @@ leaving Paseo and finding the file by hand.
 
 **Built-in and bundled skills carry no detail.** Filesystem discovery only sees skills that live in
 a scannable directory. Skills bundled inside the agent binary have no `SKILL.md` to find — Claude
-compiles them into a single ~320 MB Mach-O executable, so there is nothing on disk to scan. The
-`Built-in skills` and `Built-in commands` sections list them by asking the session itself, but a
-reported entry has only a name, a description, and an argument hint: no path, no body, and therefore
-no detail screen.
+compiles them into a single ~320 MB Mach-O executable, so there is nothing on disk to scan, and
+Codex's SYSTEM scope is documented as "bundled with Codex" with no local path. The `Built-in skills`
+and `Built-in commands` sections list them by asking the session itself, but a reported entry has
+only a name, a description, and an argument hint: no path, no body, and therefore no detail screen.
 
 **`kind` is the provider's guess, and on Claude it is wrong more often than not.** The two sections
 split on the `kind` the provider assigns. Claude assigns it from a hardcoded denylist of ten
@@ -53,12 +53,18 @@ We keep entries whose `kind` is unset as skills, on the reasoning that an unclas
 likely to be an unlabelled skill than a session control, and that bucketing them as commands would
 empty the skills section for any provider that omits the field.
 
-**The reported list needs a daemon that has `agent.commands()`.** It shipped in the Paseo SDK after
-`0.5.0-beta.4`. On an older daemon the method is simply absent and the section does not render.
+**The reported list needs a daemon that has `agent.commands()`.** It shipped in Paseo
+`0.7.0-beta.2`. On an older daemon the method is simply absent and the section does not render.
 
-**The Codex mirror follows a fallback path.** `listCodexSkills` is what Paseo uses only when
-Codex's own `skills/list` RPC fails; normally the composer lists what Codex reports, including an
-`enabled` flag we cannot see. A disabled Codex skill will appear in our panel.
+**Disabled Codex skills appear.** Codex disables a skill without deleting it through
+`[[skills.config]]` in `~/.codex/config.toml`, and its `skills/list` RPC reports the resulting
+`enabled` flag. Paseo's composer honours it; a directory scan cannot see it. Reading that TOML is
+the cheapest way to close this and is not done yet.
+
+**Shadowed copies are hidden, but Codex does not hide them.** Codex's docs are explicit: "If two
+skills share the same `name`, Codex doesn't merge them; both can appear in skill selectors." This
+panel resolves collisions first-wins and shows one row. Across five scopes that silently drops
+real rows — see "Future seams".
 
 ## Constraints that shaped this
 
@@ -72,8 +78,8 @@ the method.
 argument hint — no path, no source, no body. Two of the three goals need the files themselves, so
 filesystem discovery is the primary source, not a fallback.
 
-**Plugin code is trusted and unsandboxed.** The server half reads `~/.claude`, `~/.codex`, and the
-workspace; the client half runs inside the Paseo app. The target daemon needs `pluginsEnabled: true`.
+**Plugin code is trusted and unsandboxed.** The server half reads `~/.claude`, `~/.agents`,
+`~/.codex`, `/etc/codex`, and the workspace; the client half runs inside the Paseo app. The target daemon needs `pluginsEnabled: true`.
 
 **`paseo plugin init` requires an empty directory** (`packages/cli/src/commands/plugin/scaffold.ts:292`).
 Scaffold before adding any file, including this document.
@@ -90,8 +96,8 @@ paseo-skills/
   skills.server.ts                     RPC handlers, provider dispatch
   resolve/claude.server.ts             Claude discovery
   resolve/codex.server.ts              Codex discovery
-  resolve/skill-directory.server.ts    scans one skills directory
-  resolve/repo-root.server.ts          walks up for .git
+  resolve/skill-directory.server.ts    scans one skills directory, and a whole search path
+  resolve/repo-root.server.ts          walks up for .git, lists the dirs in between
   resolve/skill-entry.ts               entry types, id, dedupe
   resolve/frontmatter.ts               SKILL.md parsing, pure
   resolve/reported.ts                  session-reported skill/command split, pure
@@ -137,8 +143,9 @@ Neither call accepts a filesystem path from the client.
 
 ```ts
 const SkillSource = z.object({
-  kind: z.enum(["project", "personal", "plugin", "codex-home", "codex-repo"]),
-  label: z.string(),   // "Project", "Personal", "superpowers", "Codex home"
+  // scopes, not directories: several directories feed each scope
+  kind: z.enum(["project", "repo", "personal", "admin", "plugin"]),
+  label: z.string(),   // "Project", "Repository", "Personal", "Admin", "superpowers"
   dir: z.string(),
 });
 
@@ -200,26 +207,44 @@ plugs in without reshaping the DTO.
 
 ### Codex
 
-Mirror Paseo's own `listCodexSkills` (`packages/server/src/server/agent/providers/codex-app-server-agent.ts:696`)
-so the panel agrees with the composer. Candidate directories, in precedence order:
+Follow the search path Codex documents (developers.openai.com/codex/skills), not Paseo's
+`listCodexSkills` (`packages/server/src/server/agent/providers/codex-app-server-agent.ts:696`).
+Those disagree: Paseo's function scans `.codex/skills`, and Codex scans `.agents/skills`. It is a
+fallback Paseo uses only when Codex's own `skills/list` RPC fails, so the composer is normally
+right and the fallback is stale. Mirroring it is what made the panel show seven skills to a user
+with a hundred and thirteen.
 
-1. `<cwd>/.codex/skills`
-2. `<parent of cwd>/.codex/skills` and `<repo root>/.codex/skills`, when `cwd` is in a repo
-3. `<CODEX_HOME or ~/.codex>/skills`
+Candidate directories, in precedence order:
 
-Each direct child directory (or symlink) is a skill; read its `SKILL.md`. First `name` wins.
-Entries whose frontmatter lacks `name` or `description` are skipped, matching Paseo — otherwise
-the panel would list skills the agent cannot see.
+1. `<dir>/.agents/skills` then `<dir>/.codex/skills`, for every `<dir>` from `cwd` up to the
+   repository root — `cwd` itself is scope `project`, every ancestor is scope `repo`
+2. `~/.agents/skills` then `<CODEX_HOME or ~/.codex>/skills` — scope `personal`
+3. `/etc/codex/skills` — scope `admin`
 
-The plugin has no `WorkspaceGitService`. Resolve the repo root by walking up for `.git`.
+`.codex/skills` is not in Codex's documented set. It stays in the list one rank below its
+`.agents` sibling because Paseo's own orchestration sync writes there
+(`orchestration-skills/internal/paths.ts` targets all three of `.agents`, `.claude`, `.codex`) and
+because older Codex builds read it. Dropping it would hide skills from anyone whose install still
+uses it; ranking it second means the documented copy wins when a name lives in both.
+
+Each direct child directory (or symlink) is a skill; read its `SKILL.md`. Codex follows symlinked
+skill folders too. First `name` wins. Entries whose frontmatter lacks `name` or `description` are
+skipped, matching Paseo — otherwise the panel would list skills the agent cannot see.
+
+The plugin has no `WorkspaceGitService`. Resolve the repo root by walking up for `.git`. Outside a
+repository the walk has no stopping point, so it yields `cwd` alone rather than climbing to `/`.
 
 ### Claude
 
 In precedence order:
 
 1. `<cwd>/.claude/skills/<name>/SKILL.md` — source `project`
-2. `~/.claude/skills/<name>/SKILL.md` — source `personal`
-3. Plugin skills — read `~/.claude/plugins/installed_plugins.json` (`version: 2`). For each
+2. `<dir>/.claude/skills/<name>/SKILL.md` for every `<dir>` between `cwd` and the repository
+   root — source `repo`. Claude loads project skills from every parent of `cwd` up to the repo
+   root, not from `cwd` alone, so an agent started in a subdirectory still sees what the
+   repository checked in.
+3. `~/.claude/skills/<name>/SKILL.md` — source `personal`
+4. Plugin skills — read `~/.claude/plugins/installed_plugins.json` (`version: 2`). For each
    installed entry take `installPath`, scan `installPath/skills/*/SKILL.md`, and name the skill
    `<plugin>:<skill>`. Scope by `projectPath`, not by the `scope` string: an entry with a
    `projectPath` applies only when the agent's `cwd` is inside it, and an entry with no
@@ -236,9 +261,21 @@ every discovered skill is loaded. Filesystem discovery and session availability 
 
 ### Deliberately not read
 
-`~/.agents/skills`. Paseo's orchestration sync writes the same skills into `~/.claude/skills` and
-`~/.codex/skills` (`packages/server/src/server/orchestration-skills/internal/paths.ts`), where they
-already surface as `personal`. Reading `.agents` too would double every Paseo skill.
+`.agents/skills` for a Claude agent. Claude Code documents `.claude/skills` and plugin skills; it
+does not scan `.agents`. The cross-agent installers that use `~/.agents/skills` as their store
+symlink into `~/.claude/skills`, and the scan follows symlinks, so those skills arrive by the
+documented path.
+
+`~/.codex/skills/.system`, where OpenAI is reported to ship a couple of global skills. The
+directory holds skills one level deeper than every other candidate, and the only evidence for it
+is third-party. Not worth a special case until someone with the directory confirms it.
+
+An earlier version of this document excluded `~/.agents/skills` outright, on the grounds that
+Paseo's orchestration sync writes the same skills into `~/.claude/skills` and `~/.codex/skills`
+and reading `.agents` too "would double every Paseo skill". Both halves were wrong. `dedupeByName`
+collapses same-named entries, so nothing doubles — verified against the real directories, which
+hold byte-identical copies of the same seven skills. And the sync only mirrors the skills Paseo
+ships; anything else in `~/.agents/skills` is mirrored nowhere and was invisible.
 
 ### Unsupported providers
 
@@ -309,7 +346,10 @@ Fail loudly where the user would otherwise be misled, quietly where absence is t
 Resolvers are pure functions over an injected root directory, tested with vitest against temp-dir
 fixtures in the plugin project:
 
-- precedence order, per provider
+- precedence order, per provider, across `.agents` and `.codex` within one directory
+- the walk covers every directory from `cwd` to the repository root, and stops there
+- outside a repository the walk does not climb past `cwd`
+- a directory named by two scopes at once (a repo rooted at `$HOME`) is read once
 - first-wins on a name collision across directories
 - entries missing `name` or `description` are skipped
 - absent directories do not fail the scan
@@ -334,6 +374,11 @@ The panel is verified by hand in the app; there is no test harness for plugin UI
   because a skill filtered out as a command is indistinguishable from one that failed to load.
 - **Detail for reported entries.** The reduced detail screen has no body to show. If a provider ever
   reports a source path, the full `SkillDetail` takes it unchanged.
+- **Show shadowed copies.** Every entry already carries the directory it came from, so rendering
+  the losers of a name collision greyed out is a panel change, not a discovery change. It matches
+  Codex, which does not merge same-named skills.
+- **Read `~/.codex/config.toml`.** Its `[[skills.config]]` entries are how Codex disables a skill
+  without deleting it — the one piece of state `enabled` carries that a directory scan misses.
 - **Open on host.** An RPC spawning `code -g <path>` on the daemon machine would make the mobile
   path usable. Rejected for v1 to keep the plugin free of process spawning.
 - **More providers.** Each is one `resolve/<provider>.server.ts` module plus a registry entry.

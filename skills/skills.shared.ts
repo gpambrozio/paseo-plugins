@@ -2,7 +2,9 @@ import { defineRpc } from "@getpaseo/plugin/server";
 import { z } from "zod";
 
 export const SkillSourceSchema = z.object({
-  kind: z.enum(["project", "personal", "plugin", "codex-home", "codex-repo"]),
+  // Must stay in step with SkillSourceKind in resolve/skill-entry.ts — a
+  // mismatch fails zod validation at runtime, not at compile time.
+  kind: z.enum(["project", "repo", "personal", "admin", "plugin"]),
   label: z.string(),
   dir: z.string(),
 });

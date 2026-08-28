@@ -157,17 +157,54 @@ Re-reviewer noted one out-of-scope UX quirk (deferred): if the agent disappears 
 Re-reviewer noted one parse edge (deferred): `user-invocable: False` with a capital F would be misread as invocable. Every real occurrence on this machine is lowercase.
 PROJECT COMPLETE: 13 commits, 47 tests passing, plugin running in the user's daemon at ~/.paseo.
 
-## Reported skills (2026-08-22)
+## 2026-08-25 — issue #3, "Doesn't load all skills that the workspace has access to"
 
-Ruling 27: the "built-in skills are invisible" limitation was closed by an upstream change rather
+Reporter sees 7 Codex skills in the panel and has 113 in `~/.agents/skills`.
+
+Ruling 27 (root cause): the panel mirrored Paseo's `listCodexSkills`, which scans `.codex/skills`.
+Codex's own docs scan `.agents/skills` — repo walk, then `$HOME/.agents/skills`, then
+`/etc/codex/skills`. Paseo's function is a fallback used only when Codex's `skills/list` RPC
+fails, so it can be stale without anyone noticing; the composer lists what Codex reports. Ruling:
+follow the documented search path, and treat "agrees with Paseo's fallback" as no longer a goal.
+Cost if wrong: if a Codex build still keyed on `.codex/skills` alone, nothing regresses — that
+directory is still read, one rank lower.
+
+Ruling 28: `docs/design.md`'s "Deliberately not read: `~/.agents/skills`" was wrong twice.
+`dedupeByName` collapses same-named entries, so reading it doubles nothing (verified: `~/.agents/skills`
+and `~/.codex/skills` on this machine hold byte-identical copies of the same seven Paseo skills,
+and the resolver now lists them once, sourced from `.agents`). And the orchestration sync only
+mirrors the skills Paseo ships — a user's own `~/.agents/skills` entries were mirrored nowhere.
+Cost if wrong: none found; the claim was checked against the real directories, not fixtures.
+
+Ruling 29: fix the same bug class in the Claude resolver in the same pass, though the issue does
+not mention it. Claude loads `.claude/skills` from every parent of cwd up to the repo root; the
+resolver read `<cwd>/.claude/skills` alone, so an agent started in a subdirectory saw none of the
+repository's skills. Cost if wrong: a wider walk lists a skill the agent does not have — bounded
+by the repo root, which is where Claude stops too.
+
+Ruling 30: rename the source kinds from directory-shaped (`codex-home`, `codex-repo`) to
+scope-shaped (`project`, `repo`, `personal`, `admin`, `plugin`). Several directories now feed one
+scope, so a kind cannot name a directory any more. Ids are transient — `skills.read` re-runs
+discovery — so nothing persisted breaks. Cost if wrong: three files to edit back
+(`skill-entry.ts`, `skills.shared.ts`, `panel.client.tsx`).
+
+Ruling 31: NOT reading `~/.codex/config.toml` for `[[skills.config]]` disables, NOT scanning
+`~/.codex/skills/.system`, and NOT rendering shadowed duplicates, though Codex shows them. All
+three are recorded under Limitations and Future seams instead. Cost if wrong: a disabled skill
+still shows an Invoke button, as it did before this change.
+
+## Reported skills (2026-08-22, landed 2026-08-28)
+
+Ruling 32: the "built-in skills are invisible" limitation was closed by an upstream change rather
 than worked around. `PaseoAgentHandle` had no way to ask a session what it loaded, so v1 could only
 scan directories. `DaemonClient.listCommands` had existed all along — claude, codex, opencode, acp,
 omp, and pi all implement it — but `createPaseoApi` never exposed it and `PluginHandlerContext` is
 `{ paseo: PaseoApi }`, so plugin code could not reach it. Added `agent.commands()` upstream as a
-thin delegation (getpaseo/paseo#3719, draft) and consumed it here. Cost if wrong: the section is
-dead weight until that PR merges, and the plugin degrades to exactly v1 behaviour in the meantime.
+thin delegation (getpaseo/paseo#3719) and consumed it here. That PR merged on 2026-08-28 and
+shipped in `0.7.0-beta.2`, unchanged in shape from what this branch was written against. Cost if
+wrong: on a daemon older than that the plugin degrades to exactly v1 behaviour.
 
-Ruling 28: NOT repointing `@getpaseo/client` at the local monorepo checkout to pick up the new
+Ruling 33: NOT repointing `@getpaseo/client` at the local monorepo checkout to pick up the new
 types. A `file:` dependency breaks `npm install` from a fresh clone, which c05ba3e deliberately
 fixed, and augmenting the package's `PaseoAgentHandle` would conflict once the real bump lands.
 Instead `resolve/reported.ts` declares a structural `supportsCommands()` type guard. That guard is
@@ -176,34 +213,34 @@ this project's node_modules, so the method can be absent whatever the types clai
 costs nothing extra and stays correct after the dependency bump. Cost if wrong: the plugin's types
 for this one call are hand-written rather than derived.
 
-Ruling 29: reported rows are inert, not pressable. The entry has no path and no body, so a detail
+Ruling 34: reported rows are inert, not pressable. The entry has no path and no body, so a detail
 screen would show the name and description the row already shows. Cost if wrong: no way to invoke a
 built-in skill from the panel, which the design's "Invoke" verb otherwise implies. Reversible: the
 detail screen takes a path unchanged if a provider ever reports one.
 
-Ruling 30: `supported` keeps meaning "filesystem discovery supported" and the panel's fallback
+Ruling 35: `supported` keeps meaning "filesystem discovery supported" and the panel's fallback
 message now requires both sources to be empty. Otherwise opencode/pi/acp agents would show "does
 not support skills" while sitting on a populated reported list. Cost if wrong: a provider with
 neither discovery nor commands shows an empty panel instead of an explanation — guarded by also
 checking `reported.error`.
 
-Ruling 31: an entry whose `kind` the provider left unset is KEPT, not dropped. Claude classifies by
+Ruling 36: an entry whose `kind` the provider left unset is KEPT, not dropped. Claude classifies by
 a hardcoded denylist and calls everything else a skill, but the protocol marks `kind` optional and
 other providers may omit it; dropping unclassified entries would hide every skill from those
 providers. Cost if wrong: a session control leaks into the skills section for a provider that does
 not classify.
 
-Ruling 32: a failure from `commands()` never fails `skills.list`. Discovery already succeeded, and
+Ruling 37: a failure from `commands()` never fails `skills.list`. Discovery already succeeded, and
 losing the whole panel because the session could not answer is worse than a missing section. The
 error travels inside `reported` so the panel can say why the section is empty.
 
-VERIFICATION GAP: the populated section is unverified. The running daemon is 0.5.0-beta.4, which
-predates `agent.commands()`, so against it the plugin takes the `available: false` path and renders
-no section. Reload is clean and 63 tests pass, including five handler tests that stub `commands()`,
-but nobody has seen the section render with real data. That needs a daemon built from the upstream
-branch, and `panel.client.tsx` has no test harness.
+VERIFICATION GAP (closed 2026-08-28): the populated section was first written against a daemon
+that predated `agent.commands()`, so it could only take the `available: false` path. It was then
+verified against a dev daemon built from the upstream branch (below), and `0.7.0-beta.2` shipped
+that same code, so the released path is the verified one. `panel.client.tsx` still has no test
+harness — the panel itself is checked by hand.
 
-Ruling 33 (supersedes Ruling 31's filter, user decision): show two sections, `Built-in skills` and
+Ruling 38 (supersedes Ruling 36's filter, user decision): show two sections, `Built-in skills` and
 `Built-in commands`, rather than dropping `kind === "command"` entirely. Entries with no `kind`
 still count as skills.
 
@@ -223,18 +260,18 @@ better signal: Claude's built-ins are compiled into a single ~320 MB Mach-O bina
 same `kind` for `/` autocomplete, so the panel agrees with the composer — the fix belongs upstream
 in `classifyClaudeSlashCommand`, not here.
 
-Ruling 34 (supersedes Ruling 29, user decision): reported rows ARE pressable. They open a reduced
-detail screen with the full description and a working Invoke button. Ruling 29 argued a detail
+Ruling 39 (supersedes Ruling 34, user decision): reported rows ARE pressable. They open a reduced
+detail screen with the full description and a working Invoke button. Ruling 34 argued a detail
 screen would only repeat the row; that was wrong on two counts — the list clips descriptions to two
 lines, and Invoke is the panel's main verb, which inert rows denied to exactly the skills a user
 cannot reach any other way in this panel.
 
-Ruling 35: extracted `useInvoke` and `InvokeControls` rather than copying the send into the new
+Ruling 40: extracted `useInvoke` and `InvokeControls` rather than copying the send into the new
 screen. Ruling 20 added a re-entrancy guard because a double tap on a slow connection invoked a
 skill twice on a live agent; a copied implementation would have been a second place for that bug to
 come back. `detailStyles` extracted alongside for the same reason as `listStyles`.
 
-Ruling 36: reported entries are addressed by name in the selection state, discovered ones by id.
+Ruling 41: reported entries are addressed by name in the selection state, discovered ones by id.
 Verified against a real session that all 55 reported names are unique across both buckets. A refetch
 that drops the selected entry clears the selection during render and falls back to the list.
 

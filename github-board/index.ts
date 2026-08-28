@@ -1,23 +1,47 @@
 import type { PluginContext } from "@getpaseo/plugin";
 import { GitHubBoard } from "./board.client";
-import { loadBoardHandler, saveLoginHandler } from "./board.server";
-import { loadBoard, saveLogin } from "./board.shared";
+import {
+  listLabelsHandler,
+  loadBoardHandler,
+  saveLoginHandler,
+  savePromptsHandler,
+  saveRepositoryFilterHandler,
+  sendOptionsHandler,
+  sendToChatHandler,
+  toggleLabelHandler,
+} from "./board.server";
+import {
+  listLabels,
+  loadBoard,
+  savePrompts,
+  saveLogin,
+  saveRepositoryFilter,
+  sendOptions,
+  sendToChat,
+  toggleLabel,
+} from "./board.shared";
 
 export default function contribute(plugin: PluginContext) {
   plugin.handle(loadBoard, loadBoardHandler);
   plugin.handle(saveLogin, saveLoginHandler);
+  plugin.handle(saveRepositoryFilter, saveRepositoryFilterHandler);
+  plugin.handle(savePrompts, savePromptsHandler);
+  plugin.handle(sendOptions, sendOptionsHandler);
+  plugin.handle(sendToChat, sendToChatHandler);
+  plugin.handle(listLabels, listLabelsHandler);
+  plugin.handle(toggleLabel, toggleLabelHandler);
 
   plugin.addSurface("board", GitHubBoard);
   plugin.addSidebarItem({
     id: "board",
     title: "GitHub",
-    icon: "LayoutDashboard",
+    icon: "Github",
     surface: "board",
   });
   plugin.addCommandCenterItem({
     id: "open-board",
     title: "Open GitHub board",
-    icon: "LayoutDashboard",
+    icon: "Github",
     keywords: ["github", "issues", "pull requests", "prs", "discussions"],
     context: "global",
     onSelect({ openSurface }) {

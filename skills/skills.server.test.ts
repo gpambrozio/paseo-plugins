@@ -71,6 +71,8 @@ beforeEach(async () => {
   roots = {
     claudeHome: path.join(root, "claude-home"),
     codexHome: path.join(root, "codex-home"),
+    agentsHome: path.join(root, "agents-home"),
+    adminSkillsDir: path.join(root, "etc", "codex", "skills"),
   };
 });
 
@@ -93,7 +95,7 @@ describe("createListSkillsHandler", () => {
 
   test("lists codex skills for a codex agent", async () => {
     const cwd = path.join(root, "work");
-    await writeSkill(path.join(cwd, ".codex", "skills"), "deploy", "Deploys the app");
+    await writeSkill(path.join(cwd, ".agents", "skills"), "deploy", "Deploys the app");
     const handler = createListSkillsHandler(roots);
 
     const result = await handler(
@@ -227,10 +229,11 @@ describe("defaultSkillRoots", () => {
     expect(roots.codexHome).toBe("/custom/codex");
   });
 
-  test("falls back to ~/.codex and always uses ~/.claude", () => {
+  test("falls back to ~/.codex and always uses ~/.claude and ~/.agents", () => {
     const roots = defaultSkillRoots({} as NodeJS.ProcessEnv);
     expect(roots.codexHome).toBe(path.join(os.homedir(), ".codex"));
     expect(roots.claudeHome).toBe(path.join(os.homedir(), ".claude"));
+    expect(roots.agentsHome).toBe(path.join(os.homedir(), ".agents"));
   });
 });
 

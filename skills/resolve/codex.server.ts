@@ -1,39 +1,50 @@
 import path from "node:path";
 
-import { findRepoRoot } from "./repo-root.server";
-import { readSkillsFromDirectory } from "./skill-directory.server";
-import { dedupeByName, type SkillEntry } from "./skill-entry";
+import { dirsUpToRepoRoot } from "./repo-root.server";
+import { readSkillCandidates, type SkillDirectoryCandidate } from "./skill-directory.server";
+import type { SkillEntry } from "./skill-entry";
 
 export interface CodexResolveOptions {
   cwd: string;
+  /** `$CODEX_HOME` or `~/.codex`. Only the legacy `skills` directory is read from it. */
   codexHome: string;
+  /** `~/.agents`, the documented home for user-scoped skills. */
+  agentsHome: string;
+  /** `/etc/codex/skills`, the admin scope. */
+  adminSkillsDir: string;
 }
 
 /**
- * Mirrors Paseo's own listCodexSkills so this panel and the composer agree.
- * Directories are searched in precedence order and the first name wins.
+ * Follows Codex's documented search path: `.agents/skills` in every directory
+ * from cwd up to the repository root, then `$HOME/.agents/skills`, then
+ * `/etc/codex/skills`.
+ *
+ * `.codex/skills` is read alongside each `.agents/skills` and at `$CODEX_HOME`
+ * because that is where Paseo's own orchestration sync writes and where older
+ * Codex builds looked. It sits second within each scope, so when a name lives
+ * in both the documented directory wins.
+ *
+ * Codex's bundled system skills have no path on disk and stay invisible here.
  */
 export async function resolveCodexSkills(options: CodexResolveOptions): Promise<SkillEntry[]> {
-  const repoRoot = await findRepoRoot(options.cwd);
-  const groups: Array<Promise<SkillEntry[]>> = [
-    readSkillsFromDirectory(path.join(options.cwd, ".codex", "skills"), "project", "Project"),
-  ];
+  const dirs = await dirsUpToRepoRoot(options.cwd);
 
-  if (repoRoot) {
-    groups.push(
-      readSkillsFromDirectory(
-        path.join(path.dirname(options.cwd), ".codex", "skills"),
-        "codex-repo",
-        "Repository",
-      ),
-      readSkillsFromDirectory(path.join(repoRoot, ".codex", "skills"), "codex-repo", "Repository"),
-    );
-  }
+  const candidates: SkillDirectoryCandidate[] = dirs.flatMap((dir, index) => {
+    const scope =
+      index === 0
+        ? { kind: "project" as const, label: "Project" }
+        : { kind: "repo" as const, label: "Repository" };
+    return [
+      { dir: path.join(dir, ".agents", "skills"), ...scope },
+      { dir: path.join(dir, ".codex", "skills"), ...scope },
+    ];
+  });
 
-  groups.push(
-    readSkillsFromDirectory(path.join(options.codexHome, "skills"), "codex-home", "Codex home"),
+  candidates.push(
+    { dir: path.join(options.agentsHome, "skills"), kind: "personal", label: "Personal" },
+    { dir: path.join(options.codexHome, "skills"), kind: "personal", label: "Personal" },
+    { dir: options.adminSkillsDir, kind: "admin", label: "Admin" },
   );
 
-  const resolved = await Promise.all(groups);
-  return dedupeByName(resolved.flat()).sort((a, b) => a.name.localeCompare(b.name));
+  return readSkillCandidates(candidates);
 }

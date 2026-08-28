@@ -31,7 +31,11 @@ Focus a workspace tab holding an agent, press ⌘K, and pick **Skills**.
 
 ## Demo
 
-<video src="https://github.com/gpambrozio/paseo-skills/raw/main/docs/media/demo.mp4" controls></video>
+
+
+https://github.com/user-attachments/assets/cbb0166e-d981-4367-a5b4-5b12d2e7c14c
+
+
 
 ## Develop
 
@@ -51,10 +55,10 @@ A failed reload stays failed; Paseo does not restore the previous code.
 | `index.ts`                      | Contribution wiring only.                                 |
 | `skills.shared.ts`              | zod RPC contracts, imported by both runtimes.             |
 | `skills.server.ts`              | RPC handlers; resolves the agent, dispatches by provider. |
-| `resolve/claude.server.ts`      | Claude project, personal, and plugin skills.               |
-| `resolve/codex.server.ts`       | Codex workspace, repository, and home skills.              |
-| `resolve/repo-root.server.ts`   | Walks up from the working directory for `.git`.            |
-| `resolve/skill-directory.server.ts` | Scans one `skills` directory.                         |
+| `resolve/claude.server.ts`      | Claude project, repository, personal, and plugin skills.   |
+| `resolve/codex.server.ts`       | Codex project, repository, personal, and admin skills.     |
+| `resolve/repo-root.server.ts`   | Walks up for `.git`, and lists the directories in between. |
+| `resolve/skill-directory.server.ts` | Scans one `skills` directory, and a whole search path. |
 | `resolve/skill-entry.ts`        | Entry types, skill id construction, first-wins dedupe.     |
 | `resolve/frontmatter.ts`        | `SKILL.md` frontmatter parsing.                            |
 | `resolve/reported.ts`           | Splits session-reported entries discovery did not find.    |
