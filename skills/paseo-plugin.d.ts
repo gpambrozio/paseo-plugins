@@ -93,6 +93,15 @@ declare module "@getpaseo/plugin" {
 
   export interface PluginSurfaceProps extends PluginHostProps {}
 
+  export interface PluginIconProps {
+    name: string;
+    size?: number;
+    color?: string;
+  }
+
+  /** Renders a Lucide icon by name. The host throws on an unknown name. */
+  export const Icon: ComponentType<PluginIconProps>;
+
   export interface PluginWorkspaceSnapshot {
     readonly id: string;
     readonly projectId: string;
@@ -186,6 +195,38 @@ declare module "@getpaseo/plugin" {
     | { id: string; title: string; icon: string; keywords?: readonly string[]; context: "workspace"; onSelect(context: PluginWorkspaceCommandContext): void | Promise<void> }
     | { id: string; title: string; icon: string; keywords?: readonly string[]; context: "agent"; onSelect(context: PluginAgentCommandContext): void | Promise<void> };
 
+  export interface PluginComposerPillProps extends PluginHostProps {
+    workspaceId: string;
+    agentId: string;
+  }
+
+  export interface PluginComposerPillContribution {
+    id: string;
+    title: string;
+    workspaceId: string;
+    agentId: string;
+    Component: ComponentType<PluginComposerPillProps>;
+    onPress(): void | Promise<void>;
+  }
+
+  export interface PluginClientOpenPanelOptions {
+    workspaceId: string;
+    agentId?: string;
+  }
+
+  /**
+   * The headless client entrypoint's context. It has no host of its own, so
+   * `openPanel` names the workspace and agent explicitly rather than inferring
+   * them from a surrounding surface.
+   */
+  export interface PluginClientContext extends PluginCommandCapabilities {
+    /** Returns an idempotent removal function for the pill it registered. */
+    addComposerPill(contribution: PluginComposerPillContribution): PluginCleanup;
+    openPanel(id: string, options: PluginClientOpenPanelOptions): void;
+  }
+
+  export type PluginClientContribution = (client: PluginClientContext) => PluginCleanup;
+
   export interface PluginContext {
     handle<InputSchema extends ZodType, OutputSchema extends ZodType>(
       contract: PluginRpcContract<InputSchema, OutputSchema>,
@@ -198,6 +239,7 @@ declare module "@getpaseo/plugin" {
     addSidebarItem(contribution: PluginSidebarContribution): void;
     addWorkspacePanel(contribution: PluginWorkspacePanelContribution): void;
     addCommandCenterItem(contribution: PluginCommandCenterItemContribution): void;
+    addClientSide(contribution: PluginClientContribution): void;
     addAttachmentSource(contribution: PluginAttachmentSourceContribution): void;
   }
 

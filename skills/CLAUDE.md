@@ -11,7 +11,8 @@ Discovery reads the filesystem, and that is why the design looks the way it does
 goals — source and rendered body — need the `SKILL.md` itself, which the live session cannot supply.
 `agent.commands()` asks the session what it loaded and is used additively, for the built-in and
 bundled entries that live on no scannable path. It carries only a name, a description, and an
-argument hint.
+argument hint. It answers for every provider, which is why the panel has no "unsupported provider"
+state: `scanned` records whether discovery walked a directory, and nothing more.
 
 Do not edit the Paseo host from here. Adding `agent.commands()` upstream (getpaseo/paseo#3719) was a
 deliberate exception, taken because no plugin-side workaround exists for skills compiled into an
@@ -53,6 +54,14 @@ entries there exist because a reviewer proved the code was wrong about the real 
   the daemon's bundled client, not this folder's `node_modules`, so an older daemon has no such
   method. `supportsCommands()` in `resolve/reported.ts` is a real guard, not a leftover; deleting it
   because the type says the method exists breaks the panel on every daemon below that version.
-- **The Command Center item is the only way to open the panel.** `addWorkspacePanel` registers the
-  tab type; nothing in Paseo enumerates registered panels, so removing the Command Center item
-  makes the panel unreachable.
+- **Nothing in Paseo enumerates registered panels.** `addWorkspacePanel` registers the tab type
+  only; the panel is reachable because the Command Center item and the composer pill both call
+  `openPanel`. Remove both and the panel exists but cannot be opened.
+- **The composer pill needs `addClientSide`, which the shim had to grow.** `skills` types
+  `@getpaseo/plugin` from its own hand-written `paseo-plugin.d.ts`, so `addClientSide`, `Icon`, and
+  the `PluginClientContext` / `PluginComposerPillProps` types are declared there, not imported. Any
+  further host API the pill needs has to be added to that file first.
+- **A pill's registration is not its render.** `contributeClient` registers a pill for every agent
+  on the host, but the component only mounts when that agent's composer is on screen — which is
+  what keeps the badge's `skills.list` call bounded to visible agents rather than to every agent
+  that exists.

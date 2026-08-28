@@ -87,7 +87,7 @@ describe("createListSkillsHandler", () => {
       contextFor({ id: "agent-1", provider: "claude", cwd }),
     );
 
-    expect(result.supported).toBe(true);
+    expect(result.scanned).toBe(true);
     expect(result.provider).toBe("claude");
     expect(result.cwd).toBe(cwd);
     expect(result.skills.map((skill) => skill.name)).toEqual(["catchup"]);
@@ -106,7 +106,7 @@ describe("createListSkillsHandler", () => {
     expect(result.skills.map((skill) => skill.name)).toEqual(["deploy"]);
   });
 
-  test("reports an unsupported provider instead of an empty list", async () => {
+  test("reports an unscanned provider instead of an empty list", async () => {
     const handler = createListSkillsHandler(roots);
 
     const result = await handler(
@@ -114,7 +114,7 @@ describe("createListSkillsHandler", () => {
       contextFor({ id: "agent-1", provider: "opencode", cwd: root }),
     );
 
-    expect(result.supported).toBe(false);
+    expect(result.scanned).toBe(false);
     expect(result.provider).toBe("opencode");
     expect(result.skills).toEqual([]);
   });
@@ -217,7 +217,7 @@ describe("createListSkillsHandler", () => {
       ),
     );
 
-    expect(result.supported).toBe(false);
+    expect(result.scanned).toBe(false);
     expect(result.skills).toEqual([]);
     expect(result.reported.skills.map((skill) => skill.name)).toEqual(["explain"]);
   });

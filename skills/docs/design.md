@@ -18,12 +18,14 @@ leaving Paseo and finding the file by hand.
 - Show the absolute `SKILL.md` path for each skill.
 - Render a skill's full body without leaving the app.
 - Invoke a skill in that agent, with optional arguments.
-- Reach the panel from the workspace tab bar and from the Command Center.
+- Reach the panel from the workspace tab bar, the Command Center, and a composer pill.
 
 ## Non-goals
 
 - Editing, creating, installing, or deleting skills.
-- Providers other than Claude and Codex. Copilot, OpenCode, and Pi report "not supported".
+- Scanning skill files for providers other than Claude and Codex. Nobody has documented where
+  Copilot, OpenCode, or Pi keep theirs. Those agents still get a panel, listing what their session
+  reports.
 - Displaying shadowed duplicate copies of a name. Collisions resolve first-wins, silently.
 - Verifying against the live session what it actually loaded. See "Future seams".
 - Any change to the Paseo repository beyond `agent.commands()`, which the panel cannot work around.
@@ -176,7 +178,7 @@ export const listSkills = defineRpc({
   input: z.object({ agentId: z.string() }),
   output: z.object({
     provider: z.string(),
-    supported: z.boolean(),
+    scanned: z.boolean(),
     cwd: z.string().nullable(),
     skills: z.array(SkillEntry),
     reported: ReportedSkills,
@@ -277,12 +279,18 @@ collapses same-named entries, so nothing doubles — verified against the real d
 hold byte-identical copies of the same seven skills. And the sync only mirrors the skills Paseo
 ships; anything else in `~/.agents/skills` is mirrored nowhere and was invisible.
 
-### Unsupported providers
+### Providers with no scannable path
 
-Return `supported: false` with an empty list. `supported` means filesystem discovery, not the panel:
-every provider that implements `listCommands` — opencode, pi, and the ACP agents among them — still
-gets a reported section. The panel falls back to "this provider does not support skills" only when
-discovery is unsupported *and* the session reported nothing and raised no error.
+Return `scanned: false` with an empty discovery list. `scanned` names filesystem discovery, not the
+panel: every provider that implements `listCommands` — opencode, pi, and the ACP agents among them —
+gets a reported section, and the panel renders normally on top of it. A note under the search field
+says where the entries came from, so an agent with no `SKILL.md` anywhere is a shorter list rather
+than a refusal.
+
+An earlier version returned `supported: false` and rendered "this provider does not support skills"
+whenever discovery was unsupported and the session had reported nothing. That message was a lie
+about the plugin as often as about the provider — a session that simply loaded no commands got it
+too — and the name invited exactly that reading.
 
 ## The panel
 

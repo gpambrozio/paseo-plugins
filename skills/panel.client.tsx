@@ -12,7 +12,8 @@ import {
 } from "react-native";
 import type { z } from "zod";
 
-import { listSkills, readSkill, ReportedSkillSchema, SkillEntrySchema } from "./skills.shared";
+import { useSkillsQuery } from "./skills-query.client";
+import { readSkill, ReportedSkillSchema, SkillEntrySchema } from "./skills.shared";
 
 type Skill = z.infer<typeof SkillEntrySchema>;
 type ReportedSkill = z.infer<typeof ReportedSkillSchema>;
@@ -307,23 +308,16 @@ function listStyles(theme: PluginAgentPanelProps["theme"], padding: number) {
 type ListStyles = ReturnType<typeof listStyles>;
 
 export function SkillsPanel({ theme, layout, agentId }: PluginAgentPanelProps) {
-  const agent = useAgent(agentId, (snapshot) => ({
-    provider: snapshot.provider,
-    cwd: snapshot.cwd,
-  }));
-  const callListSkills = useRpc(listSkills);
+  // Only a liveness check — the panel reads everything else off the query, whose
+  // own hook is what tracks `cwd`.
+  const agentCwd = useAgent(agentId, (snapshot) => snapshot.cwd);
   const [search, setSearch] = useState("");
   // Discovered entries are addressed by their stable id; reported ones have no id
   // and are addressed by name, which the server guarantees is unique across both
   // reported buckets.
   const [selected, setSelected] = useState<Selection | null>(null);
 
-  const query = useQuery({
-    queryKey: ["skills", agentId, agent?.cwd],
-    queryFn: () => callListSkills({ agentId }),
-    enabled: agent != null,
-    retry: false,
-  });
+  const query = useSkillsQuery(agentId);
 
   const padding = layout.compact ? 12 : 20;
   const styles = useMemo(() => listStyles(theme, padding), [theme, padding]);
@@ -386,7 +380,7 @@ export function SkillsPanel({ theme, layout, agentId }: PluginAgentPanelProps) {
     );
   }
 
-  if (agent == null) {
+  if (agentCwd == null) {
     return (
       <View style={[styles.screen, { padding }]}>
         <Text style={styles.message}>This agent is no longer available.</Text>
@@ -411,23 +405,10 @@ export function SkillsPanel({ theme, layout, agentId }: PluginAgentPanelProps) {
   }
 
   const reported = query.data?.reported;
-  // The session's own list stands on its own. A provider discovery cannot scan
-  // still reports what it loaded, so "no skill support" is only true when both
-  // sources come back empty.
-  const hasReported =
-    (reported?.skills.length ?? 0) > 0 ||
-    (reported?.commands.length ?? 0) > 0 ||
-    reported?.error != null;
-
-  if (!query.data?.supported && !hasReported) {
-    return (
-      <View style={[styles.screen, { padding }]}>
-        <Text style={styles.message}>
-          {query.data?.provider ?? "This provider"} does not support skills.
-        </Text>
-      </View>
-    );
-  }
+  // Every provider reaches this screen. A provider whose skill directories
+  // nobody has documented still reports what its session loaded, so the panel
+  // renders that and says where it came from rather than refusing outright.
+  const scanned = query.data?.scanned ?? false;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -440,6 +421,12 @@ export function SkillsPanel({ theme, layout, agentId }: PluginAgentPanelProps) {
         autoCorrect={false}
         autoCapitalize="none"
       />
+      {scanned ? null : (
+        <Text style={styles.groupNote}>
+          Skill files are only scanned for Claude and Codex. Everything below is what the{" "}
+          {query.data?.provider ?? "provider"} session reported.
+        </Text>
+      )}
       {filtered.length === 0 &&
       filteredReportedSkills.length === 0 &&
       filteredReportedCommands.length === 0 &&

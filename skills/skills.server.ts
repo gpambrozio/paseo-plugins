@@ -107,7 +107,11 @@ async function resolveForAgent(agent: ResolvedAgent, roots: SkillRoots): Promise
   return [];
 }
 
-function isSupported(provider: string): boolean {
+/**
+ * Only Claude and Codex have documented skill directories to walk. Every other
+ * provider still reaches the panel through what its session reports.
+ */
+function scansSkillFiles(provider: string): boolean {
   return provider === "claude" || provider === "codex";
 }
 
@@ -117,7 +121,7 @@ export function createListSkillsHandler(roots: SkillRoots = defaultSkillRoots())
     const skills = await resolveForAgent(agent, roots);
     return {
       provider: agent.provider,
-      supported: isSupported(agent.provider),
+      scanned: scansSkillFiles(agent.provider),
       cwd: agent.cwd,
       skills,
       reported: await loadReportedSkills(agent, skills),

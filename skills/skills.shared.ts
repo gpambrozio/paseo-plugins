@@ -43,7 +43,12 @@ export const listSkills = defineRpc({
   input: z.object({ agentId: z.string() }),
   output: z.object({
     provider: z.string(),
-    supported: z.boolean(),
+    /**
+     * Whether filesystem discovery ran for this provider — not whether the panel
+     * has anything to show. Every provider that answers `agent.commands()` gets a
+     * reported section regardless.
+     */
+    scanned: z.boolean(),
     cwd: z.string().nullable(),
     skills: z.array(SkillEntrySchema),
     reported: ReportedSkillsSchema,

@@ -3,7 +3,9 @@
 A Paseo plugin that lists the agent skills available to an agent session, shows where each one
 comes from, renders its `SKILL.md`, and invokes it.
 
-Supports Claude and Codex agents. Other providers report that they have no skill support.
+Works with every provider. Claude and Codex additionally get their skill files scanned off disk,
+which is what gives a skill a source, a path, and a rendered body; every other provider shows what
+its running session reports.
 
 ## Install
 
@@ -27,7 +29,9 @@ plugin.
 
 ## Use
 
-Focus a workspace tab holding an agent, press ⌘K, and pick **Skills**.
+Press the **Skills** pill above an agent's composer — its badge counts what the panel will list.
+The Command Center reaches the same panel: focus a workspace tab holding an agent, press ⌘K, and
+pick **Skills**.
 
 ## Demo
 
@@ -63,6 +67,8 @@ A failed reload stays failed; Paseo does not restore the previous code.
 | `resolve/frontmatter.ts`        | `SKILL.md` frontmatter parsing.                            |
 | `resolve/reported.ts`           | Splits session-reported entries discovery did not find.    |
 | `panel.client.tsx`              | The panel: list, search, detail, invoke.                  |
+| `pill.client.tsx`               | The composer pill and the client entrypoint that owns it.  |
+| `skills-query.client.tsx`       | The `skills.list` query the panel and the pill share.      |
 
 `docs/design.md` records why it is shaped this way. Read it before changing discovery.
 

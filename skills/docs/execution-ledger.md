@@ -295,3 +295,36 @@ types describe the package in this repo's `node_modules`; the runtime object com
 client the daemon bundles, which on a pre-`0.7.0-beta.2` daemon has no `commands`. Declaring it
 required would make the guard look redundant while it is still load-bearing. Cost if wrong: the
 types for this one call stay hand-written, which Ruling 33 already priced.
+
+## The composer pill
+
+Ruling 44: the pill exists for EVERY agent, and the "this provider does not support skills" wall
+goes with it. Discovery still only walks Claude's and Codex's directories, but `agent.commands()`
+already answered for every provider — the wall was the one thing hiding that, and it fired on a
+Claude agent whose session happened to report nothing just as readily as on an opencode one. The
+flag is now `scanned`, which says what it actually tests. Cost if wrong: a provider that neither
+scans nor reports shows an empty list under a note explaining why, instead of one sentence.
+
+Ruling 45: the pill's badge counts everything the panel lists — discovered skills plus both reported
+sections — not skills alone. The number is a promise about what pressing the pill shows. Counting
+only skills would read "Skills 0" on a Codex agent sitting on a dozen reported commands. Cost if
+wrong: the count is inflated by session controls like `/clear` on providers that report many.
+
+Ruling 46: the pill and the panel share one query key, `["skills", agentId, cwd]`, extracted into
+`skills-query.client.tsx`. Both ask `skills.list` the same question, and the pill asks it first;
+sharing the key means opening the panel from a pill that has already counted costs no second
+filesystem scan. Cost if wrong: one indirection between the panel and its query.
+
+Ruling 47: `addPill` returns early when a pill already exists, rather than removing and re-adding as
+the reference example does. Agent updates fire on every turn of every agent, and nothing in the pill
+reads the snapshot — re-registering would unmount the component and refire its query on every
+keystroke of every session. Cost if wrong: a pill would not follow an agent that moved workspaces,
+which nothing in Paseo does.
+
+Ruling 48: the client entrypoint SEEDS from `agents.list()` as well as subscribing. `subscribe` only
+reports change, so an agent that was already idle when the app connected would have no pill until it
+next did something — which for a finished agent is never. Cost if wrong: one extra list call per app
+connection.
+
+Ruling 49: KEEPING the Command Center item. It is the keyboard path, and it is the only path on an
+app that predates `addClientSide`. Cost if wrong: two entry points to document instead of one.
