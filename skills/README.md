@@ -61,6 +61,7 @@ A failed reload stays failed; Paseo does not restore the previous code.
 | `resolve/skill-directory.server.ts` | Scans one `skills` directory, and a whole search path. |
 | `resolve/skill-entry.ts`        | Entry types, skill id construction, first-wins dedupe.     |
 | `resolve/frontmatter.ts`        | `SKILL.md` frontmatter parsing.                            |
+| `resolve/reported.ts`           | Splits session-reported entries discovery did not find.    |
 | `panel.client.tsx`              | The panel: list, search, detail, invoke.                  |
 
 `docs/design.md` records why it is shaped this way. Read it before changing discovery.

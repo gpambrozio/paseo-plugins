@@ -26,15 +26,35 @@ leaving Paseo and finding the file by hand.
 - Providers other than Claude and Codex. Copilot, OpenCode, and Pi report "not supported".
 - Displaying shadowed duplicate copies of a name. Collisions resolve first-wins, silently.
 - Verifying against the live session what it actually loaded. See "Future seams".
-- Any change to the Paseo repository.
+- Any change to the Paseo repository beyond `agent.commands()`, which the panel cannot work around.
 
 ## Limitations
 
-**Built-in and bundled skills are invisible.** Filesystem discovery only sees skills that live in a
-scannable directory. Skills bundled inside Claude Code itself — roughly eighteen on a normal
-install — and Codex's SYSTEM scope, which its own docs describe as "bundled with Codex" with no
-local path, never appear. This is the real cost of the no-upstream-changes constraint, and it is
-what the `listCommands` future seam would fix.
+**Built-in and bundled skills carry no detail.** Filesystem discovery only sees skills that live in
+a scannable directory. Skills bundled inside the agent binary have no `SKILL.md` to find — Claude
+compiles them into a single ~320 MB Mach-O executable, so there is nothing on disk to scan, and
+Codex's SYSTEM scope is documented as "bundled with Codex" with no local path. The `Built-in skills`
+and `Built-in commands` sections list them by asking the session itself, but a reported entry has
+only a name, a description, and an argument hint: no path, no body, and therefore no detail screen.
+
+**`kind` is the provider's guess, and on Claude it is wrong more often than not.** The two sections
+split on the `kind` the provider assigns. Claude assigns it from a hardcoded denylist of ten
+root-only commands — `clear`, `compact`, `context`, `debug`, `extra-usage`, `heapdump`, `init`,
+`loop`, `schedule`, `usage` — and calls everything else a skill. Measured against a real session:
+45 entries land in `Built-in skills`, of which roughly 27 are session controls (`autocompact`,
+`config`, `doctor`, `effort`, `fast`, `model`, `rename`, `rewind`, `mcp`, `recap`, and more), not
+skills. The `Built-in commands` section therefore holds only that ten-name denylist.
+
+Nothing available to the plugin can improve on this. The classification is Paseo's own — the
+composer uses the same `kind` for `/` autocomplete — so the panel at least agrees with the composer.
+Correcting it means correcting `classifyClaudeSlashCommand` upstream.
+
+We keep entries whose `kind` is unset as skills, on the reasoning that an unclassified entry is more
+likely to be an unlabelled skill than a session control, and that bucketing them as commands would
+empty the skills section for any provider that omits the field.
+
+**The reported list needs a daemon that has `agent.commands()`.** It shipped in Paseo
+`0.7.0-beta.2`. On an older daemon the method is simply absent and the section does not render.
 
 **Disabled Codex skills appear.** Codex disables a skill without deleting it through
 `[[skills.config]]` in `~/.codex/config.toml`, and its `skills/list` RPC reports the resulting
@@ -48,9 +68,11 @@ real rows — see "Future seams".
 
 ## Constraints that shaped this
 
-**No upstream changes.** `PaseoAgentHandle` (`packages/client/src/index.ts:248`) does not expose
-`listCommands`, so the live session's own command list is unreachable from plugin code. Adding it
-would be a change to the Paseo repo, which needs a maintainer. Everything here lives in the plugin.
+**Upstream changes, only where the plugin cannot reach.** `PaseoAgentHandle` originally exposed no
+way to ask a session what it had loaded, so v1 was pure filesystem discovery. That gap is now closed
+upstream by `agent.commands()`, a thin delegation to the daemon's existing `list_commands` RPC.
+Everything else still lives in the plugin, and the plugin degrades cleanly on a daemon that predates
+the method.
 
 **The filesystem is required regardless.** The live list carries only name, description, and
 argument hint — no path, no source, no body. Two of the three goals need the files themselves, so
@@ -78,6 +100,7 @@ paseo-skills/
   resolve/repo-root.server.ts          walks up for .git, lists the dirs in between
   resolve/skill-entry.ts               entry types, id, dedupe
   resolve/frontmatter.ts               SKILL.md parsing, pure
+  resolve/reported.ts                  session-reported skill/command split, pure
   panel.client.tsx                     the panel
 ```
 
@@ -135,6 +158,19 @@ const SkillEntry = z.object({
   status: z.enum(["discovered"]),
 });
 
+const ReportedSkill = z.object({
+  name: z.string(),
+  description: z.string(),
+  argumentHint: z.string(),
+});
+
+const ReportedSkills = z.object({
+  available: z.boolean(),        // false when the daemon predates agent.commands()
+  error: z.string().nullable(),  // the provider's own error, or a thrown one
+  skills: z.array(ReportedSkill),
+  commands: z.array(ReportedSkill),
+});
+
 export const listSkills = defineRpc({
   name: "skills.list",
   input: z.object({ agentId: z.string() }),
@@ -143,6 +179,7 @@ export const listSkills = defineRpc({
     supported: z.boolean(),
     cwd: z.string().nullable(),
     skills: z.array(SkillEntry),
+    reported: ReportedSkills,
   }),
 });
 
@@ -242,8 +279,10 @@ ships; anything else in `~/.agents/skills` is mirrored nowhere and was invisible
 
 ### Unsupported providers
 
-Return `supported: false` with an empty list. The panel says the provider has no skill support,
-rather than showing an empty list that reads as "you have no skills".
+Return `supported: false` with an empty list. `supported` means filesystem discovery, not the panel:
+every provider that implements `listCommands` — opencode, pi, and the ACP agents among them — still
+gets a reported section. The panel falls back to "this provider does not support skills" only when
+discovery is unsupported *and* the session reported nothing and raised no error.
 
 ## The panel
 
@@ -251,6 +290,16 @@ One component, two states, held in local state. No router involvement.
 
 **List.** A search field filtering on name and description. Rows grouped under source headers —
 `Project`, `Personal`, one per plugin, `Codex home`. Each row is a name and a one-line description.
+
+Two final groups, `Built-in skills` and `Built-in commands`, list what the session said it loaded,
+minus every name discovery already found, split on the provider's `kind`. A group with no entries is
+omitted; a reported `error` renders under its own heading rather than leaving a silent gap.
+
+Their rows open a reduced detail screen. There is no `skills.read` call behind it — no path, no body
+— but the description renders in full rather than clipped to the list's two lines, and the Invoke
+button works, because a reported entry is by definition a command the session accepts. Both detail
+screens share one `useInvoke` hook, so the re-entrancy guard that stops a double tap sending twice
+lives in a single place.
 
 **Detail.** Pressing a row calls `skills.read` and shows the absolute path, the full body in a
 `ScrollView` as monospace text, an optional arguments field, and an **Invoke** button.
@@ -309,14 +358,22 @@ fixtures in the plugin project:
   one, regardless of its `scope` string; an entry with no `projectPath` is included everywhere
 - `CODEX_HOME` is honored
 - repo-root walk-up finds `.git` and stops at the filesystem root
+- reported entries split on `kind`, unclassified ones count as skills, and names discovery already
+  found are removed from both buckets
+- a daemon without `agent.commands()` yields `available: false` rather than an error
+- a throwing or error-reporting session leaves the discovered list intact
 
 The panel is verified by hand in the app; there is no test harness for plugin UI.
 
 ## Future seams
 
-- **Live cross-check.** If `listCommands` is ever added to `PaseoAgentHandle`, compare discovery
-  against the session's real command list and move `status` to `"loaded" | "on-disk"`. This is the
-  only part that needs an upstream change, and it is additive.
+- **Live cross-check.** `agent.commands()` now exists, and the panel uses it additively: reported
+  entries discovery missed get their own section. The other half of this seam is still open —
+  nothing yet flags a *discovered* skill the session did not report, which would move `status` from
+  `"discovered"` to `"loaded" | "on-disk"`. That comparison is only sound once we trust `kind`,
+  because a skill filtered out as a command is indistinguishable from one that failed to load.
+- **Detail for reported entries.** The reduced detail screen has no body to show. If a provider ever
+  reports a source path, the full `SkillDetail` takes it unchanged.
 - **Show shadowed copies.** Every entry already carries the directory it came from, so rendering
   the losers of a name collision greyed out is a panel change, not a discovery change. It matches
   Codex, which does not merge same-named skills.

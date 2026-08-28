@@ -7,6 +7,8 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { parseFrontmatter } from "./resolve/frontmatter";
 import { resolveClaudeSkills } from "./resolve/claude.server";
 import { resolveCodexSkills } from "./resolve/codex.server";
+import { selectReported, supportsCommands } from "./resolve/reported";
+import type { ReportedSkill } from "./resolve/reported";
 import type { SkillEntry } from "./resolve/skill-entry";
 
 export interface SkillRoots {
@@ -34,6 +36,7 @@ export function defaultSkillRoots(env: NodeJS.ProcessEnv = process.env): SkillRo
 interface ResolvedAgent {
   provider: string;
   cwd: string;
+  handle: unknown;
 }
 
 async function loadAgent(agentId: string, context: PluginHandlerContext): Promise<ResolvedAgent> {
@@ -43,7 +46,50 @@ async function loadAgent(agentId: string, context: PluginHandlerContext): Promis
   if (!agent) {
     throw new Error(`Agent not found: ${agentId}`);
   }
-  return { provider: agent.provider, cwd: agent.cwd };
+  return { provider: agent.provider, cwd: agent.cwd, handle };
+}
+
+interface ReportedSkills {
+  available: boolean;
+  error: string | null;
+  skills: ReportedSkill[];
+  commands: ReportedSkill[];
+}
+
+const UNAVAILABLE: ReportedSkills = {
+  available: false,
+  error: null,
+  skills: [],
+  commands: [],
+};
+
+/**
+ * Asks the live session what it can run. A failure here never fails the whole
+ * list: filesystem discovery already succeeded, and losing it because the
+ * session could not answer would be a worse outcome than a missing section. The
+ * error travels with the section so the panel can say why it is empty.
+ */
+async function loadReportedSkills(
+  agent: ResolvedAgent,
+  discovered: SkillEntry[],
+): Promise<ReportedSkills> {
+  if (!supportsCommands(agent.handle)) return UNAVAILABLE;
+  const discoveredNames = discovered.map((entry) => entry.name);
+  try {
+    const result = await agent.handle.commands();
+    return {
+      available: true,
+      error: result.error,
+      ...selectReported(result.commands, discoveredNames),
+    };
+  } catch (error) {
+    return {
+      available: true,
+      error: error instanceof Error ? error.message : String(error),
+      skills: [],
+      commands: [],
+    };
+  }
 }
 
 async function resolveForAgent(agent: ResolvedAgent, roots: SkillRoots): Promise<SkillEntry[]> {
@@ -68,11 +114,13 @@ function isSupported(provider: string): boolean {
 export function createListSkillsHandler(roots: SkillRoots = defaultSkillRoots()) {
   return async (input: { agentId: string }, context: PluginHandlerContext) => {
     const agent = await loadAgent(input.agentId, context);
+    const skills = await resolveForAgent(agent, roots);
     return {
       provider: agent.provider,
       supported: isSupported(agent.provider),
       cwd: agent.cwd,
-      skills: await resolveForAgent(agent, roots),
+      skills,
+      reported: await loadReportedSkills(agent, skills),
     };
   };
 }
