@@ -278,3 +278,20 @@ that drops the selected entry clears the selection during render and falls back 
 NOTE (user-facing risk, not guarded): the Built-in commands section can now invoke destructive
 session controls — `/clear` wipes the conversation, `/compact` rewrites it. This matches the
 composer, which offers the same commands with no confirmation, so no extra friction was added.
+
+Ruling 42 (2026-08-28, resolves Ruling 33): bumped `@getpaseo/client` from `^0.5.0-beta.3` to
+`^0.7.0-beta.2` from the registry, now that the real types exist there. Ruling 33 refused a `file:`
+dependency on a local checkout; a published version is the bump it was waiting for, and it costs
+nothing at runtime because the plugin's `paseo` object still comes from the daemon's bundled client.
+Verified the types actually resolve rather than collapsing to `any` under `skipLibCheck` — a
+throwaway probe confirmed `PaseoAgentHandle.commands` types as
+`(options?: PaseoAgentCommandsOptions) => Promise<{ commands: {...}[]; error: string | null; ... }>`,
+field-for-field what `resolve/reported.ts` declares structurally. Cost if wrong: one dependency to
+roll back; nothing else reads the new types.
+
+Ruling 43: KEEPING the structural `supportsCommands()` guard and `handle: unknown` after the bump,
+rather than typing the handle as `PaseoAgentHandle` now that the method is declared required. The
+types describe the package in this repo's `node_modules`; the runtime object comes from whatever
+client the daemon bundles, which on a pre-`0.7.0-beta.2` daemon has no `commands`. Declaring it
+required would make the guard look redundant while it is still load-bearing. Cost if wrong: the
+types for this one call stay hand-written, which Ruling 33 already priced.
