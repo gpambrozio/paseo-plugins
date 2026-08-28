@@ -45,7 +45,9 @@ paseo plugin logs skills          # load errors and stderr
 - **A failed reload stays failed.** Paseo does not restore the previous code.
 - **Never restart the daemon** — it manages the user's running agents.
 - The daemon needs `"pluginsEnabled": true` in its `config.json`, and Paseo 0.5.0-beta or newer —
-  0.5.2 or newer for `github-board`, which calls `paseo.projects.list()`.
+  0.5.2 or newer for `github-board`, which calls `paseo.projects.list()`, and 0.7.0-beta.2 or newer
+  for the `skills` built-in sections, which call `agent.commands()`. Both plugins load on an older
+  daemon; only the feature that needs the newer call goes missing.
 - There is no harness for plugin UI. A clean typecheck and a clean reload prove a `*.client.tsx`
   change compiles and loads, nothing more; a human has to look at the panel.
 
@@ -118,7 +120,10 @@ ships a hand-written `paseo-plugin.d.ts` declaring both `@getpaseo/plugin` and
 means adding it to that shim first.
 
 Because `skipLibCheck: true` is set in both, an unresolvable `@getpaseo/client` import is swallowed
-silently and the entire Paseo API types as `any`. Keep that dependency at `^0.5.0-beta.3` or newer.
+silently and the entire Paseo API types as `any` — and `tsc` still exits 0, so a clean typecheck
+does not prove the types resolved. To check, add a throwaway file that reads a nonexistent member
+off a `PaseoAgentHandle` and confirm `tsc` rejects it. `skills` tracks the dependency at
+`^0.7.0-beta.2`; anything older than `^0.5.0-beta.3` is definitely wrong.
 
 `@getpaseo/plugin` peer-depends on the *exact* `@getpaseo/client` it ships against, so in
 `github-board` the two move together: `npm install @getpaseo/plugin@<v> @getpaseo/client@<v>` in one
@@ -131,8 +136,12 @@ its root, so a new subdirectory there is invisible to `tsc` until the `include` 
 ## skills
 
 Discovers skills by scanning the filesystem — `~/.claude`, `~/.agents`, `~/.codex`, `/etc/codex`,
-and every directory from the agent's cwd up to the repo root — because the live session's command
-list is unreachable from plugin code. Consequence: Claude's bundled skills never appear. `skills.server.ts` dispatches on `agent.provider`; only `claude` and `codex`
+and every directory from the agent's cwd up to the repo root — because source and rendered body
+need the `SKILL.md` itself. Entries bundled inside an agent binary live on no scannable path, so
+they come from `agent.commands()` instead and get their own sections, carrying a name, a
+description, and an argument hint but no path and no body. That method shipped in Paseo
+`0.7.0-beta.2`; `resolve/reported.ts` feature-detects it, and on an older daemon those sections are
+simply omitted. `skills.server.ts` dispatches on `agent.provider`; only `claude` and `codex`
 resolve, everything else reports unsupported.
 
 `SkillEntry` (`resolve/skill-entry.ts`) and `SkillEntrySchema` (`skills.shared.ts`) are separate

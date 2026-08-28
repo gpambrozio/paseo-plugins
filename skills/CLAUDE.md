@@ -7,10 +7,16 @@ The repo root `CLAUDE.md` covers what every plugin here shares: the per-folder n
 typecheck/test/reload loop, the client/server bundle split, and the constraints nothing catches at
 compile time. This file covers only what is specific to `skills`.
 
-The plugin never changes the Paseo host. `PaseoAgentHandle` exposes no `listCommands`, so the live
-session's own command list is unreachable and discovery reads the filesystem instead — that
-constraint is why the design looks the way it does. Read the host's checkout to understand it,
-never edit it from here.
+Discovery reads the filesystem, and that is why the design looks the way it does: two of the three
+goals — source and rendered body — need the `SKILL.md` itself, which the live session cannot supply.
+`agent.commands()` asks the session what it loaded and is used additively, for the built-in and
+bundled entries that live on no scannable path. It carries only a name, a description, and an
+argument hint.
+
+Do not edit the Paseo host from here. Adding `agent.commands()` upstream (getpaseo/paseo#3719) was a
+deliberate exception, taken because no plugin-side workaround exists for skills compiled into an
+agent binary. Read the host's checkout to understand it; treat another change to it as a decision to
+argue for, not a step to take.
 
 ## Orientation
 
@@ -42,6 +48,11 @@ entries there exist because a reviewer proved the code was wrong about the real 
   it; one without applies everywhere.
 - **Do not apply `unquote()` to block-scalar continuation lines** in `resolve/frontmatter.ts`.
   Block scalar content is literal YAML, quotes included; stripping them corrupts real skills.
+- **`agent.commands()` may be missing at runtime however the types read.** It shipped in Paseo
+  `0.7.0-beta.2`, and `@getpaseo/client` declares it required — but the `paseo` object comes from
+  the daemon's bundled client, not this folder's `node_modules`, so an older daemon has no such
+  method. `supportsCommands()` in `resolve/reported.ts` is a real guard, not a leftover; deleting it
+  because the type says the method exists breaks the panel on every daemon below that version.
 - **The Command Center item is the only way to open the panel.** `addWorkspacePanel` registers the
   tab type; nothing in Paseo enumerates registered panels, so removing the Command Center item
   makes the panel unreachable.
