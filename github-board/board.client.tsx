@@ -2424,7 +2424,8 @@ function PromptSettingsView({
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Prompts</Text>
         <Text style={styles.sectionHint}>
-          What "Send to chat" copies to your clipboard. Available placeholders:{" "}
+          What the "Send to chat" dialog opens with — edit it there before sending. Available
+          placeholders:{" "}
           {PLACEHOLDERS.join(", ")}. Pick a project to override its prompts; a card is matched to a
           project by the repository's git remote, the same way sending one is.
         </Text>

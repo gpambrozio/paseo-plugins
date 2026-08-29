@@ -38,10 +38,9 @@ function settingsPath(): string {
 }
 
 /**
- * What the clipboard gets when a card is sent, before the user changes it. Each
- * one names the kind of work its column holds, because "read this URL" alone
- * tells an agent nothing about whether it is being asked to fix, finish, or
- * review.
+ * What the send dialog opens with, before the user changes it. Each one names
+ * the kind of work its column holds, because "read this URL" alone tells an
+ * agent nothing about whether it is being asked to fix, finish, or review.
  */
 const DEFAULT_PROMPTS: PromptSet = {
   issues: "Read issue {url}, investigate and give me ways to address it.",
