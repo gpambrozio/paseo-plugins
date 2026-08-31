@@ -19,8 +19,9 @@ pin and a line to read before you move.
   `history.pushState`, a synthesized `popstate`, a 600 ms settle timer and the full page reload that
   fired whenever the router ignored the push — the agent's tab now opens directly, keeping client
   state.
-- `@getpaseo/plugin` and `@getpaseo/client` move to 0.7.0-beta.3 together, as the former
-  peer-depends on the exact version of the latter.
+- `@getpaseo/plugin` and `@getpaseo/client` move to 0.7.0 together, as the former peer-depends on
+  the exact version of the latter. The contracts are byte-identical to 0.7.0-beta.3, where the
+  navigation prop landed, so 0.7.0-beta.3 remains the honest floor for it.
 
 ### Compatibility
 
