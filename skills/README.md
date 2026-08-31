@@ -12,6 +12,17 @@ its running session reports.
 Requires the [Paseo](https://paseo.sh) CLI and a running daemon.
 
 ```bash
+paseo plugin add gpambrozio/paseo-plugins --path skills
+```
+
+This repository holds two plugins, hence `--path`. The daemon clones it under `$PASEO_HOME/plugins`
+and runs no package manager — the plugin is source only, and everything it imports at runtime the
+host provides. Pin a release with `--ref <tag>`; later, `paseo plugin status` and
+`paseo plugin update skills` follow the branch.
+
+To hack on it instead, install from a clone of your own:
+
+```bash
 git clone https://github.com/gpambrozio/paseo-plugins.git
 cd paseo-plugins/skills
 npm install
@@ -19,8 +30,9 @@ npm run typecheck && npm test
 paseo plugin install "$PWD"
 ```
 
-`install` records the directory, so keep the clone where it is — the daemon loads the plugin from
-that path every time it starts.
+`install` records the directory, so keep that clone where it is — the daemon loads the plugin from
+that path every time it starts. `npm install` is for the typecheck and the tests; installing needs
+none of it.
 
 The daemon needs `"pluginsEnabled": true` in its `config.json`. Run `paseo reload` after changing
 it. Plugin code is trusted and unsandboxed: the server half reads the daemon machine's filesystem

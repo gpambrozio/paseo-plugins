@@ -9,8 +9,19 @@ Plugins for [Paseo](https://paseo.sh). One folder per plugin, each self-containe
 
 ## Install
 
-Plugins install individually — there is no repo-wide install. Follow the README
-in the folder you want.
+Plugins install individually — there is no repo-wide install:
+
+```bash
+paseo plugin add gpambrozio/paseo-plugins --path skills
+paseo plugin add gpambrozio/paseo-plugins --path github-board
+```
+
+The daemon clones this repo under `$PASEO_HOME/plugins` and runs no package
+manager; both plugins are source only, and everything they import at runtime the
+host provides. Pin a release with `--ref <tag>`, or follow the branch with
+`paseo plugin status` and `paseo plugin update --all`.
+
+To hack on one, install from a clone of your own instead:
 
 ```bash
 git clone https://github.com/gpambrozio/paseo-plugins.git
@@ -20,9 +31,9 @@ npm run typecheck
 paseo plugin install "$PWD"
 ```
 
-`paseo plugin install` records the directory, so keep the clone where it is —
+`paseo plugin install` records the directory, so keep that clone where it is —
 the daemon loads each plugin from that path every time it starts. Moving this
-repo means reinstalling every plugin in it.
+repo means reinstalling every plugin you installed from it.
 
 The daemon needs `"pluginsEnabled": true` in its `config.json`, and Paseo
 **0.5.0-beta or newer**; earlier versions have no `paseo plugin` command.
