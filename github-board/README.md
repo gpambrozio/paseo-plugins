@@ -192,7 +192,13 @@ a cache hit.
 ## Requirements
 
 - **Paseo 0.5.0-beta or newer.** The plugin system does not exist in 0.4.0 —
-  there is no `paseo plugin` command to install this with.
+  there is no `paseo plugin` command to install this with. The board itself
+  needs 0.5.2, which is where the daemon learned to list projects.
+- **Paseo 0.7.0-beta.3 or newer to open a chat without a page reload.** That
+  release lets a plugin ask the app to navigate. Older apps still land on the
+  new agent, by way of a deep link that reloads the app on web and desktop.
+  This one is gated on the app, not the daemon, so an up-to-date desktop and an
+  older phone can differ while talking to the same daemon.
 - `gh` installed and authenticated **on the daemon machine**, not the device
   running the app. Handlers run in a subprocess next to the daemon.
 

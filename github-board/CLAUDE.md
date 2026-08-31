@@ -300,7 +300,23 @@ then strips (`app/h/[serverId]/workspace/[workspaceId]/index.tsx`).
 which on a remote host is a different machine from the one the user is looking at — a link opened
 there would surface on the wrong screen.
 
-There is still no plugin navigation API, so `selectWorkspaceInApp` uses what the platform gives it:
+Since Paseo 0.7.0-beta.3 ([getpaseo/paseo#3901](https://github.com/getpaseo/paseo/pull/3901)) the
+host passes `props.navigation`, and `handleLaunched` prefers it: `openAgent({ agentId })` alone
+lands on the workspace *and* opens that agent's tab, because it runs the app's own `navigateToAgent`
+against the host rendering the surface. No route, no platform branch, no reload. The prop is
+optional and its **absence is the compatibility gate**.
+
+**That gate is the app's version, not the daemon's.** `usePluginHostNavigation` lives in
+`packages/app`, so the prop arrives or not according to the client rendering the surface — and one
+daemon serves several. Measured on 2026-08-31 against a single 0.7.0-beta.3 daemon by throwing
+instead of falling back: desktop navigated, the phone reported no prop, because the mobile app
+ships on its own cadence and was still behind. If you need to re-run that experiment, throw *before*
+`setSendTarget(null)` — the caller's `.catch` writes into the send dialog, so a throw after the
+dialog closes sets state on an unmounted component and you see nothing.
+
+So `selectWorkspaceInApp` is not dead code awaiting a cleanup: it is live on every client older than
+the newest one, which today includes mobile. It is the pre-0.7.0-beta.3 path, and it uses what the
+platform gives it:
 
 - Native opens `paseo:/<route>` through `Linking`, which expo-router handles in-process.
 - Web and the desktop renderer `history.pushState` the route and dispatch a `popstate`, which is the

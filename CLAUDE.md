@@ -47,7 +47,11 @@ paseo plugin logs skills          # load errors and stderr
 - The daemon needs `"pluginsEnabled": true` in its `config.json`, and Paseo 0.5.0-beta or newer —
   0.5.2 or newer for `github-board`, which calls `paseo.projects.list()`, and 0.7.0-beta.2 or newer
   for the `skills` built-in sections, which call `agent.commands()`. Both plugins load on an older
-  daemon; only the feature that needs the newer call goes missing.
+  daemon; only the feature that needs the newer call goes missing. `github-board` also prefers the
+  host's `props.navigation` (Paseo 0.7.0-beta.3) to reach a freshly created agent, and falls back to
+  a hand-built route when the prop is absent — and that one is gated on the **app's** version,
+  not the daemon's, because the host supplies it client-side. A beta.3 daemon can serve a
+  beta.3 desktop and an older phone at once, so both paths stay live.
 - There is no harness for plugin UI. A clean typecheck and a clean reload prove a `*.client.tsx`
   change compiles and loads, nothing more; a human has to look at the panel.
 
