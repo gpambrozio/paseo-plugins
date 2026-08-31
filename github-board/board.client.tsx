@@ -65,7 +65,12 @@ function openExternalUrl(url: string): void {
 }
 
 /**
- * Selects the freshly created workspace in the app, by its own route.
+ * Selects the freshly created workspace in the app by hand-building its route.
+ *
+ * Only for hosts that pass no `props.navigation` — Paseo before 0.7.0-beta.3,
+ * where a plugin had no way to ask the client to navigate. Newer hosts take the
+ * `navigation.openAgent` path in `handleLaunched`, which reaches the same screen
+ * without any of this.
  *
  * This runs in the **client** bundle on purpose. The plugin's server half lives
  * next to the daemon, which on a remote host is a different machine from the one
@@ -78,7 +83,7 @@ function openExternalUrl(url: string): void {
  * screen reads it, opens that agent's tab, and strips it from the URL. Without
  * it the workspace opens on whichever tab it feels like.
  *
- * Two mechanisms, because there is no plugin navigation API to use instead:
+ * Two mechanisms, because the route has to be delivered differently per platform:
  *
  * - Native runs the app's own `paseo://` scheme through `Linking`, which expo
  *   router handles in-process.
@@ -2923,6 +2928,18 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    * deliberately: if the app does not route — an old shell, a platform without
    * the app's own scheme — the surface still says where the work went instead of
    * looking like nothing happened.
+   *
+   * `navigation` is the host's own agent navigation, so `openAgent` alone lands
+   * on the workspace *and* opens that agent's tab; the workspace id is only
+   * needed by the hand-built route below. Its absence is the compatibility gate
+   * the API is documented to be used as.
+   *
+   * **The gate is the app, not the daemon.** `usePluginHostNavigation` runs in
+   * the client, so whether this prop arrives depends on the version of the app
+   * rendering the surface. Observed on 2026-08-31 against one 0.7.0-beta.3
+   * daemon: desktop passed it and navigated, the phone passed nothing — the
+   * mobile app ships separately and was still behind. So the fallback is not a
+   * transitional courtesy; it is live for as long as any client is older.
    */
   const handleLaunched = useCallback(
     (result: LaunchResult) => {
@@ -2932,6 +2949,10 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         title: "Workspace created",
         text: `“${result.workspaceName}” in ${result.projectName}. Opening it…`,
       });
+      if (props.navigation !== undefined) {
+        props.navigation.openAgent({ agentId: result.agentId });
+        return;
+      }
       selectWorkspaceInApp({
         serverId: props.host.id,
         workspaceId: result.workspaceId,
@@ -2940,7 +2961,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         stillHere: () => mounted.current,
       });
     },
-    [props.host.id, props.layout.platform],
+    [props.navigation, props.host.id, props.layout.platform],
   );
 
   const applyLogin = useCallback(
