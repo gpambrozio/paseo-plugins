@@ -5,6 +5,7 @@ import {
   Image,
   Keyboard,
   Linking,
+  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -234,6 +235,16 @@ const cachedRepositoryLabels = new Map<string, { labels: RepositoryLabel[]; stor
  */
 const cachedImages = new Map<string, { uri: string; width: number; height: number }>();
 const IMAGE_CACHE_ENTRIES = 24;
+/**
+ * The detail panel's width on the wide layout, once the user has dragged it.
+ * Null means half the body. Module scope, like the board: the surface unmounts
+ * on every workspace switch, and a width chosen by hand should not snap back.
+ */
+let cachedDetailWidth: number | null = null;
+/** Narrow enough for a phone-sized column of text; wide enough that a table of three screenshots still reads. */
+const DETAIL_MIN_WIDTH = 320;
+/** What the board keeps, at least: one column's worth of cards. */
+const BOARD_MIN_WIDTH = 260;
 
 /**
  * Stands in until the first board lands. Blank templates are what the server
@@ -987,6 +998,27 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         borderLeftWidth: layout.compact ? 0 : 1,
         borderLeftColor: separator,
       },
+      /**
+       * The drag handle, astride the panel's left edge: half of it hangs over
+       * the board so the edge is grabbable from either side. Wide layout only;
+       * a full-width panel has no edge to move.
+       */
+      resizeHandle: {
+        position: "absolute" as const,
+        top: 0,
+        bottom: 0,
+        left: -5,
+        width: 10,
+        alignItems: "center" as const,
+        zIndex: 1,
+        // A resize cursor on the web renderer. React Native's `cursor` type
+        // allows only `auto` and `pointer`, so it goes in as an untyped extra
+        // rather than by lying about the value; native has no cursor anyway.
+        ...(Platform.OS === "web" ? ({ cursor: "col-resize" } as object) : {}),
+      },
+      /** The visible line inside the handle, lit while a drag is in progress. */
+      resizeGrip: { width: 2, flex: 1 },
+      resizeGripActive: { backgroundColor: colors.accent },
       detailHeader: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
@@ -2886,6 +2918,7 @@ function ItemDetailPanel({
   styles,
   accentColor,
   foregroundColor,
+  bodyWidth,
   onClose,
   onSend,
 }: {
@@ -2895,10 +2928,69 @@ function ItemDetailPanel({
   accentColor: string;
   /** For the header's icon buttons; `Icon` takes a colour, not a style. */
   foregroundColor: string;
+  /**
+   * The width of the body the panel sits in, or null on compact where the
+   * panel is not resizable. Measured by the parent's `onLayout`, and what the
+   * drag is clamped against so neither side can be dragged out of existence.
+   */
+  bodyWidth: number | null;
   onClose: () => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
 }) {
   const load = useRpc(loadItem);
+  const [width, setWidth] = useState<number | null>(cachedDetailWidth);
+  const [resizing, setResizing] = useState(false);
+  /**
+   * The width when the drag began, read by the move handler. A ref rather than
+   * state because the responder is created once and must see the latest value
+   * without being rebuilt per render.
+   */
+  const dragStart = useRef<{ width: number; bodyWidth: number } | null>(null);
+  const panelWidth = useRef<number>(0);
+  const bodyWidthRef = useRef(bodyWidth);
+  bodyWidthRef.current = bodyWidth;
+
+  const resizer = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+          dragStart.current = {
+            width: panelWidth.current,
+            bodyWidth: bodyWidthRef.current ?? panelWidth.current,
+          };
+          setResizing(true);
+        },
+        onPanResponderMove: (_event, gesture) => {
+          const start = dragStart.current;
+          if (start === null) return;
+          // Anchored to the right edge, so dragging left grows the panel.
+          const widest = Math.max(DETAIL_MIN_WIDTH, start.bodyWidth - BOARD_MIN_WIDTH);
+          const next = Math.min(widest, Math.max(DETAIL_MIN_WIDTH, start.width - gesture.dx));
+          cachedDetailWidth = next;
+          setWidth(next);
+        },
+        onPanResponderRelease: () => {
+          dragStart.current = null;
+          setResizing(false);
+        },
+        onPanResponderTerminate: () => {
+          dragStart.current = null;
+          setResizing(false);
+        },
+      }),
+    [],
+  );
+
+  /**
+   * A remembered width wider than the board now allows — the window shrank —
+   * is clamped on the way in rather than left overhanging the header.
+   */
+  const clampedWidth =
+    width === null || bodyWidth === null
+      ? width
+      : Math.min(width, Math.max(DETAIL_MIN_WIDTH, bodyWidth - BOARD_MIN_WIDTH));
   const [details, setDetails] = useState<ItemDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -2984,7 +3076,23 @@ function ItemDetailPanel({
   const state = details?.state ?? null;
 
   return (
-    <View style={styles.detailPanel}>
+    <View
+      style={[styles.detailPanel, clampedWidth !== null ? { width: clampedWidth } : null]}
+      onLayout={(event) => {
+        panelWidth.current = event.nativeEvent.layout.width;
+      }}
+    >
+      {bodyWidth === null ? null : (
+        <View
+          accessibilityRole="adjustable"
+          accessibilityLabel="Resize the details panel"
+          accessibilityHint="Drag left to widen, right to narrow"
+          style={styles.resizeHandle}
+          {...resizer.panHandlers}
+        >
+          <View style={[styles.resizeGrip, resizing ? styles.resizeGripActive : null]} />
+        </View>
+      )}
       <View style={styles.detailHeader}>
         <Text style={styles.detailRepo} numberOfLines={1}>
           {item.repository}
@@ -3342,6 +3450,8 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const [detailTarget, setDetailTarget] = useState<{ item: BoardItem; type: ColumnId } | null>(
     null,
   );
+  /** The body's width, for clamping the panel's drag. Null until laid out. */
+  const [bodyWidth, setBodyWidth] = useState<number | null>(null);
   /**
    * The surface's own view, measured when a menu opens. A right-click reports
    * where it happened in the window; the menu is positioned inside this view,
@@ -3780,7 +3890,10 @@ export function GitHubBoard(props: PluginSurfaceProps) {
           onApplyLogin={applyLogin}
         />
       ) : (
-        <View style={styles.body}>
+        <View
+          style={styles.body}
+          onLayout={(event) => setBodyWidth(event.nativeEvent.layout.width)}
+        >
           {board === null ? (
             <View style={styles.centered}>
               {busy ? <ActivityIndicator color={props.theme.colors.accent} /> : null}
@@ -3844,6 +3957,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               styles={styles}
               accentColor={props.theme.colors.accent}
               foregroundColor={props.theme.colors.foreground}
+              bodyWidth={props.layout.compact ? null : bodyWidth}
               onClose={() => setDetailTarget(null)}
               onSend={openSendDialog}
             />

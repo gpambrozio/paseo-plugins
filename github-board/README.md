@@ -146,6 +146,9 @@ Screenshots pasted into the description or a comment are shown in the panel, inc
 attachments on private repositories, which the plugin fetches through `gh` on the daemon. Press
 one to open the original.
 
+On a desktop the panel's left edge can be dragged to make it wider or narrower, and the width is
+remembered until the app is closed.
+
 While the panel is open the cards beside it still work: clicking another one swaps the panel to
 it, and the open card is outlined so you can see which one you are reading.
 

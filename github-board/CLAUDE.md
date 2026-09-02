@@ -175,6 +175,17 @@ half stay clickable, and pressing one *swaps* the panel rather than closing it, 
 split view is for. The open card is drawn with an accent border (`cardSelected`) so the panel reads
 as that card's. On compact the panel is the whole body and Close is the way back.
 
+**The wide panel is resizable** by a `PanResponder` handle astride its left edge, half over the
+board so the edge is grabbable from either side. The panel is anchored right, so a drag left grows
+it: `start.width - gesture.dx`, clamped between `DETAIL_MIN_WIDTH` and the body's width less
+`BOARD_MIN_WIDTH`, so neither side can be dragged out of existence. The body's width comes from
+the parent's `onLayout` and is threaded in as `bodyWidth`, null on compact, which is also what
+hides the handle. The chosen width lives at module scope (`cachedDetailWidth`) for the same reason
+the board does, and is clamped again on the way in for a window that has since shrunk. The drag
+start is a ref, not state: the responder is created once and must read the latest value. The
+`col-resize` cursor is spread in as an untyped extra because React Native's `cursor` type allows
+only `auto` and `pointer`; native ignores it.
+
 `detailTarget` holds the pressed card, but the panel renders `detailItem` — the same id looked up
 on the current board — so a label edited from the context menu while the panel is up repaints in
 it. The panel is keyed by item id: opening a second card must not show the first one's body while
