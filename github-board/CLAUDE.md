@@ -170,10 +170,15 @@ and the panel is its last child, so it covers the columns by paint order alone a
 header — the filter, Refresh, Configure prompts — reachable while it is open. The label menu and
 the modals are still positioned against the screen, because `openLabelMenu` measures `rootRef`.
 
-On the wide layout the panel is the **right half**, and there is no scrim: the cards on the left
-half stay clickable, and pressing one *swaps* the panel rather than closing it, which is what a
-split view is for. The open card is drawn with an accent border (`cardSelected`) so the panel reads
-as that card's. On compact the panel is the whole body and Close is the way back.
+On the wide layout the panel is the **right half** and the board behind it sits under a scrim
+(`detailScrim`): a wash towards `surface0` like the modal backdrop, plus a `backdropFilter` blur
+spread in untyped for the web and desktop renderers — native has no blur without a library the
+client bundle cannot import, and keeps the wash. A press on the scrim closes the panel. That means
+the board is *not* clickable while the panel is open; it was at first, so a press on a second card
+swapped the panel, but a blurred board is not something to read or aim at, and the blur was asked
+for. The open card is still drawn with an accent border (`cardSelected`) so the panel reads as
+that card's through the blur. On compact the panel is the whole body, there is no scrim, and Close
+is the way back.
 
 **The wide panel is resizable** by a `PanResponder` handle astride its left edge, half over the
 board so the edge is grabbable from either side. The panel is anchored right, so a drag left grows
@@ -192,7 +197,10 @@ installs document-level `pointermove`/`pointerup` listeners (`trackPointerOnDocu
 the same clamp from `clientX`, so a pointer that outruns the handle, or leaves the window, still
 moves the edge; a window `blur` stands in for the release the browser cannot report. Both feed
 `applyDelta`, so whichever arrives first wins and they cannot disagree. Native has no `document`
-and the helper is a no-op there. The
+and the helper is a no-op there. The same helper switches `user-select` off on the document body
+for the drag's duration and pins the resize cursor there: a drag is a mouse-down plus movement,
+which is how a browser starts a text selection, and once the pointer is off the handle every card
+title it crosses would otherwise be selected. Both are restored on release. The
 `col-resize` cursor is spread in as an untyped extra because React Native's `cursor` type allows
 only `auto` and `pointer`; native ignores it.
 

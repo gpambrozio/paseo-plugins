@@ -266,6 +266,7 @@ function trackPointerOnDocument(
     document?: {
       addEventListener?: (type: string, listener: (event: unknown) => void) => void;
       removeEventListener?: (type: string, listener: (event: unknown) => void) => void;
+      body?: { style?: Record<string, string> };
     };
     addEventListener?: (type: string, listener: () => void) => void;
     removeEventListener?: (type: string, listener: () => void) => void;
@@ -282,10 +283,33 @@ function trackPointerOnDocument(
     const clientX = typeof event === "object" && event !== null ? Reflect.get(event, "clientX") : null;
     if (typeof clientX === "number") onMove(clientX);
   };
+  /**
+   * A drag is also a mouse-down followed by movement, which is how a browser
+   * starts a text selection — and once the pointer leaves the handle, every
+   * card title it crosses is selectable. Selection is switched off on the body
+   * for the drag's duration, and the resize cursor is pinned there too so it
+   * does not flicker back to an I-beam over text.
+   */
+  const bodyStyle = document.body?.style;
+  const previous = {
+    userSelect: bodyStyle?.userSelect ?? "",
+    webkitUserSelect: bodyStyle?.webkitUserSelect ?? "",
+    cursor: bodyStyle?.cursor ?? "",
+  };
+  if (bodyStyle !== undefined) {
+    bodyStyle.userSelect = "none";
+    bodyStyle.webkitUserSelect = "none";
+    bodyStyle.cursor = "col-resize";
+  }
   let done = false;
   const end = () => {
     if (done) return;
     done = true;
+    if (bodyStyle !== undefined) {
+      bodyStyle.userSelect = previous.userSelect;
+      bodyStyle.webkitUserSelect = previous.webkitUserSelect;
+      bodyStyle.cursor = previous.cursor;
+    }
     document.removeEventListener?.("pointermove", move);
     document.removeEventListener?.("pointerup", end);
     document.removeEventListener?.("pointercancel", end);
@@ -1067,7 +1091,25 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         // A resize cursor on the web renderer. React Native's `cursor` type
         // allows only `auto` and `pointer`, so it goes in as an untyped extra
         // rather than by lying about the value; native has no cursor anyway.
-        ...(Platform.OS === "web" ? ({ cursor: "col-resize" } as object) : {}),
+        ...(Platform.OS === "web" ? ({ cursor: "col-resize", userSelect: "none" } as object) : {}),
+      },
+      /**
+       * Over the board while the panel is open: a wash towards `surface0`, the
+       * way the modal backdrop dims, plus a backdrop blur where the renderer
+       * has one — the web and desktop renderers pass the CSS through, native
+       * has no blur without a library the client bundle cannot import and
+       * keeps the wash. A press on it closes the panel.
+       */
+      detailScrim: {
+        position: "absolute" as const,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: withAlpha(colors.surface0, "99"),
+        ...(Platform.OS === "web"
+          ? ({ backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" } as object)
+          : {}),
       },
       /** The visible line inside the handle, lit while a drag is in progress. */
       resizeGrip: { width: 2, flex: 1 },
@@ -4017,7 +4059,16 @@ export function GitHubBoard(props: PluginSurfaceProps) {
             </View>
           )}
           {/* Last in the body, so it paints over the columns by order alone;
-              the header above keeps its own zIndex and stays reachable. */}
+              the header above keeps its own zIndex and stays reachable. The
+              scrim only exists where the panel leaves board to blur. */}
+          {detailTarget !== null && detailItem !== null && !props.layout.compact ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close details"
+              style={styles.detailScrim}
+              onPress={() => setDetailTarget(null)}
+            />
+          ) : null}
           {detailTarget !== null && detailItem !== null ? (
             <ItemDetailPanel
               // Keyed by card, so a second card never shows the first one's

@@ -149,8 +149,8 @@ one to open the original.
 On a desktop the panel's left edge can be dragged to make it wider or narrower, and the width is
 remembered until the app is closed.
 
-While the panel is open the cards beside it still work: clicking another one swaps the panel to
-it, and the open card is outlined so you can see which one you are reading.
+While the panel is open the board behind it is blurred, and clicking it closes the panel. The open
+card is outlined so you can see which one you are reading.
 
 ## Labels
 
