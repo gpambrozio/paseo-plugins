@@ -433,8 +433,9 @@ forgetting.
 which used to be hidden on compact, now shows there: it is the only thing left saying how old the
 board is. `refreshing` is bound to `busy`, so a refresh started any other way spins the same
 control. The header also drops its own "GitHub" title, because the surface chrome above it already
-carries the name and the icon, and shortens "Configure prompts" to "Prompts" — the row does not
-wrap, so anything that does not fit is clipped off the right edge rather than moved.
+carries the name and the icon. The settings button is a `Settings` gear on both layouts — the row
+does not wrap, so anything that does not fit is clipped off the right edge rather than moved, and a
+glyph is the one label that always fits.
 
 ### The keyboard
 

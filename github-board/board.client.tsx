@@ -3447,15 +3447,14 @@ export function GitHubBoard(props: PluginSurfaceProps) {
             ) : null}
             <Pressable
               accessibilityRole="button"
-              style={styles.ghostButton}
+              accessibilityLabel="Configure prompts"
+              style={({ pressed }) => [styles.iconButton, pressed ? styles.cardPressed : null]}
               onPress={() => {
                 setFilterOpen(false);
                 setShowSettings(true);
               }}
             >
-              <Text style={styles.ghostButtonLabel}>
-                {props.layout.compact ? "Prompts" : "Configure prompts"}
-              </Text>
+              <Icon name="Settings" size={15} color={props.theme.colors.foreground} />
             </Pressable>
             {/* Compact refreshes by pulling the list down, so the button would
                 be a second way to do the same thing in the row with the least

@@ -87,7 +87,7 @@ what re-reads a run that has finished since.
 
 ## Configuring the prompts
 
-**Configure prompts** in the header opens the settings view. It holds the GitHub
+The **gear button** in the header opens the settings view. It holds the GitHub
 login the board queries for, and the first message each kind of card is sent
 with:
 
