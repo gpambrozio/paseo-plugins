@@ -2,6 +2,7 @@ import { Icon, type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugi
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Keyboard,
   Linking,
   Platform,
@@ -34,6 +35,7 @@ import {
   listLabels,
   loadBoard,
   loadComments,
+  loadImage,
   loadItem,
   savePrompts,
   saveLogin,
@@ -42,6 +44,7 @@ import {
   sendToChat,
   toggleLabel,
 } from "./board.shared";
+import { isGitHubImageHost } from "./image-host";
 import { MarkdownBody } from "./markdown.client";
 
 /**
@@ -224,6 +227,13 @@ let cachedColumnId: ColumnId = COLUMN_IDS[0];
  * surface unmounts on every workspace switch.
  */
 const cachedRepositoryLabels = new Map<string, { labels: RepositoryLabel[]; storedAt: number }>();
+/**
+ * Images already fetched through the daemon, by URL, with the size the client
+ * measured. Comments are re-rendered every time the panel reopens on the same
+ * card, and a screenshot is the one thing in it worth not asking for twice.
+ */
+const cachedImages = new Map<string, { uri: string; width: number; height: number }>();
+const IMAGE_CACHE_ENTRIES = 24;
 
 /**
  * Stands in until the first board lands. Blank templates are what the server
@@ -1049,6 +1059,26 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       commentReply: { marginLeft: 20 },
       commentHeader: { color: colors.foregroundMuted, fontSize: 12, fontWeight: "600" as const },
       /**
+       * Sized by `aspectRatio` from the measured image, so the box is right
+       * before the bitmap paints and nothing under it jumps; capped so a tall
+       * phone screenshot does not become the whole panel.
+       */
+      imageFrame: {
+        width: "100%" as const,
+        maxHeight: 480,
+        borderRadius: 8,
+        overflow: "hidden" as const,
+        backgroundColor: withAlpha(colors.foregroundMuted, "1a"),
+      },
+      image: { width: "100%" as const, height: "100%" as const },
+      /** The frame before the size is known: a short band with a spinner in it. */
+      imagePending: {
+        height: 96,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
+      imageCaption: { color: colors.foregroundMuted, fontSize: 11, marginTop: 4 },
+      /**
        * One pill per state, spelled in the tokens the theme has: accent for
        * open, danger for closed, and muted for a draft or a merge — both of
        * which are settled rather than wrong. The word carries the meaning.
@@ -1118,6 +1148,11 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         backgroundColor: withAlpha(colors.foregroundMuted, "1a"),
       },
       mdLink: { color: colors.accent },
+      /** Cells share the row's width equally; a screenshot in one scales to fit. */
+      mdTable: { borderWidth: 1, borderColor: separator, borderRadius: 8, overflow: "hidden" as const },
+      mdTableRow: { flexDirection: "row" as const, borderTopWidth: 1, borderTopColor: separator },
+      mdTableCell: { flex: 1, minWidth: 0, padding: 6 },
+      mdTableHeader: { fontWeight: "600" as const },
     };
   }, [theme, layout.compact]);
 }
@@ -2710,6 +2745,109 @@ function PromptSettingsView({
 }
 
 // ---------------------------------------------------------------------------
+// Images in a body or a comment
+// ---------------------------------------------------------------------------
+
+/**
+ * One image on its own line of Markdown. A GitHub-hosted one goes through
+ * `board.image` — a private repository's attachments answer 404 to the app,
+ * which holds no token — and any other host is loaded by `Image` directly,
+ * the way a browser would. Either way the size is measured first, so the
+ * frame is right before the bitmap paints. A press opens the original.
+ *
+ * Failure falls back to the link the panel used to show, named after the
+ * alt text, so nothing that was readable before is lost.
+ */
+function RemoteImage({
+  url,
+  alt,
+  styles,
+  accentColor,
+}: {
+  url: string;
+  alt: string;
+  styles: Styles;
+  accentColor: string;
+}) {
+  const fetchImage = useRpc(loadImage);
+  const [image, setImage] = useState(() => cachedImages.get(url) ?? null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (image !== null) return;
+    let live = true;
+    const source = isGitHubImageHost(url)
+      ? fetchImage({ url }).then((result) => result.dataUrl)
+      : Promise.resolve(url);
+    source
+      .then(function measure(uri) {
+        // The callback form: the promise form is newer than some react-native-web
+        // builds the app has shipped on, and returns nothing there.
+        return new Promise<{ uri: string; width: number; height: number }>((resolve, reject) => {
+          Image.getSize(
+            uri,
+            (width, height) => resolve({ uri, width, height }),
+            (cause: unknown) => reject(cause instanceof Error ? cause : new Error(String(cause))),
+          );
+        });
+      })
+      .then((loaded) => {
+        cachedImages.set(url, loaded);
+        if (cachedImages.size > IMAGE_CACHE_ENTRIES) {
+          const oldest = cachedImages.keys().next().value;
+          if (oldest !== undefined) cachedImages.delete(oldest);
+        }
+        if (live) setImage(loaded);
+      })
+      .catch((cause: unknown) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      live = false;
+    };
+  }, [fetchImage, image, url]);
+
+  const label = alt.trim() === "" ? "image" : alt;
+
+  if (error !== null) {
+    return (
+      <Text style={styles.mdParagraph}>
+        <Text accessibilityRole="link" style={styles.mdLink} onPress={() => openExternalUrl(url)}>
+          [image: {label}]
+        </Text>
+        <Text style={styles.imageCaption}> — {error}</Text>
+      </Text>
+    );
+  }
+
+  if (image === null) {
+    return (
+      <View style={[styles.imageFrame, styles.imagePending]}>
+        <ActivityIndicator color={accentColor} />
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="imagebutton"
+      accessibilityLabel={`${label}, opens on GitHub`}
+      onPress={() => openExternalUrl(url)}
+    >
+      <View style={[styles.imageFrame, { aspectRatio: image.width / image.height }]}>
+        <Image
+          source={{ uri: image.uri }}
+          style={styles.image}
+          resizeMode="contain"
+          accessibilityLabel={label}
+        />
+      </View>
+      {alt.trim() === "" ? null : <Text style={styles.imageCaption}>{alt}</Text>}
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The detail panel
 // ---------------------------------------------------------------------------
 
@@ -2799,6 +2937,13 @@ function ItemDetailPanel({
       live = false;
     };
   }, [commentsRequest, item.id, listComments]);
+
+  const renderImage = useCallback(
+    (image: { url: string; alt: string }) => (
+      <RemoteImage url={image.url} alt={image.alt} styles={styles} accentColor={accentColor} />
+    ),
+    [accentColor, styles],
+  );
 
   const refreshAll = useCallback(() => {
     setGeneration((current) => current + 1);
@@ -2940,7 +3085,12 @@ function ItemDetailPanel({
             {details.body.trim() === "" ? (
               <Text style={styles.empty}>No description was written.</Text>
             ) : (
-              <MarkdownBody source={details.body} styles={styles} onOpenLink={openExternalUrl} />
+              <MarkdownBody
+                source={details.body}
+                styles={styles}
+                onOpenLink={openExternalUrl}
+                renderImage={renderImage}
+              />
             )}
             {details.assignees.length > 0 ? (
               <>
@@ -2998,6 +3148,7 @@ function ItemDetailPanel({
                           source={comment.body}
                           styles={styles}
                           onOpenLink={openExternalUrl}
+                          renderImage={renderImage}
                         />
                       )}
                     </View>

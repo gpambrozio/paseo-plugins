@@ -12,11 +12,12 @@ compile time. This file covers only what is specific to `github-board`.
 
 | File               | What it owns                                                                |
 | ------------------ | --------------------------------------------------------------------------- |
-| `index.ts`         | Wiring only — binds the ten RPC contracts and registers the sidebar surface. |
+| `index.ts`         | Wiring only — binds the eleven RPC contracts and registers the sidebar surface. |
 | `board.shared.ts`  | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `board.server.ts`  | Every `gh` subprocess, the settings file, and the server-side board cache.  |
 | `board.client.tsx` | The surface: columns, cards, the detail panel, the repository filter, and the client cache. |
 | `markdown.client.tsx` | The renderer for an item's Markdown body; only the detail panel uses it.  |
+| `image-host.ts`    | Unsuffixed, in both bundles: which image hosts the daemon fetches for the app. |
 | `README.md`        | What the board shows a user, and which query backs each column.             |
 
 ## Checking a `gh` query against reality
@@ -32,6 +33,10 @@ npx tsc board.server.ts --module esnext --target es2022 --moduleResolution bundl
   --outDir /tmp/gbcheck --skipLibCheck
 # then call loadBoardHandler from a throwaway .mjs in that directory, and delete it after
 ```
+
+`board.server.ts` also imports `./image-host` at runtime, so pass `image-host.ts` to `tsc` as
+well, and add the `.js` extension to that one import in the emitted `board.server.js` before
+running it — the bundler resolves extensionless imports, plain Node does not.
 
 Run it with `PASEO_HOME` pointed at a scratch directory so a throwaway never writes the real
 `settings.json`.
@@ -190,7 +195,32 @@ are a different object and are not fetched. Cached by id for five minutes like t
 panel's Refresh re-requests them with `force` only once they have been asked for
 (`commentsRequest` stays null until the button is pressed).
 
-`markdown.client.tsx` renders the body and every comment. There is no Markdown library a client bundle can import,
+**Images on their own line are rendered, and GitHub-hosted ones come through the daemon.** An
+attachment on a private repository — `github.com/user-attachments/assets/…` — answers 404 to
+anyone without the token and, with it, a 302 to a signed S3 URL good for five minutes. The app holds
+no token, so `board.image` fetches the bytes on the daemon with `gh auth token` and answers a data
+URL; `fetch` follows the redirect and drops `Authorization` across origins as the spec says. The
+size cap is 4 MB and the server keeps the last 24 by URL. **Only GitHub hosts**, decided by
+`isGitHubImageHost` in `image-host.ts` and checked again on the server rather than trusted from
+the client: this is the daemon fetching a URL a comment's author chose, so anything else is loaded
+by `Image` directly, the way a browser would. A release-asset download URL is not an attachment
+and answers 404 even with the token; it is left as the text it was.
+
+`image-host.ts` has no suffix and no Node imports on purpose — it is in both bundles — and it is
+kept out of `board.shared.ts` so that file stays type-only to the server, which is what lets the
+server half be transpiled and run alone. The standalone check now needs `image-host.ts` passed to
+`tsc` alongside `board.server.ts`.
+
+`RemoteImage` measures the image with `Image.getSize` — the callback form; the promise form is
+newer than some react-native-web builds and returns nothing there — before rendering it, so the
+frame is sized by `aspectRatio` before the bitmap paints and the thread does not jump. Capped at
+480pt tall. A press opens the original on GitHub; a failure falls back to the `[image: alt]` link
+the panel used to show. The client keeps its own 24-entry cache of fetched images at module scope.
+
+`markdown.client.tsx` renders the body and every comment. It renders pipe tables as rows of
+equal-width cells, and a cell that is only an image goes through `renderImage` too: a table of
+screenshots, one variant per column, is how a review thread compares them, and it was where most
+of the images in the pull request this was built against lived. There is no Markdown library a client bundle can import,
 so it covers what an issue body actually uses — headings, lists, task lists, fenced code, quotes,
 rules, and bold, inline code and links — and leaves the rest as text. Single newlines break lines,
 as GitHub's issue flavour of GFM does. HTML comments are stripped, because that is how issue

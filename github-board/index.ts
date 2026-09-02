@@ -4,6 +4,7 @@ import {
   listLabelsHandler,
   loadBoardHandler,
   loadCommentsHandler,
+  loadImageHandler,
   loadItemHandler,
   saveLoginHandler,
   savePromptsHandler,
@@ -16,6 +17,7 @@ import {
   listLabels,
   loadBoard,
   loadComments,
+  loadImage,
   loadItem,
   savePrompts,
   saveLogin,
@@ -29,6 +31,7 @@ export default function contribute(plugin: PluginContext) {
   plugin.handle(loadBoard, loadBoardHandler);
   plugin.handle(loadItem, loadItemHandler);
   plugin.handle(loadComments, loadCommentsHandler);
+  plugin.handle(loadImage, loadImageHandler);
   plugin.handle(saveLogin, saveLoginHandler);
   plugin.handle(saveRepositoryFilter, saveRepositoryFilterHandler);
   plugin.handle(savePrompts, savePromptsHandler);

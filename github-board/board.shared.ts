@@ -421,3 +421,18 @@ export const loadComments = defineRpc({
     truncated: z.boolean(),
   }),
 });
+
+/**
+ * One image from a GitHub host, fetched with the daemon's `gh` token and
+ * returned inline. Data URLs rather than bytes because the client renders it
+ * with `Image`, which takes a URI; the size cap keeps a stray full-resolution
+ * photo from becoming one very large RPC.
+ */
+export const loadImage = defineRpc({
+  name: "board.image",
+  input: z.object({ url: z.string().url() }),
+  output: z.object({
+    /** `data:<content-type>;base64,…`. */
+    dataUrl: z.string(),
+  }),
+});

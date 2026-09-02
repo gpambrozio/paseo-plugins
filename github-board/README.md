@@ -142,6 +142,10 @@ issue or pull request, or a discussion's comments with their replies indented un
 the first 50 and says so if there are more; pull request review comments on the diff are not
 included. Refresh reloads the comments too once they have been loaded.
 
+Screenshots pasted into the description or a comment are shown in the panel, including
+attachments on private repositories, which the plugin fetches through `gh` on the daemon. Press
+one to open the original.
+
 While the panel is open the cards beside it still work: clicking another one swaps the panel to
 it, and the open card is outlined so you can see which one you are reading.
 

@@ -9,8 +9,9 @@ import { Text, View } from "react-native";
  * than dump raw Markdown in the panel, this covers the handful of constructs
  * an issue or pull request body actually uses — headings, lists, task lists,
  * fenced code, quotes, rules, and bold, code and links inline — and renders
- * anything else as a plain paragraph. Tables, nested emphasis and raw HTML are
- * left as the text they were written as; the panel's **Open on GitHub** button
+ * anything else as a plain paragraph. Tables are rendered as rows of cells, because
+ * a side-by-side of screenshots is one. Nested emphasis and raw HTML are left
+ * as the text they were written as; the panel's **Open on GitHub** button
  * is there for the rest.
  *
  * Single newlines break lines, the way GitHub renders an issue body (its
@@ -33,6 +34,10 @@ export interface MarkdownStyles {
   mdBold: object;
   mdInlineCode: object;
   mdLink: object;
+  mdTable: object;
+  mdTableRow: object;
+  mdTableCell: object;
+  mdTableHeader: object;
 }
 
 type Block =
@@ -41,7 +46,9 @@ type Block =
   | { kind: "list"; items: ListItem[] }
   | { kind: "code"; text: string }
   | { kind: "quote"; text: string }
-  | { kind: "rule" };
+  | { kind: "rule" }
+  | { kind: "image"; alt: string; url: string }
+  | { kind: "table"; header: string[]; rows: string[][] };
 
 interface ListItem {
   marker: string;
@@ -51,6 +58,42 @@ interface ListItem {
 }
 
 const LIST_LINE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+/**
+ * A line that is one image and nothing else, in either spelling GitHub
+ * accepts: Markdown, or the `<img>` tag its editor pastes for a resized one.
+ * Only a whole line becomes an image block; an image inside a sentence stays
+ * a link, because there is no inline image in a `Text`.
+ */
+const IMAGE_LINE = /^\s*!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)\s*$/;
+const IMG_TAG_LINE = /^\s*<img\b([^>]*)>\s*$/i;
+
+/**
+ * A pipe table, GitHub's only table syntax: a header row, a `|---|` line, then
+ * rows. Cells are split on unescaped pipes; a cell may be any inline text, or
+ * an image, which is what most tables in a review thread are for.
+ */
+const TABLE_SEPARATOR = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+function tableCells(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+function isTableRow(line: string): boolean {
+  return line.includes("|") && line.trim() !== "";
+}
+
+function imageOf(line: string): { alt: string; url: string } | null {
+  const markdown = IMAGE_LINE.exec(line);
+  if (markdown !== null) return { alt: markdown[1] ?? "", url: markdown[2] ?? "" };
+  const tag = IMG_TAG_LINE.exec(line);
+  if (tag === null) return null;
+  const attributes = tag[1] ?? "";
+  const src = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(attributes);
+  if (src === null) return null;
+  const alt = /\balt\s*=\s*["']([^"']*)["']/i.exec(attributes);
+  return { alt: alt?.[1] ?? "", url: src[1] ?? "" };
+}
 const TASK_PREFIX = /^\[([ xX])\]\s+/;
 
 function listItemOf(line: string): ListItem | null {
@@ -135,6 +178,26 @@ export function parseMarkdown(source: string): Block[] {
       continue;
     }
 
+    const image = imageOf(line);
+    if (image !== null) {
+      flush();
+      blocks.push({ kind: "image", ...image });
+      continue;
+    }
+
+    if (isTableRow(line) && TABLE_SEPARATOR.test(lines[index] ?? "")) {
+      flush();
+      const header = tableCells(line);
+      index += 1; // the separator
+      const rows: string[][] = [];
+      while (index < lines.length && isTableRow(lines[index] ?? "")) {
+        rows.push(tableCells(lines[index] ?? ""));
+        index += 1;
+      }
+      blocks.push({ kind: "table", header, rows });
+      continue;
+    }
+
     const item = listItemOf(line);
     if (item !== null) {
       if (paragraph.length > 0 || quote.length > 0) flush();
@@ -210,11 +273,17 @@ export function MarkdownBody({
   source,
   styles,
   onOpenLink,
+  renderImage,
 }: {
   source: string;
   styles: MarkdownStyles;
   /** Every link goes through the caller, which knows how to leave the app. */
   onOpenLink: (url: string) => void;
+  /**
+   * Draws an image that stands on its own line. The caller owns it because
+   * fetching one may need the daemon; this module only knows the URL.
+   */
+  renderImage: (image: { url: string; alt: string }) => ReactNode;
 }) {
   const blocks = parseMarkdown(source);
   // `.map`, not `for…of`: a closure made in a loop body captures the binding's
@@ -265,6 +334,36 @@ export function MarkdownBody({
             );
           case "rule":
             return <View key={index} style={styles.mdRule} />;
+          case "image":
+            return <View key={index}>{renderImage({ url: block.url, alt: block.alt })}</View>;
+          case "table":
+            return (
+              <View key={index} style={styles.mdTable}>
+                {[block.header, ...block.rows].map((cells, rowIndex) => (
+                  <View key={rowIndex} style={styles.mdTableRow}>
+                    {cells.map((cell, cellIndex) => {
+                      const image = imageOf(cell);
+                      return (
+                        <View key={cellIndex} style={styles.mdTableCell}>
+                          {image !== null ? (
+                            renderImage(image)
+                          ) : (
+                            <Text
+                              style={[
+                                styles.mdParagraph,
+                                rowIndex === 0 ? styles.mdTableHeader : null,
+                              ]}
+                            >
+                              {renderInline(cell, styles, onOpenLink)}
+                            </Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ))}
+              </View>
+            );
           default:
             return (
               <Text key={index} style={styles.mdParagraph}>

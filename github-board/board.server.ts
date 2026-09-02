@@ -19,6 +19,7 @@ import type {
   listLabels,
   loadBoard,
   loadComments,
+  loadImage,
   loadItem,
   savePrompts,
   saveLogin,
@@ -27,6 +28,7 @@ import type {
   sendToChat,
   toggleLabel,
 } from "./board.shared";
+import { isGitHubImageHost } from "./image-host";
 
 const execFileAsync = promisify(execFile);
 
@@ -1230,6 +1232,80 @@ export async function loadCommentsHandler({
   const result = await fetchComments(id);
   cachedComments.set(id, { result, storedAt: Date.now() });
   return result;
+}
+
+/**
+ * An image out of a comment, fetched here because the app cannot: a
+ * `github.com/user-attachments/assets/…` URL on a private repository answers
+ * 404 to anyone without the token, and with it answers a 302 to a signed S3
+ * URL good for five minutes. `fetch` follows that redirect, and drops the
+ * Authorization header on the way across origins as the spec says — the S3
+ * URL is signed and needs none.
+ *
+ * Only GitHub hosts, checked again here rather than trusted from the client,
+ * because this is the daemon fetching a URL that a comment's author chose.
+ */
+const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+const IMAGE_CACHE_ENTRIES = 24;
+
+/** `gh auth token`, remembered for the same five minutes everything else is. */
+let cachedToken: { token: string; storedAt: number } | null = null;
+
+async function ghToken(): Promise<string> {
+  if (cachedToken !== null && Date.now() - cachedToken.storedAt < DETAILS_TTL_MS) {
+    return cachedToken.token;
+  }
+  const token = (await gh(["auth", "token"])).trim();
+  if (token === "") throw new Error("GitHub CLI has no token for this account.");
+  cachedToken = { token, storedAt: Date.now() };
+  return token;
+}
+
+async function fetchImage(url: string): Promise<string> {
+  if (!isGitHubImageHost(url)) {
+    throw new Error("Only images hosted on GitHub are fetched through the daemon.");
+  }
+  const response = await fetch(url, {
+    headers: { Authorization: `token ${await ghToken()}` },
+    redirect: "follow",
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for this image.`);
+  }
+  const type = response.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
+  if (!type.startsWith("image/")) {
+    throw new Error(`Not an image: GitHub answered with ${type || "no content type"}.`);
+  }
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (declared > IMAGE_MAX_BYTES) {
+    throw new Error("This image is too large to show here.");
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.byteLength > IMAGE_MAX_BYTES) {
+    throw new Error("This image is too large to show here.");
+  }
+  return `data:${type};base64,${bytes.toString("base64")}`;
+}
+
+/**
+ * A handful of images, by URL, so scrolling back through a thread does not
+ * fetch a screenshot twice. Bounded by count rather than time: each entry is
+ * a whole image, and the oldest is evicted when the next one arrives.
+ */
+const cachedImages = new Map<string, string>();
+
+export async function loadImageHandler({
+  url,
+}: z.output<typeof loadImage.input>): Promise<z.input<typeof loadImage.output>> {
+  const hit = cachedImages.get(url);
+  if (hit !== undefined) return { dataUrl: hit };
+  const dataUrl = await fetchImage(url);
+  cachedImages.set(url, dataUrl);
+  if (cachedImages.size > IMAGE_CACHE_ENTRIES) {
+    const oldest = cachedImages.keys().next().value;
+    if (oldest !== undefined) cachedImages.delete(oldest);
+  }
+  return { dataUrl };
 }
 
 /**
