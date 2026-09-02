@@ -12,31 +12,27 @@ pin and a line to read before you move.
 
 ### Changed
 
-- **Clicking a card opens a detail panel instead of the browser.** The panel takes the right half
-  of the board (the whole of it on a phone) and shows the item's title, author, comment count,
-  labels, branches, state, assignees and its description rendered from Markdown. **Open on
-  GitHub** moves into the panel beside **Send to chat**, so the browser is one press further away
-  rather than gone. Clicking another card swaps the panel; the open card is outlined.
+- **Clicking a card opens it in a panel beside the board instead of in your browser.** The panel
+  shows the title, who opened it, how many comments it has, its labels, whether it is still open
+  or has since been closed or merged, who it is assigned to, and the full description, formatted
+  the way GitHub shows it. A pull request also shows which branch it comes from and which it
+  targets. **Open on GitHub** is in the panel next to **Send to chat**, so the browser is still one
+  click away. The rest of the board dims and blurs while the panel is open; click it, or the
+  close button, to go back.
+- **The header buttons are icons now.** Refresh is an arrow, the prompt settings are a gear.
 
 ### Added
 
-- **Load comments**, a button at the foot of the panel that fetches the conversation on request
-  — an issue's or pull request's comments, or a discussion's comments with replies indented. The
-  first 50 are shown, with a note when there are more. Backed by `board.comments`, a tenth RPC,
-  cached like the body.
-- **Images in the description and in comments are rendered**, sized to the panel and capped in
-  height, with a press opening the original. Attachments on a private repository need the `gh`
-  token, which the app does not have, so `board.image` — an eleventh RPC — fetches GitHub-hosted
-  images on the daemon and answers a data URL (4 MB cap). Images on other hosts load directly.
-- **The panel's width can be dragged** on the wide layout, by its left edge, between a readable
-  minimum and one column's worth of board. The width is saved to the plugin's settings as a share
-  of the board (`board.save-detail-width`, a twelfth RPC), so it survives a restart and scales
-  with the window.
-- `board.item`, a ninth RPC: the body and live state of one card by node id, fetched when its
-  panel opens rather than with the board, and cached on the server for five minutes. The panel's
-  Refresh button bypasses the cache.
-- `markdown.client.tsx`, a small renderer for the constructs an issue body actually uses. A plugin
-  client bundle cannot import a Markdown library.
+- **Load comments** at the bottom of the panel shows the conversation: the comments on an issue or
+  pull request, or a discussion's comments with replies indented under them. The first 50 are
+  shown, and the panel says if there are more.
+- **Screenshots and other images** pasted into a description or a comment are shown in the panel,
+  including on private repositories. Side-by-side image tables show as tables. Click an image to
+  open the original.
+- **The panel can be made wider or narrower** by dragging its left edge. The width you choose is
+  kept, even after a restart, and scales with the window.
+- **A refresh button in the panel** reloads the description and comments if they were edited on
+  GitHub since you opened them.
 
 ## [0.2.0] — 2026-08-31
 
