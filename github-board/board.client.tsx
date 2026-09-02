@@ -247,6 +247,59 @@ const DETAIL_MIN_WIDTH = 320;
 const BOARD_MIN_WIDTH = 260;
 
 /**
+ * Follows a drag at the document level on the web renderer, where the
+ * responder system alone is not enough: widening the panel means dragging
+ * *left*, across the board's columns, whose scroll views ask for the responder
+ * as the pointer crosses them, and a pointer moving faster than the handle
+ * leaves it altogether. Document listeners see every move until the button is
+ * released, wherever the pointer is — including outside the window, where a
+ * `blur` stands in for the release the browser cannot report.
+ *
+ * Typed structurally: this plugin compiles against Node's lib, not the DOM's,
+ * and on native the globals are simply absent, so the function does nothing.
+ */
+function trackPointerOnDocument(
+  onMove: (clientX: number) => void,
+  onEnd: () => void,
+): () => void {
+  const web = globalThis as {
+    document?: {
+      addEventListener?: (type: string, listener: (event: unknown) => void) => void;
+      removeEventListener?: (type: string, listener: (event: unknown) => void) => void;
+    };
+    addEventListener?: (type: string, listener: () => void) => void;
+    removeEventListener?: (type: string, listener: () => void) => void;
+  };
+  const document = web.document;
+  if (
+    document === undefined ||
+    typeof document.addEventListener !== "function" ||
+    typeof document.removeEventListener !== "function"
+  ) {
+    return () => {};
+  }
+  const move = (event: unknown) => {
+    const clientX = typeof event === "object" && event !== null ? Reflect.get(event, "clientX") : null;
+    if (typeof clientX === "number") onMove(clientX);
+  };
+  let done = false;
+  const end = () => {
+    if (done) return;
+    done = true;
+    document.removeEventListener?.("pointermove", move);
+    document.removeEventListener?.("pointerup", end);
+    document.removeEventListener?.("pointercancel", end);
+    web.removeEventListener?.("blur", end);
+    onEnd();
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", end);
+  document.addEventListener("pointercancel", end);
+  web.addEventListener?.("blur", end);
+  return end;
+}
+
+/**
  * Stands in until the first board lands. Blank templates are what the server
  * reads as "use the default", so the settings view opened before a load shows
  * empty fields rather than inventing values the server would disagree with.
@@ -2945,43 +2998,61 @@ function ItemDetailPanel({
    * state because the responder is created once and must see the latest value
    * without being rebuilt per render.
    */
-  const dragStart = useRef<{ width: number; bodyWidth: number } | null>(null);
+  const dragStart = useRef<{ width: number; bodyWidth: number; x: number } | null>(null);
   const panelWidth = useRef<number>(0);
   const bodyWidthRef = useRef(bodyWidth);
   bodyWidthRef.current = bodyWidth;
+  /** Detaches the document listeners a web drag installed; a no-op elsewhere. */
+  const stopTracking = useRef<() => void>(() => {});
 
-  const resizer = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => {
-          dragStart.current = {
-            width: panelWidth.current,
-            bodyWidth: bodyWidthRef.current ?? panelWidth.current,
-          };
-          setResizing(true);
-        },
-        onPanResponderMove: (_event, gesture) => {
-          const start = dragStart.current;
-          if (start === null) return;
-          // Anchored to the right edge, so dragging left grows the panel.
-          const widest = Math.max(DETAIL_MIN_WIDTH, start.bodyWidth - BOARD_MIN_WIDTH);
-          const next = Math.min(widest, Math.max(DETAIL_MIN_WIDTH, start.width - gesture.dx));
-          cachedDetailWidth = next;
-          setWidth(next);
-        },
-        onPanResponderRelease: () => {
-          dragStart.current = null;
-          setResizing(false);
-        },
-        onPanResponderTerminate: () => {
-          dragStart.current = null;
-          setResizing(false);
-        },
-      }),
-    [],
-  );
+  useEffect(() => () => stopTracking.current(), []);
+
+  const resizer = useMemo(() => {
+    // Anchored to the right edge, so a pointer moving left grows the panel.
+    const applyDelta = (dx: number) => {
+      const start = dragStart.current;
+      if (start === null) return;
+      const widest = Math.max(DETAIL_MIN_WIDTH, start.bodyWidth - BOARD_MIN_WIDTH);
+      const next = Math.min(widest, Math.max(DETAIL_MIN_WIDTH, start.width - dx));
+      cachedDetailWidth = next;
+      setWidth(next);
+    };
+    const finish = () => {
+      stopTracking.current();
+      stopTracking.current = () => {};
+      dragStart.current = null;
+      setResizing(false);
+    };
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      /**
+       * Never hand the gesture over. Every scroll view the pointer crosses on
+       * its way left asks for the responder, and the default answer — yes —
+       * is why widening used to stop partway.
+       */
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+      onPanResponderGrant: (event) => {
+        const x = event.nativeEvent.pageX;
+        dragStart.current = {
+          width: panelWidth.current,
+          bodyWidth: bodyWidthRef.current ?? panelWidth.current,
+          x,
+        };
+        setResizing(true);
+        // Document-level tracking is the web's belt and braces: it keeps the
+        // drag alive past the handle, past the columns and past the window.
+        stopTracking.current = trackPointerOnDocument(
+          (clientX) => applyDelta(clientX - x),
+          finish,
+        );
+      },
+      onPanResponderMove: (_event, gesture) => applyDelta(gesture.dx),
+      onPanResponderRelease: finish,
+      onPanResponderTerminate: finish,
+    });
+  }, []);
 
   /**
    * A remembered width wider than the board now allows — the window shrank —

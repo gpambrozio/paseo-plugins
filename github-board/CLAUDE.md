@@ -182,7 +182,17 @@ it: `start.width - gesture.dx`, clamped between `DETAIL_MIN_WIDTH` and the body'
 the parent's `onLayout` and is threaded in as `bodyWidth`, null on compact, which is also what
 hides the handle. The chosen width lives at module scope (`cachedDetailWidth`) for the same reason
 the board does, and is clamped again on the way in for a window that has since shrunk. The drag
-start is a ref, not state: the responder is created once and must read the latest value. The
+start is a ref, not state: the responder is created once and must read the latest value.
+
+**Widening needs two things narrowing does not**, because widening drags the pointer *left*, off
+the handle and across the board's columns. First, `onPanResponderTerminationRequest` returns
+false: every scroll view the pointer crosses asks for the responder, and the default answer is
+yes, which is why the drag used to stop partway. Second, on the web renderer the grant also
+installs document-level `pointermove`/`pointerup` listeners (`trackPointerOnDocument`) that drive
+the same clamp from `clientX`, so a pointer that outruns the handle, or leaves the window, still
+moves the edge; a window `blur` stands in for the release the browser cannot report. Both feed
+`applyDelta`, so whichever arrives first wins and they cannot disagree. Native has no `document`
+and the helper is a no-op there. The
 `col-resize` cursor is spread in as an untyped extra because React Native's `cursor` type allows
 only `auto` and `pointer`; native ignores it.
 
