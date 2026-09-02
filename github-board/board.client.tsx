@@ -3463,11 +3463,18 @@ export function GitHubBoard(props: PluginSurfaceProps) {
             {props.layout.compact ? null : (
               <Pressable
                 accessibilityRole="button"
-                style={styles.button}
+                accessibilityLabel={busy ? "Loading the board" : "Refresh the board"}
+                style={({ pressed }) => [styles.iconButton, pressed ? styles.cardPressed : null]}
                 onPress={() => void refresh(undefined, true)}
                 disabled={busy}
               >
-                <Text style={styles.buttonLabel}>{busy ? "Loading…" : "Refresh"}</Text>
+                {/* The spinner takes the glyph's place while a load runs, so
+                    the button still says "loading" without a word to say it. */}
+                {busy ? (
+                  <ActivityIndicator size="small" color={props.theme.colors.foregroundMuted} />
+                ) : (
+                  <Icon name="RefreshCw" size={14} color={props.theme.colors.foreground} />
+                )}
               </Pressable>
             )}
           </>
