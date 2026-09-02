@@ -21,6 +21,7 @@ import type {
   loadComments,
   loadImage,
   loadItem,
+  saveDetailWidth,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
@@ -80,6 +81,8 @@ interface Settings {
   hiddenRepositories: string[];
   prompts: PromptSettings;
   launch: LaunchDefaults;
+  /** The detail panel's width as a share of the board's body; null is the default half. */
+  detailWidthFraction: number | null;
 }
 
 const EMPTY_SETTINGS: Settings = {
@@ -87,7 +90,15 @@ const EMPTY_SETTINGS: Settings = {
   hiddenRepositories: [],
   prompts: { byType: { ...DEFAULT_PROMPTS }, byProject: {} },
   launch: { ...EMPTY_LAUNCH },
+  detailWidthFraction: null,
 };
+
+/** A share of the body, or null for anything that is not one — including an old settings file. */
+function readFraction(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1
+    ? value
+    : null;
+}
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
@@ -158,6 +169,9 @@ async function readSettings(): Promise<Settings> {
         : [],
       prompts: readPrompts((parsed as { prompts?: unknown }).prompts),
       launch: readLaunch((parsed as { launch?: unknown }).launch),
+      detailWidthFraction: readFraction(
+        (parsed as { detailWidthFraction?: unknown }).detailWidthFraction,
+      ),
     };
   } catch {
     // No settings yet, or a file we can no longer parse. Either way the caller
@@ -807,6 +821,7 @@ export async function loadBoardHandler(
       login: resolved,
       hiddenRepositories: settings.hiddenRepositories,
       prompts: settings.prompts,
+      detailWidthFraction: settings.detailWidthFraction,
       ...(await describeProjects(paseo, cachedBoard.columns)),
       columns: cachedBoard.columns,
       fetchedAt: cachedBoard.fetchedAt,
@@ -846,6 +861,7 @@ export async function loadBoardHandler(
     login: resolved,
     hiddenRepositories: settings.hiddenRepositories,
     prompts: settings.prompts,
+    detailWidthFraction: settings.detailWidthFraction,
     ...(await describeProjects(paseo, columns)),
     columns,
     fetchedAt,
@@ -868,6 +884,13 @@ export async function saveLoginHandler({
   const resolved = trimmed === "" || trimmed === "@me" ? await resolveViewerLogin() : trimmed;
   await updateSettings({ login: resolved });
   return { login: resolved };
+}
+
+export async function saveDetailWidthHandler({
+  fraction,
+}: z.output<typeof saveDetailWidth.input>): Promise<z.input<typeof saveDetailWidth.output>> {
+  const saved = await updateSettings({ detailWidthFraction: readFraction(fraction) });
+  return { fraction: saved.detailWidthFraction ?? fraction };
 }
 
 export async function saveRepositoryFilterHandler({

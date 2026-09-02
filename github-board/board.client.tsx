@@ -40,6 +40,7 @@ import {
   loadComments,
   loadImage,
   loadItem,
+  saveDetailWidth,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
@@ -238,11 +239,14 @@ const cachedRepositoryLabels = new Map<string, { labels: RepositoryLabel[]; stor
 const cachedImages = new Map<string, { uri: string; width: number; height: number }>();
 const IMAGE_CACHE_ENTRIES = 24;
 /**
- * The detail panel's width on the wide layout, once the user has dragged it.
- * Null means half the body. Module scope, like the board: the surface unmounts
- * on every workspace switch, and a width chosen by hand should not snap back.
+ * The detail panel's width on the wide layout as a share of the body, once the
+ * user has dragged it. Null means half. Module scope for the instant repaint
+ * on remount, and the settings file — via `board.save-detail-width`, adopted
+ * from `board.load` — for the next daemon start. A share, not pixels, so the
+ * width chosen against one window still fits a different one.
  */
-let cachedDetailWidth: number | null = null;
+let cachedDetailFraction: number | null = null;
+const DEFAULT_DETAIL_FRACTION = 0.5;
 /** Narrow enough for a phone-sized column of text; wide enough that a table of three screenshots still reads. */
 const DETAIL_MIN_WIDTH = 320;
 /** What the board keeps, at least: one column's worth of cards. */
@@ -3047,7 +3051,8 @@ function ItemDetailPanel({
   onSend: (item: BoardItem, type: ColumnId) => void;
 }) {
   const load = useRpc(loadItem);
-  const [width, setWidth] = useState<number | null>(cachedDetailWidth);
+  const persistWidth = useRpc(saveDetailWidth);
+  const [fraction, setFraction] = useState<number | null>(cachedDetailFraction);
   /**
    * The laid-out width, which is how far the panel has to travel to be
    * off-screen. Until the first layout it travels the fallback, which is at
@@ -3071,19 +3076,30 @@ function ItemDetailPanel({
 
   const resizer = useMemo(() => {
     // Anchored to the right edge, so a pointer moving left grows the panel.
+    // Kept as a share of the body from the first move, so nothing converts
+    // on release and the remount and the next daemon start agree.
     const applyDelta = (dx: number) => {
       const start = dragStart.current;
-      if (start === null) return;
+      if (start === null || start.bodyWidth <= 0) return;
       const widest = Math.max(DETAIL_MIN_WIDTH, start.bodyWidth - BOARD_MIN_WIDTH);
       const next = Math.min(widest, Math.max(DETAIL_MIN_WIDTH, start.width - dx));
-      cachedDetailWidth = next;
-      setWidth(next);
+      cachedDetailFraction = Math.min(1, next / start.bodyWidth);
+      setFraction(cachedDetailFraction);
     };
     const finish = () => {
       stopTracking.current();
       stopTracking.current = () => {};
+      const dragged = dragStart.current !== null;
       dragStart.current = null;
       setResizing(false);
+      // Once per drag, not per move. A failure is logged and not shown: the
+      // width the user just chose is on screen regardless, and a setting that
+      // did not save is not a problem with the card in front of them.
+      if (dragged && cachedDetailFraction !== null) {
+        persistWidth({ fraction: cachedDetailFraction }).catch((cause: unknown) => {
+          console.warn("[github-board] could not save the panel width", cause);
+        });
+      }
     };
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -3114,16 +3130,21 @@ function ItemDetailPanel({
       onPanResponderRelease: finish,
       onPanResponderTerminate: finish,
     });
-  }, []);
+  }, [persistWidth]);
 
   /**
-   * A remembered width wider than the board now allows — the window shrank —
-   * is clamped on the way in rather than left overhanging the header.
+   * The share turned back into pixels against the body as it is *now*, and
+   * clamped the same way a drag is: a share that made sense on a wide window
+   * can leave less than a column of board on a narrow one. Null before the
+   * body has been laid out, when the stylesheet's half stands in.
    */
   const clampedWidth =
-    width === null || bodyWidth === null
-      ? width
-      : Math.min(width, Math.max(DETAIL_MIN_WIDTH, bodyWidth - BOARD_MIN_WIDTH));
+    bodyWidth === null
+      ? null
+      : Math.min(
+          Math.max(DETAIL_MIN_WIDTH, (fraction ?? DEFAULT_DETAIL_FRACTION) * bodyWidth),
+          Math.max(DETAIL_MIN_WIDTH, bodyWidth - BOARD_MIN_WIDTH),
+        );
   const [details, setDetails] = useState<ItemDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -3668,6 +3689,9 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         // them outside the settings view, and that view owns its own draft.
         cachedPrompts = next.prompts;
         setPrompts(next.prompts);
+        // The panel width is adopted only while nothing local has been chosen
+        // yet: a drag made since the last load must not be undone by it.
+        if (cachedDetailFraction === null) cachedDetailFraction = next.detailWidthFraction;
         if (!filterHydrated.current) {
           filterHydrated.current = true;
           const restored = new Set(next.hiddenRepositories);

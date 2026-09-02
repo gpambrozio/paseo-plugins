@@ -29,7 +29,9 @@ pin and a line to read before you move.
   token, which the app does not have, so `board.image` — an eleventh RPC — fetches GitHub-hosted
   images on the daemon and answers a data URL (4 MB cap). Images on other hosts load directly.
 - **The panel's width can be dragged** on the wide layout, by its left edge, between a readable
-  minimum and one column's worth of board. The width is remembered for the session.
+  minimum and one column's worth of board. The width is saved to the plugin's settings as a share
+  of the board (`board.save-detail-width`, a twelfth RPC), so it survives a restart and scales
+  with the window.
 - `board.item`, a ninth RPC: the body and live state of one card by node id, fetched when its
   panel opens rather than with the board, and cached on the server for five minutes. The panel's
   Refresh button bypasses the cache.

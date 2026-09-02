@@ -12,7 +12,7 @@ compile time. This file covers only what is specific to `github-board`.
 
 | File               | What it owns                                                                |
 | ------------------ | --------------------------------------------------------------------------- |
-| `index.ts`         | Wiring only — binds the eleven RPC contracts and registers the sidebar surface. |
+| `index.ts`         | Wiring only — binds the twelve RPC contracts and registers the sidebar surface. |
 | `board.shared.ts`  | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `board.server.ts`  | Every `gh` subprocess, the settings file, and the server-side board cache.  |
 | `board.client.tsx` | The surface: columns, cards, the detail panel, the repository filter, and the client cache. |
@@ -194,8 +194,14 @@ board so the edge is grabbable from either side. The panel is anchored right, so
 it: `start.width - gesture.dx`, clamped between `DETAIL_MIN_WIDTH` and the body's width less
 `BOARD_MIN_WIDTH`, so neither side can be dragged out of existence. The body's width comes from
 the parent's `onLayout` and is threaded in as `bodyWidth`, null on compact, which is also what
-hides the handle. The chosen width lives at module scope (`cachedDetailWidth`) for the same reason
-the board does, and is clamped again on the way in for a window that has since shrunk. The drag
+hides the handle. The chosen width is a **share of the body, not pixels** — `cachedDetailFraction` at module scope
+for the instant repaint on remount, and `detailWidthFraction` in the settings file for the next
+daemon start, saved once per drag by `board.save-detail-width` on release and adopted from
+`board.load` only while nothing has been dragged locally since. A share, because the width was
+chosen against one window and has to fit a different one — or a different machine, since the
+settings live with the daemon. It is turned back into pixels against the body as laid out now and
+clamped the same way a drag is, so a share that made sense on a wide window still leaves a column
+of board on a narrow one. The drag
 start is a ref, not state: the responder is created once and must read the latest value.
 
 **Widening needs two things narrowing does not**, because widening drags the pointer *left*, off
@@ -623,8 +629,8 @@ loaded.
 ## Settings and caching
 
 Settings persist to `$PASEO_HOME/plugins/github-board/settings.json`, defaulting to `~/.paseo`, and
-hold `login`, the repository filter's `hiddenRepositories`, the `prompts`, and the `launch` defaults
-the dialog reopens on. Four handlers write that one file, so all of them go through
+hold `login`, the repository filter's `hiddenRepositories`, the `prompts`, the `launch` defaults
+the dialog reopens on, and the detail panel's `detailWidthFraction`. Five handlers write that one file, so all of them go through
 `updateSettings`, which read-modify-writes — a whole-file write from any would drop the others'
 keys. Each reader defaults what it cannot parse, so a settings file written before a key existed is
 read and upgraded in place rather than rejected.

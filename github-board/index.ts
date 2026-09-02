@@ -6,6 +6,7 @@ import {
   loadCommentsHandler,
   loadImageHandler,
   loadItemHandler,
+  saveDetailWidthHandler,
   saveLoginHandler,
   savePromptsHandler,
   saveRepositoryFilterHandler,
@@ -19,6 +20,7 @@ import {
   loadComments,
   loadImage,
   loadItem,
+  saveDetailWidth,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
@@ -34,6 +36,7 @@ export default function contribute(plugin: PluginContext) {
   plugin.handle(loadImage, loadImageHandler);
   plugin.handle(saveLogin, saveLoginHandler);
   plugin.handle(saveRepositoryFilter, saveRepositoryFilterHandler);
+  plugin.handle(saveDetailWidth, saveDetailWidthHandler);
   plugin.handle(savePrompts, savePromptsHandler);
   plugin.handle(sendOptions, sendOptionsHandler);
   plugin.handle(sendToChat, sendToChatHandler);
