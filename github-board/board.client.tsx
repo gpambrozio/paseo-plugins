@@ -20,6 +20,7 @@ import type {
   CheckSummary,
   ColumnId,
   Isolation,
+  ItemComment,
   ItemDetails,
   LaunchDefaults,
   LinkedIssue,
@@ -32,6 +33,7 @@ import {
   COLUMN_IDS,
   listLabels,
   loadBoard,
+  loadComments,
   loadItem,
   savePrompts,
   saveLogin,
@@ -1024,6 +1026,28 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         paddingVertical: 4,
       },
       detailDivider: { height: 1, backgroundColor: separator, marginVertical: 6 },
+      /** Icon and label side by side, in the ghost button's frame. */
+      loadCommentsButton: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        alignSelf: "flex-start" as const,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: separator,
+        borderRadius: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+      },
+      commentCard: {
+        gap: 6,
+        borderWidth: 1,
+        borderColor: separator,
+        borderRadius: 8,
+        padding: 10,
+      },
+      /** A reply, indented under the comment it answers. Discussions only. */
+      commentReply: { marginLeft: 20 },
+      commentHeader: { color: colors.foregroundMuted, fontSize: 12, fontWeight: "600" as const },
       /**
        * One pill per state, spelled in the tokens the theme has: accent for
        * open, danger for closed, and muted for a draft or a merge — both of
@@ -2742,6 +2766,44 @@ function ItemDetailPanel({
   const [busy, setBusy] = useState(true);
   /** Bumped by Refresh; anything past the first load bypasses the server cache. */
   const [generation, setGeneration] = useState(0);
+  const listComments = useRpc(loadComments);
+  /**
+   * Null until the button at the bottom is pressed: comments are the long
+   * tail of an item, and most panels are opened for the description. Refresh
+   * re-requests them with `force` only once they have been asked for.
+   */
+  const [commentsRequest, setCommentsRequest] = useState<{ force: boolean } | null>(null);
+  const [comments, setComments] = useState<{
+    comments: ItemComment[];
+    truncated: boolean;
+  } | null>(null);
+  const [commentsBusy, setCommentsBusy] = useState(false);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (commentsRequest === null) return;
+    let live = true;
+    setCommentsBusy(true);
+    setCommentsError(null);
+    listComments({ id: item.id, force: commentsRequest.force })
+      .then((result) => {
+        if (live) setComments(result);
+      })
+      .catch((cause: unknown) => {
+        if (live) setCommentsError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (live) setCommentsBusy(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [commentsRequest, item.id, listComments]);
+
+  const refreshAll = useCallback(() => {
+    setGeneration((current) => current + 1);
+    setCommentsRequest((current) => (current === null ? null : { force: true }));
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -2802,11 +2864,11 @@ function ItemDetailPanel({
           accessibilityLabel="Reload details"
           style={({ pressed }) => [
             styles.iconButton,
-            busy ? styles.buttonDisabled : null,
+            busy || commentsBusy ? styles.buttonDisabled : null,
             pressed ? styles.cardPressed : null,
           ]}
-          onPress={() => setGeneration((current) => current + 1)}
-          disabled={busy}
+          onPress={refreshAll}
+          disabled={busy || commentsBusy}
         >
           <Icon name="RefreshCw" size={14} color={foregroundColor} />
         </Pressable>
@@ -2888,6 +2950,66 @@ function ItemDetailPanel({
                 </Text>
               </>
             ) : null}
+            <View style={styles.detailDivider} />
+            {commentsRequest === null ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Load ${item.commentsCount} comments`}
+                style={({ pressed }) => [
+                  styles.loadCommentsButton,
+                  pressed ? styles.cardPressed : null,
+                ]}
+                onPress={() => setCommentsRequest({ force: false })}
+              >
+                <Icon name="MessageSquare" size={14} color={foregroundColor} />
+                <Text style={styles.ghostButtonLabel}>
+                  {item.commentsCount === 0
+                    ? "Load comments"
+                    : `Load ${item.commentsCount} ${item.commentsCount === 1 ? "comment" : "comments"}`}
+                </Text>
+              </Pressable>
+            ) : comments === null ? (
+              commentsError !== null ? (
+                <Text style={styles.danger}>{commentsError}</Text>
+              ) : (
+                <View style={styles.centeredRow}>
+                  <ActivityIndicator color={accentColor} />
+                </View>
+              )
+            ) : (
+              <>
+                {commentsError !== null ? <Text style={styles.danger}>{commentsError}</Text> : null}
+                {comments.comments.length === 0 ? (
+                  <Text style={styles.empty}>No comments yet.</Text>
+                ) : (
+                  comments.comments.map((comment) => (
+                    <View
+                      key={comment.id}
+                      style={[styles.commentCard, comment.depth > 0 ? styles.commentReply : null]}
+                    >
+                      <Text style={styles.commentHeader}>
+                        {comment.author === null ? "deleted account" : `@${comment.author}`}
+                        {comment.createdAt === "" ? "" : ` · ${absoluteDate(comment.createdAt)}`}
+                      </Text>
+                      {comment.body.trim() === "" ? (
+                        <Text style={styles.empty}>Empty comment.</Text>
+                      ) : (
+                        <MarkdownBody
+                          source={comment.body}
+                          styles={styles}
+                          onOpenLink={openExternalUrl}
+                        />
+                      )}
+                    </View>
+                  ))
+                )}
+                {comments.truncated ? (
+                  <Text style={styles.detailMeta}>
+                    Only the first comments are shown here. Open on GitHub for the rest.
+                  </Text>
+                ) : null}
+              </>
+            )}
           </>
         )}
       </ScrollView>

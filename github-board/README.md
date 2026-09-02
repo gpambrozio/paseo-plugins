@@ -137,6 +137,11 @@ merged since the board was fetched.
 gone — it is one press further away. **Refresh** reloads the description if it was edited on
 GitHub in the meantime; otherwise the panel remembers what it fetched for five minutes.
 
+A **Load comments** button at the foot of the panel fetches the conversation — the comments on an
+issue or pull request, or a discussion's comments with their replies indented under them. It shows
+the first 50 and says so if there are more; pull request review comments on the diff are not
+included. Refresh reloads the comments too once they have been loaded.
+
 While the panel is open the cards beside it still work: clicking another one swaps the panel to
 it, and the open card is outlined so you can see which one you are reading.
 

@@ -382,3 +382,42 @@ export const loadItem = defineRpc({
   }),
   output: ItemDetailsSchema,
 });
+
+export const ItemCommentSchema = z.object({
+  id: z.string(),
+  /** Null for a deleted account, as with `BoardItem.author`. */
+  author: z.string().nullable(),
+  createdAt: z.string(),
+  /** Markdown, as GitHub stores it. */
+  body: z.string(),
+  /**
+   * 0 for a comment on the item, 1 for a reply to one — discussions thread
+   * their comments one level deep, and the panel indents replies to say so.
+   * Issue and pull request comments are always 0.
+   */
+  depth: z.number().int().min(0),
+});
+
+export type ItemComment = z.output<typeof ItemCommentSchema>;
+
+/**
+ * The conversation on one card, loaded on request from the bottom of the
+ * detail panel rather than with the body: comments are the long tail of an
+ * item, and most panels are opened to read the description.
+ *
+ * For a pull request this is the conversation tab only — review comments on
+ * the diff are a different object and are not fetched.
+ */
+export const loadComments = defineRpc({
+  name: "board.comments",
+  input: z.object({
+    id: z.string().min(1),
+    /** Set by the panel's Refresh button to bypass the server's short-lived cache. */
+    force: z.boolean().default(false),
+  }),
+  output: z.object({
+    comments: z.array(ItemCommentSchema),
+    /** True when GitHub has more than the page fetched; the rest are on GitHub. */
+    truncated: z.boolean(),
+  }),
+});

@@ -3,6 +3,7 @@ import { GitHubBoard } from "./board.client";
 import {
   listLabelsHandler,
   loadBoardHandler,
+  loadCommentsHandler,
   loadItemHandler,
   saveLoginHandler,
   savePromptsHandler,
@@ -14,6 +15,7 @@ import {
 import {
   listLabels,
   loadBoard,
+  loadComments,
   loadItem,
   savePrompts,
   saveLogin,
@@ -26,6 +28,7 @@ import {
 export default function contribute(plugin: PluginContext) {
   plugin.handle(loadBoard, loadBoardHandler);
   plugin.handle(loadItem, loadItemHandler);
+  plugin.handle(loadComments, loadCommentsHandler);
   plugin.handle(saveLogin, saveLoginHandler);
   plugin.handle(saveRepositoryFilter, saveRepositoryFilterHandler);
   plugin.handle(savePrompts, savePromptsHandler);

@@ -20,6 +20,10 @@ pin and a line to read before you move.
 
 ### Added
 
+- **Load comments**, a button at the foot of the panel that fetches the conversation on request
+  — an issue's or pull request's comments, or a discussion's comments with replies indented. The
+  first 50 are shown, with a note when there are more. Backed by `board.comments`, a tenth RPC,
+  cached like the body.
 - `board.item`, a ninth RPC: the body and live state of one card by node id, fetched when its
   panel opens rather than with the board, and cached on the server for five minutes. The panel's
   Refresh button bypasses the cache.

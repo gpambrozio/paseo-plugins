@@ -12,7 +12,7 @@ compile time. This file covers only what is specific to `github-board`.
 
 | File               | What it owns                                                                |
 | ------------------ | --------------------------------------------------------------------------- |
-| `index.ts`         | Wiring only — binds the nine RPC contracts and registers the sidebar surface. |
+| `index.ts`         | Wiring only — binds the ten RPC contracts and registers the sidebar surface. |
 | `board.shared.ts`  | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `board.server.ts`  | Every `gh` subprocess, the settings file, and the server-side board cache.  |
 | `board.client.tsx` | The surface: columns, cards, the detail panel, the repository filter, and the client cache. |
@@ -180,7 +180,17 @@ which takes any Lucide name — each with an `accessibilityLabel`, since the gly
 label. Icons, because the panel header on the wide layout sits beside the board's own Refresh
 button and two "Refresh" words in one row would read as one action twice.
 
-`markdown.client.tsx` renders the body. There is no Markdown library a client bundle can import,
+**Comments are a third call, `board.comments`, and only on request.** A button at the foot of the
+panel loads them; most panels are opened for the description, and the conversation is an item's
+long tail. The query selects `comments` on all three types and, for a discussion, each comment's
+`replies` too, flattened with `depth: 1` so the panel can indent them. Pages are 50 comments and 20
+replies; `truncated` says a page was full, and the panel points at GitHub for the rest rather than
+paging — a thread that long is not read in a half-width panel. A pull request's *review* comments
+are a different object and are not fetched. Cached by id for five minutes like the body, and the
+panel's Refresh re-requests them with `force` only once they have been asked for
+(`commentsRequest` stays null until the button is pressed).
+
+`markdown.client.tsx` renders the body and every comment. There is no Markdown library a client bundle can import,
 so it covers what an issue body actually uses — headings, lists, task lists, fenced code, quotes,
 rules, and bold, inline code and links — and leaves the rest as text. Single newlines break lines,
 as GitHub's issue flavour of GFM does. HTML comments are stripped, because that is how issue
