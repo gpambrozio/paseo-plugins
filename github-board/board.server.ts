@@ -9,6 +9,8 @@ import type {
   BoardColumn,
   BoardItem,
   CheckSummary,
+  ItemComment,
+  ItemDetails,
   RepositoryLabel,
   LaunchDefaults,
   LinkedIssue,
@@ -16,6 +18,10 @@ import type {
   PromptSettings,
   listLabels,
   loadBoard,
+  loadComments,
+  loadImage,
+  loadItem,
+  saveDetailWidth,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
@@ -23,6 +29,7 @@ import type {
   sendToChat,
   toggleLabel,
 } from "./board.shared";
+import { isGitHubImageHost } from "./image-host";
 
 const execFileAsync = promisify(execFile);
 
@@ -74,6 +81,8 @@ interface Settings {
   hiddenRepositories: string[];
   prompts: PromptSettings;
   launch: LaunchDefaults;
+  /** The detail panel's width as a share of the board's body; null is the default half. */
+  detailWidthFraction: number | null;
 }
 
 const EMPTY_SETTINGS: Settings = {
@@ -81,7 +90,15 @@ const EMPTY_SETTINGS: Settings = {
   hiddenRepositories: [],
   prompts: { byType: { ...DEFAULT_PROMPTS }, byProject: {} },
   launch: { ...EMPTY_LAUNCH },
+  detailWidthFraction: null,
 };
+
+/** A share of the body, or null for anything that is not one — including an old settings file. */
+function readFraction(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1
+    ? value
+    : null;
+}
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
@@ -152,6 +169,9 @@ async function readSettings(): Promise<Settings> {
         : [],
       prompts: readPrompts((parsed as { prompts?: unknown }).prompts),
       launch: readLaunch((parsed as { launch?: unknown }).launch),
+      detailWidthFraction: readFraction(
+        (parsed as { detailWidthFraction?: unknown }).detailWidthFraction,
+      ),
     };
   } catch {
     // No settings yet, or a file we can no longer parse. Either way the caller
@@ -801,6 +821,7 @@ export async function loadBoardHandler(
       login: resolved,
       hiddenRepositories: settings.hiddenRepositories,
       prompts: settings.prompts,
+      detailWidthFraction: settings.detailWidthFraction,
       ...(await describeProjects(paseo, cachedBoard.columns)),
       columns: cachedBoard.columns,
       fetchedAt: cachedBoard.fetchedAt,
@@ -840,6 +861,7 @@ export async function loadBoardHandler(
     login: resolved,
     hiddenRepositories: settings.hiddenRepositories,
     prompts: settings.prompts,
+    detailWidthFraction: settings.detailWidthFraction,
     ...(await describeProjects(paseo, columns)),
     columns,
     fetchedAt,
@@ -862,6 +884,13 @@ export async function saveLoginHandler({
   const resolved = trimmed === "" || trimmed === "@me" ? await resolveViewerLogin() : trimmed;
   await updateSettings({ login: resolved });
   return { login: resolved };
+}
+
+export async function saveDetailWidthHandler({
+  fraction,
+}: z.output<typeof saveDetailWidth.input>): Promise<z.input<typeof saveDetailWidth.output>> {
+  const saved = await updateSettings({ detailWidthFraction: readFraction(fraction) });
+  return { fraction: saved.detailWidthFraction ?? fraction };
 }
 
 export async function saveRepositoryFilterHandler({
@@ -1020,6 +1049,286 @@ export async function toggleLabelHandler({
   const labels = labelNamesOf(add ? data?.addLabelsToLabelable : data?.removeLabelsFromLabelable);
   patchCachedLabels(itemId, labels);
   return { labels };
+}
+
+/**
+ * The body of one card, fetched when its panel opens rather than with the
+ * board: a body is the largest field an item has, and thirty of them per column
+ * would weigh down a refresh for text the user reads one at a time.
+ *
+ * `node(id:)` resolves any node type, so one query serves all three kinds and
+ * the inline fragments decide which fields come back. A discussion carries no
+ * assignees on GitHub, and only a pull request has branches.
+ */
+const ITEM_QUERY = `query($id: ID!) {
+  node(id: $id) {
+    ... on Issue {
+      body state createdAt
+      assignees(first: 20) { nodes { login } }
+    }
+    ... on PullRequest {
+      body state isDraft createdAt baseRefName headRefName
+      assignees(first: 20) { nodes { login } }
+    }
+    ... on Discussion { body closed createdAt }
+  }
+}`;
+
+interface GhItemNode {
+  body?: unknown;
+  state?: unknown;
+  isDraft?: unknown;
+  closed?: unknown;
+  createdAt?: unknown;
+  baseRefName?: unknown;
+  headRefName?: unknown;
+  assignees?: { nodes?: unknown };
+}
+
+function itemStateOf(node: GhItemNode): ItemDetails["state"] {
+  if (node.state === "MERGED") return "merged";
+  if (node.state === "CLOSED" || node.closed === true) return "closed";
+  if (node.isDraft === true) return "draft";
+  return "open";
+}
+
+function toItemDetails(node: GhItemNode): ItemDetails {
+  const assigneeNodes = node.assignees?.nodes;
+  const assignees = Array.isArray(assigneeNodes)
+    ? assigneeNodes
+        .map((assignee) => (assignee as { login?: unknown }).login)
+        .filter((login): login is string => typeof login === "string")
+    : [];
+  return {
+    state: itemStateOf(node),
+    body: typeof node.body === "string" ? node.body : "",
+    createdAt: typeof node.createdAt === "string" ? node.createdAt : "",
+    assignees,
+    branches:
+      typeof node.headRefName === "string" && typeof node.baseRefName === "string"
+        ? { head: node.headRefName, base: node.baseRefName }
+        : null,
+  };
+}
+
+async function fetchItemDetails(id: string): Promise<ItemDetails> {
+  const raw = await gh(["api", "graphql", "-f", `query=${ITEM_QUERY}`, "-f", `id=${id}`]);
+  const parsed: unknown = JSON.parse(raw);
+  const node = (parsed as { data?: { node?: unknown } }).data?.node;
+  if (typeof node !== "object" || node === null) {
+    throw new Error("GitHub no longer has this item, or the account cannot see it.");
+  }
+  return toItemDetails(node as GhItemNode);
+}
+
+/**
+ * Cached like the board, and for the same reason: the panel is reopened on the
+ * same few cards, and each open would otherwise be a `gh` subprocess. `force`
+ * is the panel's Refresh button, for a body edited on GitHub in the meantime.
+ */
+const DETAILS_TTL_MS = 5 * 60_000;
+
+const cachedDetails = new Map<string, { details: ItemDetails; storedAt: number }>();
+
+export async function loadItemHandler({
+  id,
+  force,
+}: z.output<typeof loadItem.input>): Promise<z.input<typeof loadItem.output>> {
+  const hit = cachedDetails.get(id);
+  if (!force && hit !== undefined && Date.now() - hit.storedAt < DETAILS_TTL_MS) {
+    return hit.details;
+  }
+  const details = await fetchItemDetails(id);
+  cachedDetails.set(id, { details, storedAt: Date.now() });
+  return details;
+}
+
+/**
+ * The conversation on one card. `comments` on an issue or a pull request is
+ * the flat conversation; a discussion threads one level deep, so its replies
+ * are selected too and flattened with `depth: 1`. The page sizes are what a
+ * panel can be scrolled through — anything longer is read on GitHub, which
+ * `truncated` tells the panel to say.
+ */
+const COMMENTS_PAGE = 50;
+const REPLIES_PAGE = 20;
+
+const COMMENT_FIELDS = "id body createdAt author { login }";
+
+const COMMENTS_QUERY = `query($id: ID!, $first: Int!, $replies: Int!) {
+  node(id: $id) {
+    ... on Issue {
+      comments(first: $first) { totalCount nodes { ${COMMENT_FIELDS} } }
+    }
+    ... on PullRequest {
+      comments(first: $first) { totalCount nodes { ${COMMENT_FIELDS} } }
+    }
+    ... on Discussion {
+      comments(first: $first) {
+        totalCount
+        nodes {
+          ${COMMENT_FIELDS}
+          replies(first: $replies) { totalCount nodes { ${COMMENT_FIELDS} } }
+        }
+      }
+    }
+  }
+}`;
+
+interface GhCommentNode {
+  id?: unknown;
+  body?: unknown;
+  createdAt?: unknown;
+  author?: { login?: unknown };
+  replies?: { totalCount?: unknown; nodes?: unknown };
+}
+
+function toComment(node: GhCommentNode, depth: number): ItemComment {
+  return {
+    id: typeof node.id === "string" ? node.id : "",
+    author: typeof node.author?.login === "string" ? node.author.login : null,
+    createdAt: typeof node.createdAt === "string" ? node.createdAt : "",
+    body: typeof node.body === "string" ? node.body : "",
+    depth,
+  };
+}
+
+function commentNodesOf(value: unknown): GhCommentNode[] {
+  const nodes = (value as { nodes?: unknown } | undefined)?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  return nodes.filter(
+    (node): node is GhCommentNode => typeof node === "object" && node !== null,
+  );
+}
+
+function countOf(value: unknown): number {
+  const total = (value as { totalCount?: unknown } | undefined)?.totalCount;
+  return typeof total === "number" ? total : 0;
+}
+
+async function fetchComments(id: string): Promise<{ comments: ItemComment[]; truncated: boolean }> {
+  const raw = await gh([
+    "api",
+    "graphql",
+    "-f",
+    `query=${COMMENTS_QUERY}`,
+    "-f",
+    `id=${id}`,
+    "-F",
+    `first=${COMMENTS_PAGE}`,
+    "-F",
+    `replies=${REPLIES_PAGE}`,
+  ]);
+  const parsed: unknown = JSON.parse(raw);
+  const node = (parsed as { data?: { node?: unknown } }).data?.node;
+  if (typeof node !== "object" || node === null) {
+    throw new Error("GitHub no longer has this item, or the account cannot see it.");
+  }
+  const connection = (node as { comments?: unknown }).comments;
+  const comments: ItemComment[] = [];
+  let truncated = countOf(connection) > COMMENTS_PAGE;
+  for (const commentNode of commentNodesOf(connection)) {
+    comments.push(toComment(commentNode, 0));
+    // Replies are a discussion's second level; issues and pull requests have none.
+    if (countOf(commentNode.replies) > REPLIES_PAGE) truncated = true;
+    for (const reply of commentNodesOf(commentNode.replies)) {
+      comments.push(toComment(reply, 1));
+    }
+  }
+  return { comments: comments.filter((comment) => comment.id !== ""), truncated };
+}
+
+/** Cached like the body, and for as long; `force` is the same Refresh button. */
+const cachedComments = new Map<
+  string,
+  { result: { comments: ItemComment[]; truncated: boolean }; storedAt: number }
+>();
+
+export async function loadCommentsHandler({
+  id,
+  force,
+}: z.output<typeof loadComments.input>): Promise<z.input<typeof loadComments.output>> {
+  const hit = cachedComments.get(id);
+  if (!force && hit !== undefined && Date.now() - hit.storedAt < DETAILS_TTL_MS) {
+    return hit.result;
+  }
+  const result = await fetchComments(id);
+  cachedComments.set(id, { result, storedAt: Date.now() });
+  return result;
+}
+
+/**
+ * An image out of a comment, fetched here because the app cannot: a
+ * `github.com/user-attachments/assets/…` URL on a private repository answers
+ * 404 to anyone without the token, and with it answers a 302 to a signed S3
+ * URL good for five minutes. `fetch` follows that redirect, and drops the
+ * Authorization header on the way across origins as the spec says — the S3
+ * URL is signed and needs none.
+ *
+ * Only GitHub hosts, checked again here rather than trusted from the client,
+ * because this is the daemon fetching a URL that a comment's author chose.
+ */
+const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+const IMAGE_CACHE_ENTRIES = 24;
+
+/** `gh auth token`, remembered for the same five minutes everything else is. */
+let cachedToken: { token: string; storedAt: number } | null = null;
+
+async function ghToken(): Promise<string> {
+  if (cachedToken !== null && Date.now() - cachedToken.storedAt < DETAILS_TTL_MS) {
+    return cachedToken.token;
+  }
+  const token = (await gh(["auth", "token"])).trim();
+  if (token === "") throw new Error("GitHub CLI has no token for this account.");
+  cachedToken = { token, storedAt: Date.now() };
+  return token;
+}
+
+async function fetchImage(url: string): Promise<string> {
+  if (!isGitHubImageHost(url)) {
+    throw new Error("Only images hosted on GitHub are fetched through the daemon.");
+  }
+  const response = await fetch(url, {
+    headers: { Authorization: `token ${await ghToken()}` },
+    redirect: "follow",
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub answered ${response.status} for this image.`);
+  }
+  const type = response.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
+  if (!type.startsWith("image/")) {
+    throw new Error(`Not an image: GitHub answered with ${type || "no content type"}.`);
+  }
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (declared > IMAGE_MAX_BYTES) {
+    throw new Error("This image is too large to show here.");
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.byteLength > IMAGE_MAX_BYTES) {
+    throw new Error("This image is too large to show here.");
+  }
+  return `data:${type};base64,${bytes.toString("base64")}`;
+}
+
+/**
+ * A handful of images, by URL, so scrolling back through a thread does not
+ * fetch a screenshot twice. Bounded by count rather than time: each entry is
+ * a whole image, and the oldest is evicted when the next one arrives.
+ */
+const cachedImages = new Map<string, string>();
+
+export async function loadImageHandler({
+  url,
+}: z.output<typeof loadImage.input>): Promise<z.input<typeof loadImage.output>> {
+  const hit = cachedImages.get(url);
+  if (hit !== undefined) return { dataUrl: hit };
+  const dataUrl = await fetchImage(url);
+  cachedImages.set(url, dataUrl);
+  if (cachedImages.size > IMAGE_CACHE_ENTRIES) {
+    const oldest = cachedImages.keys().next().value;
+    if (oldest !== undefined) cachedImages.delete(oldest);
+  }
+  return { dataUrl };
 }
 
 /**

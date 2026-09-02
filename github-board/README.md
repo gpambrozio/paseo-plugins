@@ -23,8 +23,8 @@ the open pull requests, when there are any. Everything goes through GraphQL
 rather than `gh search`, because only GraphQL exposes `closingIssuesReferences`
 and `statusCheckRollup` — see below.
 
-![The GitHub board: Issues, Draft PRs, Open PRs, and Discussions columns, with a
-login field and Refresh button in the header.](docs/screenshot.png)
+![The GitHub board: Issues, Draft PRs and Open PRs columns of cards, with the repository
+filter, the settings gear and the refresh button in the header.](docs/screenshot.png)
 
 ## Issues folded into their pull requests
 
@@ -87,7 +87,7 @@ what re-reads a run that has finished since.
 
 ## Configuring the prompts
 
-**Configure prompts** in the header opens the settings view. It holds the GitHub
+The **gear button** in the header opens the settings view. It holds the GitHub
 login the board queries for, and the first message each kind of card is sent
 with:
 
@@ -124,6 +124,37 @@ survive it. It is stored as the *hidden* repositories rather than the visible
 ones, so a repository the filter has never seen — a new one, or one whose first
 card only appears on a later refresh — arrives selected rather than silently
 filtered out.
+
+## Reading a card
+
+**Click a card** and it opens in a panel beside the board — the right half of the surface, or the
+whole of it on a phone. The panel shows the title, who opened it, the comment count, the labels,
+a pull request's branches, and the description rendered from its Markdown, followed by the
+assignees. A pill in the panel's header says whether the item is still open, or has been closed or
+merged since the board was fetched.
+
+**Open on GitHub** is in the panel, next to **Send to chat**, so nothing the card used to do is
+gone — it is one press further away. **Refresh** reloads the description if it was edited on
+GitHub in the meantime; otherwise the panel remembers what it fetched for five minutes.
+
+A **Load comments** button at the foot of the panel fetches the conversation — the comments on an
+issue or pull request, or a discussion's comments with their replies indented under them. It shows
+the first 50 and says so if there are more; pull request review comments on the diff are not
+included. Refresh reloads the comments too once they have been loaded.
+
+Screenshots pasted into the description or a comment are shown in the panel, including
+attachments on private repositories, which the plugin fetches through `gh` on the daemon. Press
+one to open the original.
+
+On a desktop the panel's left edge can be dragged to make it wider or narrower. The width is saved
+as a share of the board, so it comes back the same after a restart and scales with the window.
+
+While the panel is open the board behind it is blurred, and clicking it closes the panel. The open
+card is outlined so you can see which one you are reading.
+
+![A pull request open in the detail panel: repository and state at the top, the title, who opened
+it and when, its branches, Send to chat and Open on GitHub buttons, and the description below,
+with the board blurred behind it.](docs/detail-panel.png)
 
 ## Labels
 

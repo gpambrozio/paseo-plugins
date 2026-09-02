@@ -3,6 +3,10 @@ import { GitHubBoard } from "./board.client";
 import {
   listLabelsHandler,
   loadBoardHandler,
+  loadCommentsHandler,
+  loadImageHandler,
+  loadItemHandler,
+  saveDetailWidthHandler,
   saveLoginHandler,
   savePromptsHandler,
   saveRepositoryFilterHandler,
@@ -13,6 +17,10 @@ import {
 import {
   listLabels,
   loadBoard,
+  loadComments,
+  loadImage,
+  loadItem,
+  saveDetailWidth,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
@@ -23,8 +31,12 @@ import {
 
 export default function contribute(plugin: PluginContext) {
   plugin.handle(loadBoard, loadBoardHandler);
+  plugin.handle(loadItem, loadItemHandler);
+  plugin.handle(loadComments, loadCommentsHandler);
+  plugin.handle(loadImage, loadImageHandler);
   plugin.handle(saveLogin, saveLoginHandler);
   plugin.handle(saveRepositoryFilter, saveRepositoryFilterHandler);
+  plugin.handle(saveDetailWidth, saveDetailWidthHandler);
   plugin.handle(savePrompts, savePromptsHandler);
   plugin.handle(sendOptions, sendOptionsHandler);
   plugin.handle(sendToChat, sendToChatHandler);

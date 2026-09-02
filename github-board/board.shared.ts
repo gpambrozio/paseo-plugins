@@ -144,6 +144,14 @@ export const BoardSchema = z.object({
    * client before the button is pressed rather than a round trip behind it.
    */
   prompts: PromptSettingsSchema,
+  /**
+   * How wide the detail panel was last dragged, as a fraction of the board's
+   * body, or null for the default half. A fraction rather than pixels: the
+   * width was chosen against one window, and a share of it survives the window
+   * being a different size — or a different machine — next time. Rides along
+   * with the board so the first open is already the right width.
+   */
+  detailWidthFraction: z.number().min(0).max(1).nullable(),
   /** Every live Paseo project, so the settings view can list them all. */
   projects: z.array(ProjectRefSchema),
   /**
@@ -193,6 +201,17 @@ export const saveRepositoryFilter = defineRpc({
   name: "board.save-filter",
   input: z.object({ hiddenRepositories: z.array(z.string()) }),
   output: z.object({ hiddenRepositories: z.array(z.string()) }),
+});
+
+/**
+ * Saves the panel's width when a drag ends — not per move, which would be a
+ * write per pixel. The fraction is clamped on the way in; a client cannot
+ * store a width the next window could not show.
+ */
+export const saveDetailWidth = defineRpc({
+  name: "board.save-detail-width",
+  input: z.object({ fraction: z.number().min(0).max(1) }),
+  output: z.object({ fraction: z.number().min(0).max(1) }),
 });
 
 /**
@@ -342,4 +361,97 @@ export const toggleLabel = defineRpc({
     add: z.boolean(),
   }),
   output: z.object({ labels: z.array(z.string()) }),
+});
+
+/**
+ * What a card knows about itself already — title, repository, labels, author —
+ * is left off this shape on purpose: the panel paints those from the card the
+ * moment it opens, and this round trip only adds what the search never fetched.
+ */
+export const ItemDetailsSchema = z.object({
+  /**
+   * `open` for everything the board lists today; the rest cover an item that
+   * changed on GitHub after the board was fetched, which the panel is the first
+   * place to notice. A draft pull request reads `draft` rather than `open`.
+   */
+  state: z.enum(["open", "draft", "closed", "merged"]),
+  /** Markdown, exactly as GitHub stores it. Empty when the author wrote nothing. */
+  body: z.string(),
+  createdAt: z.string(),
+  /** Logins. Always empty for a discussion, which GitHub does not assign. */
+  assignees: z.array(z.string()),
+  /** Pull requests only: the branch under review and the one it targets. */
+  branches: z.object({ head: z.string(), base: z.string() }).nullable(),
+});
+
+export type ItemDetails = z.output<typeof ItemDetailsSchema>;
+
+/**
+ * The body and status of one card, for the detail panel. Looked up by node id
+ * rather than by repository and number because `node(id:)` needs no type
+ * argument — the same id opens an issue, a pull request or a discussion — and
+ * because the id is what every card already carries.
+ */
+export const loadItem = defineRpc({
+  name: "board.item",
+  input: z.object({
+    id: z.string().min(1),
+    /** Set by the panel's Refresh button to bypass the server's short-lived cache. */
+    force: z.boolean().default(false),
+  }),
+  output: ItemDetailsSchema,
+});
+
+export const ItemCommentSchema = z.object({
+  id: z.string(),
+  /** Null for a deleted account, as with `BoardItem.author`. */
+  author: z.string().nullable(),
+  createdAt: z.string(),
+  /** Markdown, as GitHub stores it. */
+  body: z.string(),
+  /**
+   * 0 for a comment on the item, 1 for a reply to one — discussions thread
+   * their comments one level deep, and the panel indents replies to say so.
+   * Issue and pull request comments are always 0.
+   */
+  depth: z.number().int().min(0),
+});
+
+export type ItemComment = z.output<typeof ItemCommentSchema>;
+
+/**
+ * The conversation on one card, loaded on request from the bottom of the
+ * detail panel rather than with the body: comments are the long tail of an
+ * item, and most panels are opened to read the description.
+ *
+ * For a pull request this is the conversation tab only — review comments on
+ * the diff are a different object and are not fetched.
+ */
+export const loadComments = defineRpc({
+  name: "board.comments",
+  input: z.object({
+    id: z.string().min(1),
+    /** Set by the panel's Refresh button to bypass the server's short-lived cache. */
+    force: z.boolean().default(false),
+  }),
+  output: z.object({
+    comments: z.array(ItemCommentSchema),
+    /** True when GitHub has more than the page fetched; the rest are on GitHub. */
+    truncated: z.boolean(),
+  }),
+});
+
+/**
+ * One image from a GitHub host, fetched with the daemon's `gh` token and
+ * returned inline. Data URLs rather than bytes because the client renders it
+ * with `Image`, which takes a URI; the size cap keeps a stray full-resolution
+ * photo from becoming one very large RPC.
+ */
+export const loadImage = defineRpc({
+  name: "board.image",
+  input: z.object({ url: z.string().url() }),
+  output: z.object({
+    /** `data:<content-type>;base64,…`. */
+    dataUrl: z.string(),
+  }),
 });

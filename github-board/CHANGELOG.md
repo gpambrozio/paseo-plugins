@@ -8,6 +8,32 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.3.0] — 2026-09-02
+
+### Changed
+
+- **Clicking a card opens it in a panel beside the board instead of in your browser.** The panel
+  shows the title, who opened it, how many comments it has, its labels, whether it is still open
+  or has since been closed or merged, who it is assigned to, and the full description, formatted
+  the way GitHub shows it. A pull request also shows which branch it comes from and which it
+  targets. **Open on GitHub** is in the panel next to **Send to chat**, so the browser is still one
+  click away. The rest of the board dims and blurs while the panel is open; click it, or the
+  close button, to go back.
+- **The header buttons are icons now.** Refresh is an arrow, the prompt settings are a gear.
+
+### Added
+
+- **Load comments** at the bottom of the panel shows the conversation: the comments on an issue or
+  pull request, or a discussion's comments with replies indented under them. The first 50 are
+  shown, and the panel says if there are more.
+- **Screenshots and other images** pasted into a description or a comment are shown in the panel,
+  including on private repositories. Side-by-side image tables show as tables. Click an image to
+  open the original.
+- **The panel can be made wider or narrower** by dragging its left edge. The width you choose is
+  kept, even after a restart, and scales with the window.
+- **A refresh button in the panel** reloads the description and comments if they were edited on
+  GitHub since you opened them.
+
 ## [0.2.0] — 2026-08-31
 
 ### Changed

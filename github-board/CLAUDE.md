@@ -12,10 +12,12 @@ compile time. This file covers only what is specific to `github-board`.
 
 | File               | What it owns                                                                |
 | ------------------ | --------------------------------------------------------------------------- |
-| `index.ts`         | Wiring only — binds the eight RPC contracts and registers the sidebar surface. |
+| `index.ts`         | Wiring only — binds the twelve RPC contracts and registers the sidebar surface. |
 | `board.shared.ts`  | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `board.server.ts`  | Every `gh` subprocess, the settings file, and the server-side board cache.  |
-| `board.client.tsx` | The surface: columns, cards, the repository filter, and the client cache.   |
+| `board.client.tsx` | The surface: columns, cards, the detail panel, the repository filter, and the client cache. |
+| `markdown.client.tsx` | The renderer for an item's Markdown body; only the detail panel uses it.  |
+| `image-host.ts`    | Unsuffixed, in both bundles: which image hosts the daemon fetches for the app. |
 | `README.md`        | What the board shows a user, and which query backs each column.             |
 
 ## Checking a `gh` query against reality
@@ -31,6 +33,10 @@ npx tsc board.server.ts --module esnext --target es2022 --moduleResolution bundl
   --outDir /tmp/gbcheck --skipLibCheck
 # then call loadBoardHandler from a throwaway .mjs in that directory, and delete it after
 ```
+
+`board.server.ts` also imports `./image-host` at runtime, so pass `image-host.ts` to `tsc` as
+well, and add the `.js` extension to that one import in the emitted `board.server.js` before
+running it — the bundler resolves extensionless imports, plain Node does not.
 
 Run it with `PASEO_HOME` pointed at a scratch directory so a throwaway never writes the real
 `settings.json`.
@@ -138,6 +144,133 @@ wraps** — anything appended lands on a second line — and because the Send bu
 bottom-right corner. The plugin theme has exactly one status colour, so failure takes `statusDanger`,
 still-running takes `accent`, and passed takes `foregroundMuted`; the `✓ ✕ ●` glyphs are what
 actually carries the meaning, which is also what makes the summary readable without colour vision.
+
+## The detail panel
+
+A press on a card opens it in a panel over the board — not in the browser, which is what it used to
+do. The panel shows what the card already had (title, repository, author, comments, labels, linked
+issues, checks) and then fetches what the search never did: the body, the live state, the creation
+date, the assignees, and a pull request's branches. **Open on GitHub** is in the panel, next to
+**Send to chat**, so both of the card's old actions are one press further away and nothing has
+been lost.
+
+**The body is a separate `board.item` call, not a field on the search.** A body is the largest
+field an item has, and three columns of thirty would carry ninety of them on every refresh for text
+the user reads one at a time. The lookup is `node(id:)` on the card's node id, which resolves any
+type without saying which, so one query serves an issue, a pull request and a discussion and the
+inline fragments decide which fields come back. The answer is cached on the server for five minutes
+by id; `force`, from the panel's Refresh button, bypasses it for a body edited on GitHub since.
+
+`state` is derived, not copied: `MERGED` and `CLOSED` come from `state`, a discussion's from
+`closed`, and a draft reads `draft` rather than `open`. The board lists open items only, so the
+panel is the first place a card that has since closed says so.
+
+**The panel is positioned inside `body`, not the screen.** `body` is everything under the header,
+and the panel is its last child, so it covers the columns by paint order alone and leaves the
+header — the filter, Refresh, Configure prompts — reachable while it is open. The label menu and
+the modals are still positioned against the screen, because `openLabelMenu` measures `rootRef`.
+
+On the wide layout the panel is the **right half** and the board behind it sits under a scrim
+(`detailScrim`): a wash towards `surface0` like the modal backdrop, plus a `backdropFilter` blur
+(3px) spread in untyped for the web and desktop renderers — native has no blur without a library the
+client bundle cannot import, and keeps the wash. A press on the scrim closes the panel. That means
+the board is *not* clickable while the panel is open; it was at first, so a press on a second card
+swapped the panel, but a blurred board is not something to read or aim at, and the blur was asked
+for. The open card is still drawn with an accent border (`cardSelected`) so the panel reads as
+that card's through the blur. On compact the panel is the whole body, there is no scrim, and Close
+is the way back.
+
+**Opening and closing are animated on one `Animated.Value`**, `detailProgress`: the scrim's
+opacity is the value and the panel's `translateX` interpolates from its laid-out width (or a
+fallback at least as far) to zero, so the two can never be out of step. `detailOpen` is the
+intent and `detailTarget` is what is drawn: closing sets the intent false and the target is
+cleared only when the timing *finishes* — an interrupted close, reopened mid-slide, leaves the
+panel where the reopening finds it. `useNativeDriver` is false because the web renderer drives
+everything from JavaScript anyway. Opening takes 220ms with an ease-out, closing 160ms with an
+ease-in: arriving content gets a beat, a dismissal is just gone.
+
+**The wide panel is resizable** by a `PanResponder` handle astride its left edge, half over the
+board so the edge is grabbable from either side. The panel is anchored right, so a drag left grows
+it: `start.width - gesture.dx`, clamped between `DETAIL_MIN_WIDTH` and the body's width less
+`BOARD_MIN_WIDTH`, so neither side can be dragged out of existence. The body's width comes from
+the parent's `onLayout` and is threaded in as `bodyWidth`, null on compact, which is also what
+hides the handle. The chosen width is a **share of the body, not pixels** — `cachedDetailFraction` at module scope
+for the instant repaint on remount, and `detailWidthFraction` in the settings file for the next
+daemon start, saved once per drag by `board.save-detail-width` on release and adopted from
+`board.load` only while nothing has been dragged locally since. A share, because the width was
+chosen against one window and has to fit a different one — or a different machine, since the
+settings live with the daemon. It is turned back into pixels against the body as laid out now and
+clamped the same way a drag is, so a share that made sense on a wide window still leaves a column
+of board on a narrow one. The drag
+start is a ref, not state: the responder is created once and must read the latest value.
+
+**Widening needs two things narrowing does not**, because widening drags the pointer *left*, off
+the handle and across the board's columns. First, `onPanResponderTerminationRequest` returns
+false: every scroll view the pointer crosses asks for the responder, and the default answer is
+yes, which is why the drag used to stop partway. Second, on the web renderer the grant also
+installs document-level `pointermove`/`pointerup` listeners (`trackPointerOnDocument`) that drive
+the same clamp from `clientX`, so a pointer that outruns the handle, or leaves the window, still
+moves the edge; a window `blur` stands in for the release the browser cannot report. Both feed
+`applyDelta`, so whichever arrives first wins and they cannot disagree. Native has no `document`
+and the helper is a no-op there. The same helper switches `user-select` off on the document body
+for the drag's duration and pins the resize cursor there: a drag is a mouse-down plus movement,
+which is how a browser starts a text selection, and once the pointer is off the handle every card
+title it crosses would otherwise be selected. Both are restored on release. The
+`col-resize` cursor is spread in as an untyped extra because React Native's `cursor` type allows
+only `auto` and `pointer`; native ignores it.
+
+`detailTarget` holds the pressed card, but the panel renders `detailItem` — the same id looked up
+on the current board — so a label edited from the context menu while the panel is up repaints in
+it. The panel is keyed by item id: opening a second card must not show the first one's body while
+the second loads.
+
+The header's Refresh and Close are icon buttons — `RefreshCw` and `X` through the host's `Icon`,
+which takes any Lucide name — each with an `accessibilityLabel`, since the glyph is the whole
+label. Icons, because the panel header on the wide layout sits beside the board's own Refresh
+button and two "Refresh" words in one row would read as one action twice.
+
+**Comments are a third call, `board.comments`, and only on request.** A button at the foot of the
+panel loads them; most panels are opened for the description, and the conversation is an item's
+long tail. The query selects `comments` on all three types and, for a discussion, each comment's
+`replies` too, flattened with `depth: 1` so the panel can indent them. Pages are 50 comments and 20
+replies; `truncated` says a page was full, and the panel points at GitHub for the rest rather than
+paging — a thread that long is not read in a half-width panel. A pull request's *review* comments
+are a different object and are not fetched. Cached by id for five minutes like the body, and the
+panel's Refresh re-requests them with `force` only once they have been asked for
+(`commentsRequest` stays null until the button is pressed).
+
+**Images on their own line are rendered, and GitHub-hosted ones come through the daemon.** An
+attachment on a private repository — `github.com/user-attachments/assets/…` — answers 404 to
+anyone without the token and, with it, a 302 to a signed S3 URL good for five minutes. The app holds
+no token, so `board.image` fetches the bytes on the daemon with `gh auth token` and answers a data
+URL; `fetch` follows the redirect and drops `Authorization` across origins as the spec says. The
+size cap is 4 MB and the server keeps the last 24 by URL. **Only GitHub hosts**, decided by
+`isGitHubImageHost` in `image-host.ts` and checked again on the server rather than trusted from
+the client: this is the daemon fetching a URL a comment's author chose, so anything else is loaded
+by `Image` directly, the way a browser would. A release-asset download URL is not an attachment
+and answers 404 even with the token; it is left as the text it was.
+
+`image-host.ts` has no suffix and no Node imports on purpose — it is in both bundles — and it is
+kept out of `board.shared.ts` so that file stays type-only to the server, which is what lets the
+server half be transpiled and run alone. The standalone check now needs `image-host.ts` passed to
+`tsc` alongside `board.server.ts`.
+
+`RemoteImage` measures the image with `Image.getSize` — the callback form; the promise form is
+newer than some react-native-web builds and returns nothing there — before rendering it, so the
+frame is sized by `aspectRatio` before the bitmap paints and the thread does not jump. Capped at
+480pt tall. A press opens the original on GitHub; a failure falls back to the `[image: alt]` link
+the panel used to show. The client keeps its own 24-entry cache of fetched images at module scope.
+
+`markdown.client.tsx` renders the body and every comment. It renders pipe tables as rows of
+equal-width cells, and a cell that is only an image goes through `renderImage` too: a table of
+screenshots, one variant per column, is how a review thread compares them, and it was where most
+of the images in the pull request this was built against lived. There is no Markdown library a client bundle can import,
+so it covers what an issue body actually uses — headings, lists, task lists, fenced code, quotes,
+rules, and bold, inline code and links — and leaves the rest as text. Single newlines break lines,
+as GitHub's issue flavour of GFM does. HTML comments are stripped, because that is how issue
+templates carry their instructions and GitHub does not show them either. Inline tokens are
+`split` on a capturing group and `.map`ped, never looped: every link's press handler closes over
+its URL, and a closure made in a `for…of` body captures the final value under Hermes.
 
 ## Editing labels from a card
 
@@ -384,8 +517,9 @@ forgetting.
 which used to be hidden on compact, now shows there: it is the only thing left saying how old the
 board is. `refreshing` is bound to `busy`, so a refresh started any other way spins the same
 control. The header also drops its own "GitHub" title, because the surface chrome above it already
-carries the name and the icon, and shortens "Configure prompts" to "Prompts" — the row does not
-wrap, so anything that does not fit is clipped off the right edge rather than moved.
+carries the name and the icon. The settings button is a `Settings` gear on both layouts — the row
+does not wrap, so anything that does not fit is clipped off the right edge rather than moved, and a
+glyph is the one label that always fits.
 
 ### The keyboard
 
@@ -495,8 +629,8 @@ loaded.
 ## Settings and caching
 
 Settings persist to `$PASEO_HOME/plugins/github-board/settings.json`, defaulting to `~/.paseo`, and
-hold `login`, the repository filter's `hiddenRepositories`, the `prompts`, and the `launch` defaults
-the dialog reopens on. Four handlers write that one file, so all of them go through
+hold `login`, the repository filter's `hiddenRepositories`, the `prompts`, the `launch` defaults
+the dialog reopens on, and the detail panel's `detailWidthFraction`. Five handlers write that one file, so all of them go through
 `updateSettings`, which read-modify-writes — a whole-file write from any would drop the others'
 keys. Each reader defaults what it cannot parse, so a settings file written before a key existed is
 read and upgraded in place rather than rejected.

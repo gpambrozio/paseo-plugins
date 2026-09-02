@@ -1,9 +1,13 @@
-import { type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugin";
+import { Icon, type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
+  Image,
   Keyboard,
   Linking,
+  PanResponder,
   Platform,
   Pressable,
   RefreshControl,
@@ -20,6 +24,8 @@ import type {
   CheckSummary,
   ColumnId,
   Isolation,
+  ItemComment,
+  ItemDetails,
   LaunchDefaults,
   LinkedIssue,
   ProjectRef,
@@ -31,6 +37,10 @@ import {
   COLUMN_IDS,
   listLabels,
   loadBoard,
+  loadComments,
+  loadImage,
+  loadItem,
+  saveDetailWidth,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
@@ -38,6 +48,8 @@ import {
   sendToChat,
   toggleLabel,
 } from "./board.shared";
+import { isGitHubImageHost } from "./image-host";
+import { MarkdownBody } from "./markdown.client";
 
 /**
  * `Linking.openURL` is `window.open` on the desktop renderer, and the main
@@ -219,6 +231,112 @@ let cachedColumnId: ColumnId = COLUMN_IDS[0];
  * surface unmounts on every workspace switch.
  */
 const cachedRepositoryLabels = new Map<string, { labels: RepositoryLabel[]; storedAt: number }>();
+/**
+ * Images already fetched through the daemon, by URL, with the size the client
+ * measured. Comments are re-rendered every time the panel reopens on the same
+ * card, and a screenshot is the one thing in it worth not asking for twice.
+ */
+const cachedImages = new Map<string, { uri: string; width: number; height: number }>();
+const IMAGE_CACHE_ENTRIES = 24;
+/**
+ * The detail panel's width on the wide layout as a share of the body, once the
+ * user has dragged it. Null means half. Module scope for the instant repaint
+ * on remount, and the settings file — via `board.save-detail-width`, adopted
+ * from `board.load` — for the next daemon start. A share, not pixels, so the
+ * width chosen against one window still fits a different one.
+ */
+let cachedDetailFraction: number | null = null;
+const DEFAULT_DETAIL_FRACTION = 0.5;
+/** Narrow enough for a phone-sized column of text; wide enough that a table of three screenshots still reads. */
+const DETAIL_MIN_WIDTH = 320;
+/** What the board keeps, at least: one column's worth of cards. */
+const BOARD_MIN_WIDTH = 260;
+/**
+ * The panel's slide and the scrim's fade share one progress value, so they
+ * can never be out of step. Opening is a touch slower than closing: arriving
+ * content deserves a beat, a dismissal should just be gone.
+ */
+const DETAIL_OPEN_MS = 220;
+const DETAIL_CLOSE_MS = 160;
+/** Before the panel has been laid out, it slides from this far right at least. */
+const DETAIL_OFFSCREEN_FALLBACK = 800;
+
+/**
+ * Follows a drag at the document level on the web renderer, where the
+ * responder system alone is not enough: widening the panel means dragging
+ * *left*, across the board's columns, whose scroll views ask for the responder
+ * as the pointer crosses them, and a pointer moving faster than the handle
+ * leaves it altogether. Document listeners see every move until the button is
+ * released, wherever the pointer is — including outside the window, where a
+ * `blur` stands in for the release the browser cannot report.
+ *
+ * Typed structurally: this plugin compiles against Node's lib, not the DOM's,
+ * and on native the globals are simply absent, so the function does nothing.
+ */
+function trackPointerOnDocument(
+  onMove: (clientX: number) => void,
+  onEnd: () => void,
+): () => void {
+  const web = globalThis as {
+    document?: {
+      addEventListener?: (type: string, listener: (event: unknown) => void) => void;
+      removeEventListener?: (type: string, listener: (event: unknown) => void) => void;
+      body?: { style?: Record<string, string> };
+    };
+    addEventListener?: (type: string, listener: () => void) => void;
+    removeEventListener?: (type: string, listener: () => void) => void;
+  };
+  const document = web.document;
+  if (
+    document === undefined ||
+    typeof document.addEventListener !== "function" ||
+    typeof document.removeEventListener !== "function"
+  ) {
+    return () => {};
+  }
+  const move = (event: unknown) => {
+    const clientX = typeof event === "object" && event !== null ? Reflect.get(event, "clientX") : null;
+    if (typeof clientX === "number") onMove(clientX);
+  };
+  /**
+   * A drag is also a mouse-down followed by movement, which is how a browser
+   * starts a text selection — and once the pointer leaves the handle, every
+   * card title it crosses is selectable. Selection is switched off on the body
+   * for the drag's duration, and the resize cursor is pinned there too so it
+   * does not flicker back to an I-beam over text.
+   */
+  const bodyStyle = document.body?.style;
+  const previous = {
+    userSelect: bodyStyle?.userSelect ?? "",
+    webkitUserSelect: bodyStyle?.webkitUserSelect ?? "",
+    cursor: bodyStyle?.cursor ?? "",
+  };
+  if (bodyStyle !== undefined) {
+    bodyStyle.userSelect = "none";
+    bodyStyle.webkitUserSelect = "none";
+    bodyStyle.cursor = "col-resize";
+  }
+  let done = false;
+  const end = () => {
+    if (done) return;
+    done = true;
+    if (bodyStyle !== undefined) {
+      bodyStyle.userSelect = previous.userSelect;
+      bodyStyle.webkitUserSelect = previous.webkitUserSelect;
+      bodyStyle.cursor = previous.cursor;
+    }
+    document.removeEventListener?.("pointermove", move);
+    document.removeEventListener?.("pointerup", end);
+    document.removeEventListener?.("pointercancel", end);
+    web.removeEventListener?.("blur", end);
+    onEnd();
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", end);
+  document.addEventListener("pointercancel", end);
+  web.addEventListener?.("blur", end);
+  return end;
+}
 
 /**
  * Stands in until the first board lands. Blank templates are what the server
@@ -243,6 +361,12 @@ const LABEL_MENU_WIDTH = 260;
 const LABEL_MENU_MAX_HEIGHT = 300;
 /** Kept off the surface's own edges, whichever way the menu opens. */
 const MENU_MARGIN = 8;
+
+/**
+ * Each platform's own monospace face. There is no cross-platform name: iOS
+ * has no `monospace` alias, and Android has no Menlo.
+ */
+const MONOSPACE = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
 
 /**
  * The theme exposes six opaque tokens and no border or hover colour, so
@@ -728,6 +852,11 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         gap: layout.compact ? 8 : 6,
       },
       cardPressed: { backgroundColor: withAlpha(colors.foregroundMuted, "1a") },
+      /** The card whose details are open, so the panel reads as *its* panel. */
+      cardSelected: {
+        borderColor: colors.accent,
+        backgroundColor: withAlpha(colors.accent, "0d"),
+      },
       // Bottom-right and out of flow, so revealing it on hover never reflows the
       // card and never nudges the cards below it. It sits over the footer's
       // trailing labels, so it is opaque rather than tinted.
@@ -937,6 +1066,235 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         paddingHorizontal: 2,
       },
       empty: { color: colors.foregroundMuted, fontSize: 12, padding: 12 },
+
+      // --- The detail panel ---
+      /**
+       * Everything under the header, and what the detail panel is positioned
+       * in: the panel covers the columns and leaves the header — the filter,
+       * Refresh, the settings button — reachable while it is open.
+       */
+      body: { flex: 1 },
+      /**
+       * Half the width on the wide layout, so the columns on the other half
+       * stay readable and clickable and a press on a second card swaps the
+       * panel rather than closing it. Compact has no width to share, so the
+       * panel takes the body and its Close button is the way back.
+       */
+      detailPanel: {
+        position: "absolute" as const,
+        top: 0,
+        bottom: 0,
+        right: 0,
+        width: layout.compact ? ("100%" as const) : ("50%" as const),
+        backgroundColor: colors.surface0,
+        borderLeftWidth: layout.compact ? 0 : 1,
+        borderLeftColor: separator,
+      },
+      /**
+       * The drag handle, astride the panel's left edge: half of it hangs over
+       * the board so the edge is grabbable from either side. Wide layout only;
+       * a full-width panel has no edge to move.
+       */
+      resizeHandle: {
+        position: "absolute" as const,
+        top: 0,
+        bottom: 0,
+        left: -5,
+        width: 10,
+        alignItems: "center" as const,
+        zIndex: 1,
+        // A resize cursor on the web renderer. React Native's `cursor` type
+        // allows only `auto` and `pointer`, so it goes in as an untyped extra
+        // rather than by lying about the value; native has no cursor anyway.
+        ...(Platform.OS === "web" ? ({ cursor: "col-resize", userSelect: "none" } as object) : {}),
+      },
+      /**
+       * Over the board while the panel is open: a wash towards `surface0`, the
+       * way the modal backdrop dims, plus a backdrop blur where the renderer
+       * has one — the web and desktop renderers pass the CSS through, native
+       * has no blur without a library the client bundle cannot import and
+       * keeps the wash. A press on it closes the panel.
+       */
+      detailScrim: {
+        position: "absolute" as const,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: withAlpha(colors.surface0, "99"),
+        ...(Platform.OS === "web"
+          ? ({ backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)" } as object)
+          : {}),
+      },
+      /** The visible line inside the handle, lit while a drag is in progress. */
+      resizeGrip: { width: 2, flex: 1 },
+      resizeGripActive: { backgroundColor: colors.accent },
+      detailHeader: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 8,
+        paddingHorizontal: layout.compact ? 12 : 16,
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: separator,
+      },
+      detailRepo: { flexShrink: 1, color: colors.foregroundMuted, fontSize: 12 },
+      /**
+       * Square, and 32pt on compact where it is a touch target. The glyph is
+       * the whole label, so each one carries an `accessibilityLabel`.
+       */
+      iconButton: {
+        width: layout.compact ? 32 : 28,
+        height: layout.compact ? 32 : 28,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: separator,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
+      detailBody: {
+        padding: layout.compact ? 12 : 16,
+        gap: 10,
+        paddingBottom: 40,
+      },
+      detailTitle: {
+        color: colors.foreground,
+        fontSize: layout.compact ? 18 : 20,
+        lineHeight: layout.compact ? 24 : 27,
+        fontWeight: "600" as const,
+      },
+      detailMeta: { color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 },
+      detailLabels: {
+        flexDirection: "row" as const,
+        flexWrap: "wrap" as const,
+        alignItems: "center" as const,
+        gap: 6,
+      },
+      detailActions: {
+        flexDirection: "row" as const,
+        flexWrap: "wrap" as const,
+        alignItems: "center" as const,
+        gap: 8,
+        paddingVertical: 4,
+      },
+      detailDivider: { height: 1, backgroundColor: separator, marginVertical: 6 },
+      /** Icon and label side by side, in the ghost button's frame. */
+      loadCommentsButton: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        alignSelf: "flex-start" as const,
+        gap: 6,
+        borderWidth: 1,
+        borderColor: separator,
+        borderRadius: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+      },
+      commentCard: {
+        gap: 6,
+        borderWidth: 1,
+        borderColor: separator,
+        borderRadius: 8,
+        padding: 10,
+      },
+      /** A reply, indented under the comment it answers. Discussions only. */
+      commentReply: { marginLeft: 20 },
+      commentHeader: { color: colors.foregroundMuted, fontSize: 12, fontWeight: "600" as const },
+      /**
+       * Sized by `aspectRatio` from the measured image, so the box is right
+       * before the bitmap paints and nothing under it jumps; capped so a tall
+       * phone screenshot does not become the whole panel.
+       */
+      imageFrame: {
+        width: "100%" as const,
+        maxHeight: 480,
+        borderRadius: 8,
+        overflow: "hidden" as const,
+        backgroundColor: withAlpha(colors.foregroundMuted, "1a"),
+      },
+      image: { width: "100%" as const, height: "100%" as const },
+      /** The frame before the size is known: a short band with a spinner in it. */
+      imagePending: {
+        height: 96,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
+      imageCaption: { color: colors.foregroundMuted, fontSize: 11, marginTop: 4 },
+      /**
+       * One pill per state, spelled in the tokens the theme has: accent for
+       * open, danger for closed, and muted for a draft or a merge — both of
+       * which are settled rather than wrong. The word carries the meaning.
+       */
+      statePill: {
+        fontSize: 11,
+        fontWeight: "600" as const,
+        overflow: "hidden" as const,
+        borderRadius: 10,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderWidth: 1,
+      },
+      statePillOpen: {
+        color: colors.accent,
+        borderColor: withAlpha(colors.accent, "66"),
+        backgroundColor: withAlpha(colors.accent, "1a"),
+      },
+      statePillClosed: {
+        color: colors.statusDanger,
+        borderColor: withAlpha(colors.statusDanger, "66"),
+        backgroundColor: withAlpha(colors.statusDanger, "1a"),
+      },
+      statePillSettled: {
+        color: colors.foregroundMuted,
+        borderColor: separator,
+        backgroundColor: withAlpha(colors.foregroundMuted, "1a"),
+      },
+
+      // --- Markdown, for the panel's body (see markdown.client.tsx) ---
+      mdParagraph: { color: colors.foreground, fontSize: 14, lineHeight: 21 },
+      mdHeadingLarge: {
+        color: colors.foreground,
+        fontSize: 17,
+        lineHeight: 24,
+        fontWeight: "600" as const,
+        marginTop: 6,
+      },
+      mdHeading: {
+        color: colors.foreground,
+        fontSize: 15,
+        lineHeight: 22,
+        fontWeight: "600" as const,
+        marginTop: 4,
+      },
+      mdListRow: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 8 },
+      mdListMarker: { color: colors.foregroundMuted, fontSize: 14, lineHeight: 21, minWidth: 14 },
+      /** Lets a long item wrap under itself instead of pushing past the panel. */
+      mdListText: { flex: 1, minWidth: 0 },
+      mdCodeBlock: {
+        backgroundColor: withAlpha(colors.foregroundMuted, "1a"),
+        borderRadius: 8,
+        padding: 10,
+      },
+      mdCodeText: {
+        color: colors.foreground,
+        fontSize: 12,
+        lineHeight: 18,
+        fontFamily: MONOSPACE,
+      },
+      mdQuote: { borderLeftWidth: 3, borderLeftColor: separator, paddingLeft: 10 },
+      mdRule: { height: 1, backgroundColor: separator },
+      mdBold: { fontWeight: "600" as const },
+      mdInlineCode: {
+        fontFamily: MONOSPACE,
+        fontSize: 13,
+        backgroundColor: withAlpha(colors.foregroundMuted, "1a"),
+      },
+      mdLink: { color: colors.accent },
+      /** Cells share the row's width equally; a screenshot in one scales to fit. */
+      mdTable: { borderWidth: 1, borderColor: separator, borderRadius: 8, overflow: "hidden" as const },
+      mdTableRow: { flexDirection: "row" as const, borderTopWidth: 1, borderTopColor: separator },
+      mdTableCell: { flex: 1, minWidth: 0, padding: 6 },
+      mdTableHeader: { fontWeight: "600" as const },
     };
   }, [theme, layout.compact]);
 }
@@ -1269,6 +1627,8 @@ function Card({
   styles,
   platform,
   compact,
+  selected,
+  onOpen,
   onSend,
   onLabels,
   type,
@@ -1289,6 +1649,10 @@ function Card({
    * lines what a 300pt column needed three for.
    */
   compact: boolean;
+  /** True while this card's details are open in the panel. */
+  selected: boolean;
+  /** A press: opens the card in the detail panel, never the browser. */
+  onOpen: (item: BoardItem, type: ColumnId) => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
   /** Null where labels cannot be edited, which takes the gesture away entirely. */
   onLabels: ((item: BoardItem, point: { x: number; y: number }) => void) | null;
@@ -1313,8 +1677,8 @@ function Card({
   const revealed = !isWeb || cardHovered || actionHovered;
 
   const open = useCallback(() => {
-    openExternalUrl(item.url);
-  }, [item.url]);
+    onOpen(item, type);
+  }, [item, onOpen, type]);
 
   // No in-flight state: the press opens the launch dialog, which owns every
   // wait from there on.
@@ -1334,7 +1698,7 @@ function Card({
   /**
    * Web only, and `preventDefault` first: without it the browser's own menu
    * opens on top of this one. The left-click that opens the card is a separate
-   * handler, so a right-click never follows the link.
+   * handler, so a right-click never opens the panel.
    */
   const openLabelsFromContextMenu = useCallback(
     (event: unknown) => {
@@ -1360,7 +1724,8 @@ function Card({
 
   return (
     <Pressable
-      accessibilityRole="link"
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
       accessibilityLabel={`${item.repository} #${item.number}: ${item.title}${
         byline === null ? "" : `, opened by ${byline}`
       }${closes === "" ? "" : `, closes ${closes}`}${
@@ -1381,7 +1746,11 @@ function Card({
       onHoverOut={() => setCardHovered(false)}
       // @ts-expect-error - onContextMenu is web-only and absent from the React Native types.
       onContextMenu={onLabels === null ? undefined : openLabelsFromContextMenu}
-      style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
+      style={({ pressed }) => [
+        styles.card,
+        selected ? styles.cardSelected : null,
+        pressed ? styles.cardPressed : null,
+      ]}
     >
       <Text style={styles.cardRepo} numberOfLines={1}>
         {item.repository} #{item.number}
@@ -2517,6 +2886,560 @@ function PromptSettingsView({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Images in a body or a comment
+// ---------------------------------------------------------------------------
+
+/**
+ * One image on its own line of Markdown. A GitHub-hosted one goes through
+ * `board.image` — a private repository's attachments answer 404 to the app,
+ * which holds no token — and any other host is loaded by `Image` directly,
+ * the way a browser would. Either way the size is measured first, so the
+ * frame is right before the bitmap paints. A press opens the original.
+ *
+ * Failure falls back to the link the panel used to show, named after the
+ * alt text, so nothing that was readable before is lost.
+ */
+function RemoteImage({
+  url,
+  alt,
+  styles,
+  accentColor,
+}: {
+  url: string;
+  alt: string;
+  styles: Styles;
+  accentColor: string;
+}) {
+  const fetchImage = useRpc(loadImage);
+  const [image, setImage] = useState(() => cachedImages.get(url) ?? null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (image !== null) return;
+    let live = true;
+    const source = isGitHubImageHost(url)
+      ? fetchImage({ url }).then((result) => result.dataUrl)
+      : Promise.resolve(url);
+    source
+      .then(function measure(uri) {
+        // The callback form: the promise form is newer than some react-native-web
+        // builds the app has shipped on, and returns nothing there.
+        return new Promise<{ uri: string; width: number; height: number }>((resolve, reject) => {
+          Image.getSize(
+            uri,
+            (width, height) => resolve({ uri, width, height }),
+            (cause: unknown) => reject(cause instanceof Error ? cause : new Error(String(cause))),
+          );
+        });
+      })
+      .then((loaded) => {
+        cachedImages.set(url, loaded);
+        if (cachedImages.size > IMAGE_CACHE_ENTRIES) {
+          const oldest = cachedImages.keys().next().value;
+          if (oldest !== undefined) cachedImages.delete(oldest);
+        }
+        if (live) setImage(loaded);
+      })
+      .catch((cause: unknown) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      live = false;
+    };
+  }, [fetchImage, image, url]);
+
+  const label = alt.trim() === "" ? "image" : alt;
+
+  if (error !== null) {
+    return (
+      <Text style={styles.mdParagraph}>
+        <Text accessibilityRole="link" style={styles.mdLink} onPress={() => openExternalUrl(url)}>
+          [image: {label}]
+        </Text>
+        <Text style={styles.imageCaption}> — {error}</Text>
+      </Text>
+    );
+  }
+
+  if (image === null) {
+    return (
+      <View style={[styles.imageFrame, styles.imagePending]}>
+        <ActivityIndicator color={accentColor} />
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="imagebutton"
+      accessibilityLabel={`${label}, opens on GitHub`}
+      onPress={() => openExternalUrl(url)}
+    >
+      <View style={[styles.imageFrame, { aspectRatio: image.width / image.height }]}>
+        <Image
+          source={{ uri: image.uri }}
+          style={styles.image}
+          resizeMode="contain"
+          accessibilityLabel={label}
+        />
+      </View>
+      {alt.trim() === "" ? null : <Text style={styles.imageCaption}>{alt}</Text>}
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The detail panel
+// ---------------------------------------------------------------------------
+
+/** What a card is called in the panel, by the column it came from. */
+function kindLabel(type: ColumnId): string {
+  if (type === "issues") return "Issue";
+  if (type === "discussions") return "Discussion";
+  return "Pull request";
+}
+
+function stateLabel(state: ItemDetails["state"]): string {
+  if (state === "open") return "Open";
+  if (state === "draft") return "Draft";
+  if (state === "merged") return "Merged";
+  return "Closed";
+}
+
+/** A calendar date, for the panel: "3d ago" is the card's job. */
+function absoluteDate(iso: string): string {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return "";
+  return then.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/**
+ * One card, opened: what the card already shows, then the body the search
+ * never fetched. The card's own fields paint at once and the body follows —
+ * the panel is the only thing waiting on `gh`, so the board never is.
+ *
+ * Keyed by the caller on the item's id, so opening a second card never shows
+ * the first one's body while the second loads.
+ */
+function ItemDetailPanel({
+  item,
+  type,
+  styles,
+  accentColor,
+  foregroundColor,
+  bodyWidth,
+  progress,
+  onClose,
+  onSend,
+}: {
+  item: BoardItem;
+  type: ColumnId;
+  styles: Styles;
+  accentColor: string;
+  /** For the header's icon buttons; `Icon` takes a colour, not a style. */
+  foregroundColor: string;
+  /**
+   * The width of the body the panel sits in, or null on compact where the
+   * panel is not resizable. Measured by the parent's `onLayout`, and what the
+   * drag is clamped against so neither side can be dragged out of existence.
+   */
+  bodyWidth: number | null;
+  /** 0 is off-screen to the right, 1 is in place. Driven by the parent. */
+  progress: Animated.Value;
+  onClose: () => void;
+  onSend: (item: BoardItem, type: ColumnId) => void;
+}) {
+  const load = useRpc(loadItem);
+  const persistWidth = useRpc(saveDetailWidth);
+  const [fraction, setFraction] = useState<number | null>(cachedDetailFraction);
+  /**
+   * The laid-out width, which is how far the panel has to travel to be
+   * off-screen. Until the first layout it travels the fallback, which is at
+   * least as far; the first frame is off-screen either way.
+   */
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const [resizing, setResizing] = useState(false);
+  /**
+   * The width when the drag began, read by the move handler. A ref rather than
+   * state because the responder is created once and must see the latest value
+   * without being rebuilt per render.
+   */
+  const dragStart = useRef<{ width: number; bodyWidth: number; x: number } | null>(null);
+  const panelWidth = useRef<number>(0);
+  const bodyWidthRef = useRef(bodyWidth);
+  bodyWidthRef.current = bodyWidth;
+  /** Detaches the document listeners a web drag installed; a no-op elsewhere. */
+  const stopTracking = useRef<() => void>(() => {});
+
+  useEffect(() => () => stopTracking.current(), []);
+
+  const resizer = useMemo(() => {
+    // Anchored to the right edge, so a pointer moving left grows the panel.
+    // Kept as a share of the body from the first move, so nothing converts
+    // on release and the remount and the next daemon start agree.
+    const applyDelta = (dx: number) => {
+      const start = dragStart.current;
+      if (start === null || start.bodyWidth <= 0) return;
+      const widest = Math.max(DETAIL_MIN_WIDTH, start.bodyWidth - BOARD_MIN_WIDTH);
+      const next = Math.min(widest, Math.max(DETAIL_MIN_WIDTH, start.width - dx));
+      cachedDetailFraction = Math.min(1, next / start.bodyWidth);
+      setFraction(cachedDetailFraction);
+    };
+    const finish = () => {
+      stopTracking.current();
+      stopTracking.current = () => {};
+      const dragged = dragStart.current !== null;
+      dragStart.current = null;
+      setResizing(false);
+      // Once per drag, not per move. A failure is logged and not shown: the
+      // width the user just chose is on screen regardless, and a setting that
+      // did not save is not a problem with the card in front of them.
+      if (dragged && cachedDetailFraction !== null) {
+        persistWidth({ fraction: cachedDetailFraction }).catch((cause: unknown) => {
+          console.warn("[github-board] could not save the panel width", cause);
+        });
+      }
+    };
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      /**
+       * Never hand the gesture over. Every scroll view the pointer crosses on
+       * its way left asks for the responder, and the default answer — yes —
+       * is why widening used to stop partway.
+       */
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+      onPanResponderGrant: (event) => {
+        const x = event.nativeEvent.pageX;
+        dragStart.current = {
+          width: panelWidth.current,
+          bodyWidth: bodyWidthRef.current ?? panelWidth.current,
+          x,
+        };
+        setResizing(true);
+        // Document-level tracking is the web's belt and braces: it keeps the
+        // drag alive past the handle, past the columns and past the window.
+        stopTracking.current = trackPointerOnDocument(
+          (clientX) => applyDelta(clientX - x),
+          finish,
+        );
+      },
+      onPanResponderMove: (_event, gesture) => applyDelta(gesture.dx),
+      onPanResponderRelease: finish,
+      onPanResponderTerminate: finish,
+    });
+  }, [persistWidth]);
+
+  /**
+   * The share turned back into pixels against the body as it is *now*, and
+   * clamped the same way a drag is: a share that made sense on a wide window
+   * can leave less than a column of board on a narrow one. Null before the
+   * body has been laid out, when the stylesheet's half stands in.
+   */
+  const clampedWidth =
+    bodyWidth === null
+      ? null
+      : Math.min(
+          Math.max(DETAIL_MIN_WIDTH, (fraction ?? DEFAULT_DETAIL_FRACTION) * bodyWidth),
+          Math.max(DETAIL_MIN_WIDTH, bodyWidth - BOARD_MIN_WIDTH),
+        );
+  const [details, setDetails] = useState<ItemDetails | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(true);
+  /** Bumped by Refresh; anything past the first load bypasses the server cache. */
+  const [generation, setGeneration] = useState(0);
+  const listComments = useRpc(loadComments);
+  /**
+   * Null until the button at the bottom is pressed: comments are the long
+   * tail of an item, and most panels are opened for the description. Refresh
+   * re-requests them with `force` only once they have been asked for.
+   */
+  const [commentsRequest, setCommentsRequest] = useState<{ force: boolean } | null>(null);
+  const [comments, setComments] = useState<{
+    comments: ItemComment[];
+    truncated: boolean;
+  } | null>(null);
+  const [commentsBusy, setCommentsBusy] = useState(false);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (commentsRequest === null) return;
+    let live = true;
+    setCommentsBusy(true);
+    setCommentsError(null);
+    listComments({ id: item.id, force: commentsRequest.force })
+      .then((result) => {
+        if (live) setComments(result);
+      })
+      .catch((cause: unknown) => {
+        if (live) setCommentsError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (live) setCommentsBusy(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [commentsRequest, item.id, listComments]);
+
+  const renderImage = useCallback(
+    (image: { url: string; alt: string }) => (
+      <RemoteImage url={image.url} alt={image.alt} styles={styles} accentColor={accentColor} />
+    ),
+    [accentColor, styles],
+  );
+
+  const refreshAll = useCallback(() => {
+    setGeneration((current) => current + 1);
+    setCommentsRequest((current) => (current === null ? null : { force: true }));
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    setBusy(true);
+    setError(null);
+    load({ id: item.id, force: generation > 0 })
+      .then((result) => {
+        if (live) setDetails(result);
+      })
+      .catch((cause: unknown) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (live) setBusy(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [generation, item.id, load]);
+
+  const meta = [
+    `${kindLabel(type)} #${item.number}`,
+    item.author === null ? null : `@${item.author}`,
+    `${item.commentsCount} ${item.commentsCount === 1 ? "comment" : "comments"}`,
+    item.detail,
+    details === null || details.createdAt === ""
+      ? null
+      : `opened ${absoluteDate(details.createdAt)}`,
+  ]
+    .filter((part): part is string => part !== null && part !== "")
+    .join(" · ");
+
+  const state = details?.state ?? null;
+
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [Math.max(measuredWidth ?? 0, DETAIL_OFFSCREEN_FALLBACK), 0],
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.detailPanel,
+        clampedWidth !== null ? { width: clampedWidth } : null,
+        { transform: [{ translateX }] },
+      ]}
+      onLayout={(event) => {
+        panelWidth.current = event.nativeEvent.layout.width;
+        setMeasuredWidth(event.nativeEvent.layout.width);
+      }}
+    >
+      {bodyWidth === null ? null : (
+        <View
+          accessibilityRole="adjustable"
+          accessibilityLabel="Resize the details panel"
+          accessibilityHint="Drag left to widen, right to narrow"
+          style={styles.resizeHandle}
+          {...resizer.panHandlers}
+        >
+          <View style={[styles.resizeGrip, resizing ? styles.resizeGripActive : null]} />
+        </View>
+      )}
+      <View style={styles.detailHeader}>
+        <Text style={styles.detailRepo} numberOfLines={1}>
+          {item.repository}
+        </Text>
+        {state !== null ? (
+          <Text
+            style={[
+              styles.statePill,
+              state === "open"
+                ? styles.statePillOpen
+                : state === "closed"
+                  ? styles.statePillClosed
+                  : styles.statePillSettled,
+            ]}
+          >
+            {stateLabel(state)}
+          </Text>
+        ) : null}
+        <View style={styles.headerSpacer} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Reload details"
+          style={({ pressed }) => [
+            styles.iconButton,
+            busy || commentsBusy ? styles.buttonDisabled : null,
+            pressed ? styles.cardPressed : null,
+          ]}
+          onPress={refreshAll}
+          disabled={busy || commentsBusy}
+        >
+          <Icon name="RefreshCw" size={14} color={foregroundColor} />
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close details"
+          style={({ pressed }) => [styles.iconButton, pressed ? styles.cardPressed : null]}
+          onPress={onClose}
+        >
+          <Icon name="X" size={16} color={foregroundColor} />
+        </Pressable>
+      </View>
+      <ScrollView contentContainerStyle={styles.detailBody}>
+        <Text accessibilityRole="header" style={styles.detailTitle}>
+          {item.title}
+        </Text>
+        <Text style={styles.detailMeta}>{meta}</Text>
+        {details?.branches ? (
+          <Text style={styles.detailMeta}>
+            {details.branches.head} → {details.branches.base}
+          </Text>
+        ) : null}
+        {item.labels.length > 0 || item.linkedIssues.length > 0 || item.checks !== null ? (
+          <View style={styles.detailLabels}>
+            {item.checks !== null ? <ChecksPills checks={item.checks} styles={styles} /> : null}
+            {item.linkedIssues.map((issue) => (
+              <Text key={issue.id} style={styles.linkedIssue}>
+                {linkedIssueLabel(issue, item.repository)}
+              </Text>
+            ))}
+            {item.labels.map((label) => (
+              <Text key={label} style={styles.label}>
+                {label}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+        <View style={styles.detailActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Send ${item.repository} #${item.number} to a new workspace chat`}
+            style={({ pressed }) => [styles.button, pressed ? styles.sendButtonPressed : null]}
+            onPress={() => onSend(item, type)}
+          >
+            <Text style={styles.buttonLabel}>Send to chat</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`Open ${item.repository} #${item.number} on GitHub`}
+            style={styles.ghostButton}
+            onPress={() => openExternalUrl(item.url)}
+          >
+            <Text style={styles.ghostButtonLabel}>Open on GitHub</Text>
+          </Pressable>
+        </View>
+        <View style={styles.detailDivider} />
+        {details === null ? (
+          error !== null ? (
+            <Text style={styles.danger}>{error}</Text>
+          ) : (
+            <View style={styles.centeredRow}>
+              <ActivityIndicator color={accentColor} />
+            </View>
+          )
+        ) : (
+          <>
+            {/* A failed refresh keeps the body it had and says so above it. */}
+            {error !== null ? <Text style={styles.danger}>{error}</Text> : null}
+            {details.body.trim() === "" ? (
+              <Text style={styles.empty}>No description was written.</Text>
+            ) : (
+              <MarkdownBody
+                source={details.body}
+                styles={styles}
+                onOpenLink={openExternalUrl}
+                renderImage={renderImage}
+              />
+            )}
+            {details.assignees.length > 0 ? (
+              <>
+                <View style={styles.detailDivider} />
+                <Text style={styles.detailMeta}>
+                  Assignees: {details.assignees.map((login) => `@${login}`).join(", ")}
+                </Text>
+              </>
+            ) : null}
+            <View style={styles.detailDivider} />
+            {commentsRequest === null ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Load ${item.commentsCount} comments`}
+                style={({ pressed }) => [
+                  styles.loadCommentsButton,
+                  pressed ? styles.cardPressed : null,
+                ]}
+                onPress={() => setCommentsRequest({ force: false })}
+              >
+                <Icon name="MessageSquare" size={14} color={foregroundColor} />
+                <Text style={styles.ghostButtonLabel}>
+                  {item.commentsCount === 0
+                    ? "Load comments"
+                    : `Load ${item.commentsCount} ${item.commentsCount === 1 ? "comment" : "comments"}`}
+                </Text>
+              </Pressable>
+            ) : comments === null ? (
+              commentsError !== null ? (
+                <Text style={styles.danger}>{commentsError}</Text>
+              ) : (
+                <View style={styles.centeredRow}>
+                  <ActivityIndicator color={accentColor} />
+                </View>
+              )
+            ) : (
+              <>
+                {commentsError !== null ? <Text style={styles.danger}>{commentsError}</Text> : null}
+                {comments.comments.length === 0 ? (
+                  <Text style={styles.empty}>No comments yet.</Text>
+                ) : (
+                  comments.comments.map((comment) => (
+                    <View
+                      key={comment.id}
+                      style={[styles.commentCard, comment.depth > 0 ? styles.commentReply : null]}
+                    >
+                      <Text style={styles.commentHeader}>
+                        {comment.author === null ? "deleted account" : `@${comment.author}`}
+                        {comment.createdAt === "" ? "" : ` · ${absoluteDate(comment.createdAt)}`}
+                      </Text>
+                      {comment.body.trim() === "" ? (
+                        <Text style={styles.empty}>Empty comment.</Text>
+                      ) : (
+                        <MarkdownBody
+                          source={comment.body}
+                          styles={styles}
+                          onOpenLink={openExternalUrl}
+                          renderImage={renderImage}
+                        />
+                      )}
+                    </View>
+                  ))
+                )}
+                {comments.truncated ? (
+                  <Text style={styles.detailMeta}>
+                    Only the first comments are shown here. Open on GitHub for the rest.
+                  </Text>
+                ) : null}
+              </>
+            )}
+          </>
+        )}
+      </ScrollView>
+    </Animated.View>
+  );
+}
+
 function Column({
   column,
   viewerLogin,
@@ -2525,6 +3448,8 @@ function Column({
   compact,
   refreshing,
   onRefresh,
+  selectedId,
+  onOpen,
   onSend,
   onLabels,
 }: {
@@ -2537,6 +3462,9 @@ function Column({
   refreshing: boolean;
   /** Pull-to-refresh, which is what replaces the Refresh button on compact. */
   onRefresh: (() => void) | null;
+  /** The card whose details are open, if any, so it can be drawn selected. */
+  selectedId: string | null;
+  onOpen: (item: BoardItem, type: ColumnId) => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
   onLabels: (item: BoardItem, point: { x: number; y: number }) => void;
 }) {
@@ -2577,6 +3505,8 @@ function Column({
               styles={styles}
               platform={platform}
               compact={compact}
+              selected={item.id === selectedId}
+              onOpen={onOpen}
               onSend={onSend}
               onLabels={labelable ? onLabels : null}
               type={column.id}
@@ -2680,6 +3610,38 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const [sendTarget, setSendTarget] = useState<{ item: BoardItem; prompt: string } | null>(null);
   /** The card the label menu is open on, and where on this surface to draw it. */
   const [labelTarget, setLabelTarget] = useState<LabelMenuTarget | null>(null);
+  /** The card the detail panel is open on. Its column picks the send template. */
+  const [detailTarget, setDetailTarget] = useState<{ item: BoardItem; type: ColumnId } | null>(
+    null,
+  );
+  /**
+   * Whether the panel is meant to be on screen. Separate from `detailTarget`,
+   * which is kept while the panel slides out so there is still something to
+   * draw; it is cleared when the closing animation finishes.
+   */
+  const [detailOpen, setDetailOpen] = useState(false);
+  const detailProgress = useRef(new Animated.Value(0)).current;
+  /** The body's width, for clamping the panel's drag. Null until laid out. */
+  const [bodyWidth, setBodyWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    const animation = Animated.timing(detailProgress, {
+      toValue: detailOpen ? 1 : 0,
+      duration: detailOpen ? DETAIL_OPEN_MS : DETAIL_CLOSE_MS,
+      easing: detailOpen ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      // The web renderer drives every animation from JavaScript, and a layout
+      // property could not go through the native driver anyway.
+      useNativeDriver: false,
+    });
+    animation.start(({ finished }) => {
+      // Only a *finished* close unmounts: one interrupted by a reopen must
+      // leave the panel where the reopening finds it.
+      if (finished && !detailOpen) setDetailTarget(null);
+    });
+    return () => animation.stop();
+  }, [detailOpen, detailProgress]);
+
+  const closeDetails = useCallback(() => setDetailOpen(false), []);
   /**
    * The surface's own view, measured when a menu opens. A right-click reports
    * where it happened in the window; the menu is positioned inside this view,
@@ -2727,6 +3689,9 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         // them outside the settings view, and that view owns its own draft.
         cachedPrompts = next.prompts;
         setPrompts(next.prompts);
+        // The panel width is adopted only while nothing local has been chosen
+        // yet: a drag made since the last load must not be undone by it.
+        if (cachedDetailFraction === null) cachedDetailFraction = next.detailWidthFraction;
         if (!filterHydrated.current) {
           filterHydrated.current = true;
           const restored = new Set(next.hiddenRepositories);
@@ -2907,6 +3872,27 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     setBoard((current) => (current === null ? current : patch(current)));
   }, []);
 
+  const openDetails = useCallback((item: BoardItem, type: ColumnId) => {
+    setNotice(null);
+    setDetailTarget({ item, type });
+    setDetailOpen(true);
+  }, []);
+
+  /**
+   * The open card as the board has it *now*, not as it was when pressed: a
+   * label edited from the context menu while the panel is up lands on the
+   * board, and the panel should repaint with it rather than keep a copy. The
+   * pressed item stands in if a refresh has since dropped it from the board.
+   */
+  const detailItem = useMemo(() => {
+    if (detailTarget === null || board === null) return null;
+    for (const column of board.columns) {
+      const hit = column.items.find((item) => item.id === detailTarget.item.id);
+      if (hit !== undefined) return hit;
+    }
+    return detailTarget.item;
+  }, [board, detailTarget]);
+
   /**
    * Opens the launch dialog on this card, with the card's template already
    * rendered into the first message. Everything else — the project lookup, the
@@ -3038,15 +4024,14 @@ export function GitHubBoard(props: PluginSurfaceProps) {
             ) : null}
             <Pressable
               accessibilityRole="button"
-              style={styles.ghostButton}
+              accessibilityLabel="Configure prompts"
+              style={({ pressed }) => [styles.iconButton, pressed ? styles.cardPressed : null]}
               onPress={() => {
                 setFilterOpen(false);
                 setShowSettings(true);
               }}
             >
-              <Text style={styles.ghostButtonLabel}>
-                {props.layout.compact ? "Prompts" : "Configure prompts"}
-              </Text>
+              <Icon name="Settings" size={15} color={props.theme.colors.foreground} />
             </Pressable>
             {/* Compact refreshes by pulling the list down, so the button would
                 be a second way to do the same thing in the row with the least
@@ -3054,11 +4039,18 @@ export function GitHubBoard(props: PluginSurfaceProps) {
             {props.layout.compact ? null : (
               <Pressable
                 accessibilityRole="button"
-                style={styles.button}
+                accessibilityLabel={busy ? "Loading the board" : "Refresh the board"}
+                style={({ pressed }) => [styles.iconButton, pressed ? styles.cardPressed : null]}
                 onPress={() => void refresh(undefined, true)}
                 disabled={busy}
               >
-                <Text style={styles.buttonLabel}>{busy ? "Loading…" : "Refresh"}</Text>
+                {/* The spinner takes the glyph's place while a load runs, so
+                    the button still says "loading" without a word to say it. */}
+                {busy ? (
+                  <ActivityIndicator size="small" color={props.theme.colors.foregroundMuted} />
+                ) : (
+                  <Icon name="RefreshCw" size={14} color={props.theme.colors.foreground} />
+                )}
               </Pressable>
             )}
           </>
@@ -3091,51 +4083,91 @@ export function GitHubBoard(props: PluginSurfaceProps) {
           onSave={applyPrompts}
           onApplyLogin={applyLogin}
         />
-      ) : board === null ? (
-        <View style={styles.centered}>
-          {busy ? <ActivityIndicator color={props.theme.colors.accent} /> : null}
-        </View>
-      ) : props.layout.compact ? (
-        <>
-          <ColumnTabs
-            columns={columns}
-            activeId={activeColumn?.id ?? columnId}
-            styles={styles}
-            onSelect={selectColumn}
-          />
-          {activeColumn === null ? null : (
-            <Column
-              // Keyed by column, so switching tabs starts the new list at the
-              // top instead of inheriting the last one's scroll offset.
-              key={activeColumn.id}
-              column={activeColumn}
-              viewerLogin={board.login}
-              styles={styles}
-              platform={props.layout.platform}
-              compact
-              refreshing={busy}
-              onRefresh={() => void refresh(undefined, true)}
-              onSend={openSendDialog}
-              onLabels={openLabelMenu}
-            />
-          )}
-        </>
       ) : (
-        <View style={[styles.columns, styles.columnsContent]}>
-          {columns.map((column) => (
-            <Column
-              key={column.id}
-              column={column}
-              viewerLogin={board.login}
+        <View
+          style={styles.body}
+          onLayout={(event) => setBodyWidth(event.nativeEvent.layout.width)}
+        >
+          {board === null ? (
+            <View style={styles.centered}>
+              {busy ? <ActivityIndicator color={props.theme.colors.accent} /> : null}
+            </View>
+          ) : props.layout.compact ? (
+            <>
+              <ColumnTabs
+                columns={columns}
+                activeId={activeColumn?.id ?? columnId}
+                styles={styles}
+                onSelect={selectColumn}
+              />
+              {activeColumn === null ? null : (
+                <Column
+                  // Keyed by column, so switching tabs starts the new list at the
+                  // top instead of inheriting the last one's scroll offset.
+                  key={activeColumn.id}
+                  column={activeColumn}
+                  viewerLogin={board.login}
+                  styles={styles}
+                  platform={props.layout.platform}
+                  compact
+                  refreshing={busy}
+                  onRefresh={() => void refresh(undefined, true)}
+                  selectedId={detailItem?.id ?? null}
+                  onOpen={openDetails}
+                  onSend={openSendDialog}
+                  onLabels={openLabelMenu}
+                />
+              )}
+            </>
+          ) : (
+            <View style={[styles.columns, styles.columnsContent]}>
+              {columns.map((column) => (
+                <Column
+                  key={column.id}
+                  column={column}
+                  viewerLogin={board.login}
+                  styles={styles}
+                  platform={props.layout.platform}
+                  compact={false}
+                  refreshing={false}
+                  onRefresh={null}
+                  selectedId={detailItem?.id ?? null}
+                  onOpen={openDetails}
+                  onSend={openSendDialog}
+                  onLabels={openLabelMenu}
+                />
+              ))}
+            </View>
+          )}
+          {/* Last in the body, so it paints over the columns by order alone;
+              the header above keeps its own zIndex and stays reachable. The
+              scrim only exists where the panel leaves board to blur. */}
+          {detailTarget !== null && detailItem !== null && !props.layout.compact ? (
+            <Animated.View style={[styles.detailScrim, { opacity: detailProgress }]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close details"
+                style={styles.menuScrim}
+                onPress={closeDetails}
+              />
+            </Animated.View>
+          ) : null}
+          {detailTarget !== null && detailItem !== null ? (
+            <ItemDetailPanel
+              // Keyed by card, so a second card never shows the first one's
+              // body while its own loads.
+              key={detailItem.id}
+              item={detailItem}
+              type={detailTarget.type}
               styles={styles}
-              platform={props.layout.platform}
-              compact={false}
-              refreshing={false}
-              onRefresh={null}
+              accentColor={props.theme.colors.accent}
+              foregroundColor={props.theme.colors.foreground}
+              bodyWidth={props.layout.compact ? null : bodyWidth}
+              progress={detailProgress}
+              onClose={closeDetails}
               onSend={openSendDialog}
-              onLabels={openLabelMenu}
             />
-          ))}
+          ) : null}
         </View>
       )}
 
