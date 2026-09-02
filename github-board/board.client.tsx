@@ -20,6 +20,7 @@ import type {
   CheckSummary,
   ColumnId,
   Isolation,
+  ItemDetails,
   LaunchDefaults,
   LinkedIssue,
   ProjectRef,
@@ -31,6 +32,7 @@ import {
   COLUMN_IDS,
   listLabels,
   loadBoard,
+  loadItem,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
@@ -38,6 +40,7 @@ import {
   sendToChat,
   toggleLabel,
 } from "./board.shared";
+import { MarkdownBody } from "./markdown.client";
 
 /**
  * `Linking.openURL` is `window.open` on the desktop renderer, and the main
@@ -243,6 +246,12 @@ const LABEL_MENU_WIDTH = 260;
 const LABEL_MENU_MAX_HEIGHT = 300;
 /** Kept off the surface's own edges, whichever way the menu opens. */
 const MENU_MARGIN = 8;
+
+/**
+ * Each platform's own monospace face. There is no cross-platform name: iOS
+ * has no `monospace` alias, and Android has no Menlo.
+ */
+const MONOSPACE = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
 
 /**
  * The theme exposes six opaque tokens and no border or hover colour, so
@@ -728,6 +737,11 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         gap: layout.compact ? 8 : 6,
       },
       cardPressed: { backgroundColor: withAlpha(colors.foregroundMuted, "1a") },
+      /** The card whose details are open, so the panel reads as *its* panel. */
+      cardSelected: {
+        borderColor: colors.accent,
+        backgroundColor: withAlpha(colors.accent, "0d"),
+      },
       // Bottom-right and out of flow, so revealing it on hover never reflows the
       // card and never nudges the cards below it. It sits over the footer's
       // trailing labels, so it is opaque rather than tinted.
@@ -937,6 +951,136 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         paddingHorizontal: 2,
       },
       empty: { color: colors.foregroundMuted, fontSize: 12, padding: 12 },
+
+      // --- The detail panel ---
+      /**
+       * Everything under the header, and what the detail panel is positioned
+       * in: the panel covers the columns and leaves the header — the filter,
+       * Refresh, the settings button — reachable while it is open.
+       */
+      body: { flex: 1 },
+      /**
+       * Half the width on the wide layout, so the columns on the other half
+       * stay readable and clickable and a press on a second card swaps the
+       * panel rather than closing it. Compact has no width to share, so the
+       * panel takes the body and its Close button is the way back.
+       */
+      detailPanel: {
+        position: "absolute" as const,
+        top: 0,
+        bottom: 0,
+        right: 0,
+        width: layout.compact ? ("100%" as const) : ("50%" as const),
+        backgroundColor: colors.surface0,
+        borderLeftWidth: layout.compact ? 0 : 1,
+        borderLeftColor: separator,
+      },
+      detailHeader: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 8,
+        paddingHorizontal: layout.compact ? 12 : 16,
+        paddingVertical: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: separator,
+      },
+      detailRepo: { flexShrink: 1, color: colors.foregroundMuted, fontSize: 12 },
+      detailBody: {
+        padding: layout.compact ? 12 : 16,
+        gap: 10,
+        paddingBottom: 40,
+      },
+      detailTitle: {
+        color: colors.foreground,
+        fontSize: layout.compact ? 18 : 20,
+        lineHeight: layout.compact ? 24 : 27,
+        fontWeight: "600" as const,
+      },
+      detailMeta: { color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 },
+      detailLabels: {
+        flexDirection: "row" as const,
+        flexWrap: "wrap" as const,
+        alignItems: "center" as const,
+        gap: 6,
+      },
+      detailActions: {
+        flexDirection: "row" as const,
+        flexWrap: "wrap" as const,
+        alignItems: "center" as const,
+        gap: 8,
+        paddingVertical: 4,
+      },
+      detailDivider: { height: 1, backgroundColor: separator, marginVertical: 6 },
+      /**
+       * One pill per state, spelled in the tokens the theme has: accent for
+       * open, danger for closed, and muted for a draft or a merge — both of
+       * which are settled rather than wrong. The word carries the meaning.
+       */
+      statePill: {
+        fontSize: 11,
+        fontWeight: "600" as const,
+        overflow: "hidden" as const,
+        borderRadius: 10,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderWidth: 1,
+      },
+      statePillOpen: {
+        color: colors.accent,
+        borderColor: withAlpha(colors.accent, "66"),
+        backgroundColor: withAlpha(colors.accent, "1a"),
+      },
+      statePillClosed: {
+        color: colors.statusDanger,
+        borderColor: withAlpha(colors.statusDanger, "66"),
+        backgroundColor: withAlpha(colors.statusDanger, "1a"),
+      },
+      statePillSettled: {
+        color: colors.foregroundMuted,
+        borderColor: separator,
+        backgroundColor: withAlpha(colors.foregroundMuted, "1a"),
+      },
+
+      // --- Markdown, for the panel's body (see markdown.client.tsx) ---
+      mdParagraph: { color: colors.foreground, fontSize: 14, lineHeight: 21 },
+      mdHeadingLarge: {
+        color: colors.foreground,
+        fontSize: 17,
+        lineHeight: 24,
+        fontWeight: "600" as const,
+        marginTop: 6,
+      },
+      mdHeading: {
+        color: colors.foreground,
+        fontSize: 15,
+        lineHeight: 22,
+        fontWeight: "600" as const,
+        marginTop: 4,
+      },
+      mdListRow: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 8 },
+      mdListMarker: { color: colors.foregroundMuted, fontSize: 14, lineHeight: 21, minWidth: 14 },
+      /** Lets a long item wrap under itself instead of pushing past the panel. */
+      mdListText: { flex: 1, minWidth: 0 },
+      mdCodeBlock: {
+        backgroundColor: withAlpha(colors.foregroundMuted, "1a"),
+        borderRadius: 8,
+        padding: 10,
+      },
+      mdCodeText: {
+        color: colors.foreground,
+        fontSize: 12,
+        lineHeight: 18,
+        fontFamily: MONOSPACE,
+      },
+      mdQuote: { borderLeftWidth: 3, borderLeftColor: separator, paddingLeft: 10 },
+      mdRule: { height: 1, backgroundColor: separator },
+      mdBold: { fontWeight: "600" as const },
+      mdInlineCode: {
+        fontFamily: MONOSPACE,
+        fontSize: 13,
+        backgroundColor: withAlpha(colors.foregroundMuted, "1a"),
+      },
+      mdLink: { color: colors.accent },
     };
   }, [theme, layout.compact]);
 }
@@ -1269,6 +1413,8 @@ function Card({
   styles,
   platform,
   compact,
+  selected,
+  onOpen,
   onSend,
   onLabels,
   type,
@@ -1289,6 +1435,10 @@ function Card({
    * lines what a 300pt column needed three for.
    */
   compact: boolean;
+  /** True while this card's details are open in the panel. */
+  selected: boolean;
+  /** A press: opens the card in the detail panel, never the browser. */
+  onOpen: (item: BoardItem, type: ColumnId) => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
   /** Null where labels cannot be edited, which takes the gesture away entirely. */
   onLabels: ((item: BoardItem, point: { x: number; y: number }) => void) | null;
@@ -1313,8 +1463,8 @@ function Card({
   const revealed = !isWeb || cardHovered || actionHovered;
 
   const open = useCallback(() => {
-    openExternalUrl(item.url);
-  }, [item.url]);
+    onOpen(item, type);
+  }, [item, onOpen, type]);
 
   // No in-flight state: the press opens the launch dialog, which owns every
   // wait from there on.
@@ -1334,7 +1484,7 @@ function Card({
   /**
    * Web only, and `preventDefault` first: without it the browser's own menu
    * opens on top of this one. The left-click that opens the card is a separate
-   * handler, so a right-click never follows the link.
+   * handler, so a right-click never opens the panel.
    */
   const openLabelsFromContextMenu = useCallback(
     (event: unknown) => {
@@ -1360,7 +1510,8 @@ function Card({
 
   return (
     <Pressable
-      accessibilityRole="link"
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
       accessibilityLabel={`${item.repository} #${item.number}: ${item.title}${
         byline === null ? "" : `, opened by ${byline}`
       }${closes === "" ? "" : `, closes ${closes}`}${
@@ -1381,7 +1532,11 @@ function Card({
       onHoverOut={() => setCardHovered(false)}
       // @ts-expect-error - onContextMenu is web-only and absent from the React Native types.
       onContextMenu={onLabels === null ? undefined : openLabelsFromContextMenu}
-      style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
+      style={({ pressed }) => [
+        styles.card,
+        selected ? styles.cardSelected : null,
+        pressed ? styles.cardPressed : null,
+      ]}
     >
       <Text style={styles.cardRepo} numberOfLines={1}>
         {item.repository} #{item.number}
@@ -2517,6 +2672,209 @@ function PromptSettingsView({
   );
 }
 
+// ---------------------------------------------------------------------------
+// The detail panel
+// ---------------------------------------------------------------------------
+
+/** What a card is called in the panel, by the column it came from. */
+function kindLabel(type: ColumnId): string {
+  if (type === "issues") return "Issue";
+  if (type === "discussions") return "Discussion";
+  return "Pull request";
+}
+
+function stateLabel(state: ItemDetails["state"]): string {
+  if (state === "open") return "Open";
+  if (state === "draft") return "Draft";
+  if (state === "merged") return "Merged";
+  return "Closed";
+}
+
+/** A calendar date, for the panel: "3d ago" is the card's job. */
+function absoluteDate(iso: string): string {
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return "";
+  return then.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/**
+ * One card, opened: what the card already shows, then the body the search
+ * never fetched. The card's own fields paint at once and the body follows —
+ * the panel is the only thing waiting on `gh`, so the board never is.
+ *
+ * Keyed by the caller on the item's id, so opening a second card never shows
+ * the first one's body while the second loads.
+ */
+function ItemDetailPanel({
+  item,
+  type,
+  styles,
+  accentColor,
+  onClose,
+  onSend,
+}: {
+  item: BoardItem;
+  type: ColumnId;
+  styles: Styles;
+  accentColor: string;
+  onClose: () => void;
+  onSend: (item: BoardItem, type: ColumnId) => void;
+}) {
+  const load = useRpc(loadItem);
+  const [details, setDetails] = useState<ItemDetails | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(true);
+  /** Bumped by Refresh; anything past the first load bypasses the server cache. */
+  const [generation, setGeneration] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    setBusy(true);
+    setError(null);
+    load({ id: item.id, force: generation > 0 })
+      .then((result) => {
+        if (live) setDetails(result);
+      })
+      .catch((cause: unknown) => {
+        if (live) setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (live) setBusy(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [generation, item.id, load]);
+
+  const meta = [
+    `${kindLabel(type)} #${item.number}`,
+    item.author === null ? null : `@${item.author}`,
+    `${item.commentsCount} ${item.commentsCount === 1 ? "comment" : "comments"}`,
+    item.detail,
+    details === null || details.createdAt === ""
+      ? null
+      : `opened ${absoluteDate(details.createdAt)}`,
+  ]
+    .filter((part): part is string => part !== null && part !== "")
+    .join(" · ");
+
+  const state = details?.state ?? null;
+
+  return (
+    <View style={styles.detailPanel}>
+      <View style={styles.detailHeader}>
+        <Text style={styles.detailRepo} numberOfLines={1}>
+          {item.repository}
+        </Text>
+        {state !== null ? (
+          <Text
+            style={[
+              styles.statePill,
+              state === "open"
+                ? styles.statePillOpen
+                : state === "closed"
+                  ? styles.statePillClosed
+                  : styles.statePillSettled,
+            ]}
+          >
+            {stateLabel(state)}
+          </Text>
+        ) : null}
+        <View style={styles.headerSpacer} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Reload details"
+          style={[styles.ghostButton, busy ? styles.buttonDisabled : null]}
+          onPress={() => setGeneration((current) => current + 1)}
+          disabled={busy}
+        >
+          <Text style={styles.ghostButtonLabel}>Refresh</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close details"
+          style={styles.ghostButton}
+          onPress={onClose}
+        >
+          <Text style={styles.ghostButtonLabel}>Close</Text>
+        </Pressable>
+      </View>
+      <ScrollView contentContainerStyle={styles.detailBody}>
+        <Text accessibilityRole="header" style={styles.detailTitle}>
+          {item.title}
+        </Text>
+        <Text style={styles.detailMeta}>{meta}</Text>
+        {details?.branches ? (
+          <Text style={styles.detailMeta}>
+            {details.branches.head} → {details.branches.base}
+          </Text>
+        ) : null}
+        {item.labels.length > 0 || item.linkedIssues.length > 0 || item.checks !== null ? (
+          <View style={styles.detailLabels}>
+            {item.checks !== null ? <ChecksPills checks={item.checks} styles={styles} /> : null}
+            {item.linkedIssues.map((issue) => (
+              <Text key={issue.id} style={styles.linkedIssue}>
+                {linkedIssueLabel(issue, item.repository)}
+              </Text>
+            ))}
+            {item.labels.map((label) => (
+              <Text key={label} style={styles.label}>
+                {label}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+        <View style={styles.detailActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Send ${item.repository} #${item.number} to a new workspace chat`}
+            style={({ pressed }) => [styles.button, pressed ? styles.sendButtonPressed : null]}
+            onPress={() => onSend(item, type)}
+          >
+            <Text style={styles.buttonLabel}>Send to chat</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`Open ${item.repository} #${item.number} on GitHub`}
+            style={styles.ghostButton}
+            onPress={() => openExternalUrl(item.url)}
+          >
+            <Text style={styles.ghostButtonLabel}>Open on GitHub</Text>
+          </Pressable>
+        </View>
+        <View style={styles.detailDivider} />
+        {details === null ? (
+          error !== null ? (
+            <Text style={styles.danger}>{error}</Text>
+          ) : (
+            <View style={styles.centeredRow}>
+              <ActivityIndicator color={accentColor} />
+            </View>
+          )
+        ) : (
+          <>
+            {/* A failed refresh keeps the body it had and says so above it. */}
+            {error !== null ? <Text style={styles.danger}>{error}</Text> : null}
+            {details.body.trim() === "" ? (
+              <Text style={styles.empty}>No description was written.</Text>
+            ) : (
+              <MarkdownBody source={details.body} styles={styles} onOpenLink={openExternalUrl} />
+            )}
+            {details.assignees.length > 0 ? (
+              <>
+                <View style={styles.detailDivider} />
+                <Text style={styles.detailMeta}>
+                  Assignees: {details.assignees.map((login) => `@${login}`).join(", ")}
+                </Text>
+              </>
+            ) : null}
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
 function Column({
   column,
   viewerLogin,
@@ -2525,6 +2883,8 @@ function Column({
   compact,
   refreshing,
   onRefresh,
+  selectedId,
+  onOpen,
   onSend,
   onLabels,
 }: {
@@ -2537,6 +2897,9 @@ function Column({
   refreshing: boolean;
   /** Pull-to-refresh, which is what replaces the Refresh button on compact. */
   onRefresh: (() => void) | null;
+  /** The card whose details are open, if any, so it can be drawn selected. */
+  selectedId: string | null;
+  onOpen: (item: BoardItem, type: ColumnId) => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
   onLabels: (item: BoardItem, point: { x: number; y: number }) => void;
 }) {
@@ -2577,6 +2940,8 @@ function Column({
               styles={styles}
               platform={platform}
               compact={compact}
+              selected={item.id === selectedId}
+              onOpen={onOpen}
               onSend={onSend}
               onLabels={labelable ? onLabels : null}
               type={column.id}
@@ -2680,6 +3045,10 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const [sendTarget, setSendTarget] = useState<{ item: BoardItem; prompt: string } | null>(null);
   /** The card the label menu is open on, and where on this surface to draw it. */
   const [labelTarget, setLabelTarget] = useState<LabelMenuTarget | null>(null);
+  /** The card the detail panel is open on. Its column picks the send template. */
+  const [detailTarget, setDetailTarget] = useState<{ item: BoardItem; type: ColumnId } | null>(
+    null,
+  );
   /**
    * The surface's own view, measured when a menu opens. A right-click reports
    * where it happened in the window; the menu is positioned inside this view,
@@ -2907,6 +3276,26 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     setBoard((current) => (current === null ? current : patch(current)));
   }, []);
 
+  const openDetails = useCallback((item: BoardItem, type: ColumnId) => {
+    setNotice(null);
+    setDetailTarget({ item, type });
+  }, []);
+
+  /**
+   * The open card as the board has it *now*, not as it was when pressed: a
+   * label edited from the context menu while the panel is up lands on the
+   * board, and the panel should repaint with it rather than keep a copy. The
+   * pressed item stands in if a refresh has since dropped it from the board.
+   */
+  const detailItem = useMemo(() => {
+    if (detailTarget === null || board === null) return null;
+    for (const column of board.columns) {
+      const hit = column.items.find((item) => item.id === detailTarget.item.id);
+      if (hit !== undefined) return hit;
+    }
+    return detailTarget.item;
+  }, [board, detailTarget]);
+
   /**
    * Opens the launch dialog on this card, with the card's template already
    * rendered into the first message. Everything else — the project lookup, the
@@ -3091,51 +3480,74 @@ export function GitHubBoard(props: PluginSurfaceProps) {
           onSave={applyPrompts}
           onApplyLogin={applyLogin}
         />
-      ) : board === null ? (
-        <View style={styles.centered}>
-          {busy ? <ActivityIndicator color={props.theme.colors.accent} /> : null}
-        </View>
-      ) : props.layout.compact ? (
-        <>
-          <ColumnTabs
-            columns={columns}
-            activeId={activeColumn?.id ?? columnId}
-            styles={styles}
-            onSelect={selectColumn}
-          />
-          {activeColumn === null ? null : (
-            <Column
-              // Keyed by column, so switching tabs starts the new list at the
-              // top instead of inheriting the last one's scroll offset.
-              key={activeColumn.id}
-              column={activeColumn}
-              viewerLogin={board.login}
-              styles={styles}
-              platform={props.layout.platform}
-              compact
-              refreshing={busy}
-              onRefresh={() => void refresh(undefined, true)}
-              onSend={openSendDialog}
-              onLabels={openLabelMenu}
-            />
-          )}
-        </>
       ) : (
-        <View style={[styles.columns, styles.columnsContent]}>
-          {columns.map((column) => (
-            <Column
-              key={column.id}
-              column={column}
-              viewerLogin={board.login}
+        <View style={styles.body}>
+          {board === null ? (
+            <View style={styles.centered}>
+              {busy ? <ActivityIndicator color={props.theme.colors.accent} /> : null}
+            </View>
+          ) : props.layout.compact ? (
+            <>
+              <ColumnTabs
+                columns={columns}
+                activeId={activeColumn?.id ?? columnId}
+                styles={styles}
+                onSelect={selectColumn}
+              />
+              {activeColumn === null ? null : (
+                <Column
+                  // Keyed by column, so switching tabs starts the new list at the
+                  // top instead of inheriting the last one's scroll offset.
+                  key={activeColumn.id}
+                  column={activeColumn}
+                  viewerLogin={board.login}
+                  styles={styles}
+                  platform={props.layout.platform}
+                  compact
+                  refreshing={busy}
+                  onRefresh={() => void refresh(undefined, true)}
+                  selectedId={detailItem?.id ?? null}
+                  onOpen={openDetails}
+                  onSend={openSendDialog}
+                  onLabels={openLabelMenu}
+                />
+              )}
+            </>
+          ) : (
+            <View style={[styles.columns, styles.columnsContent]}>
+              {columns.map((column) => (
+                <Column
+                  key={column.id}
+                  column={column}
+                  viewerLogin={board.login}
+                  styles={styles}
+                  platform={props.layout.platform}
+                  compact={false}
+                  refreshing={false}
+                  onRefresh={null}
+                  selectedId={detailItem?.id ?? null}
+                  onOpen={openDetails}
+                  onSend={openSendDialog}
+                  onLabels={openLabelMenu}
+                />
+              ))}
+            </View>
+          )}
+          {/* Last in the body, so it paints over the columns by order alone;
+              the header above keeps its own zIndex and stays reachable. */}
+          {detailTarget !== null && detailItem !== null ? (
+            <ItemDetailPanel
+              // Keyed by card, so a second card never shows the first one's
+              // body while its own loads.
+              key={detailItem.id}
+              item={detailItem}
+              type={detailTarget.type}
               styles={styles}
-              platform={props.layout.platform}
-              compact={false}
-              refreshing={false}
-              onRefresh={null}
+              accentColor={props.theme.colors.accent}
+              onClose={() => setDetailTarget(null)}
               onSend={openSendDialog}
-              onLabels={openLabelMenu}
             />
-          ))}
+          ) : null}
         </View>
       )}
 

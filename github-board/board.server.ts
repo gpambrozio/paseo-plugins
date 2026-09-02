@@ -9,6 +9,7 @@ import type {
   BoardColumn,
   BoardItem,
   CheckSummary,
+  ItemDetails,
   RepositoryLabel,
   LaunchDefaults,
   LinkedIssue,
@@ -16,6 +17,7 @@ import type {
   PromptSettings,
   listLabels,
   loadBoard,
+  loadItem,
   savePrompts,
   saveLogin,
   saveRepositoryFilter,
@@ -1020,6 +1022,98 @@ export async function toggleLabelHandler({
   const labels = labelNamesOf(add ? data?.addLabelsToLabelable : data?.removeLabelsFromLabelable);
   patchCachedLabels(itemId, labels);
   return { labels };
+}
+
+/**
+ * The body of one card, fetched when its panel opens rather than with the
+ * board: a body is the largest field an item has, and thirty of them per column
+ * would weigh down a refresh for text the user reads one at a time.
+ *
+ * `node(id:)` resolves any node type, so one query serves all three kinds and
+ * the inline fragments decide which fields come back. A discussion carries no
+ * assignees on GitHub, and only a pull request has branches.
+ */
+const ITEM_QUERY = `query($id: ID!) {
+  node(id: $id) {
+    ... on Issue {
+      body state createdAt
+      assignees(first: 20) { nodes { login } }
+    }
+    ... on PullRequest {
+      body state isDraft createdAt baseRefName headRefName
+      assignees(first: 20) { nodes { login } }
+    }
+    ... on Discussion { body closed createdAt }
+  }
+}`;
+
+interface GhItemNode {
+  body?: unknown;
+  state?: unknown;
+  isDraft?: unknown;
+  closed?: unknown;
+  createdAt?: unknown;
+  baseRefName?: unknown;
+  headRefName?: unknown;
+  assignees?: { nodes?: unknown };
+}
+
+function itemStateOf(node: GhItemNode): ItemDetails["state"] {
+  if (node.state === "MERGED") return "merged";
+  if (node.state === "CLOSED" || node.closed === true) return "closed";
+  if (node.isDraft === true) return "draft";
+  return "open";
+}
+
+function toItemDetails(node: GhItemNode): ItemDetails {
+  const assigneeNodes = node.assignees?.nodes;
+  const assignees = Array.isArray(assigneeNodes)
+    ? assigneeNodes
+        .map((assignee) => (assignee as { login?: unknown }).login)
+        .filter((login): login is string => typeof login === "string")
+    : [];
+  return {
+    state: itemStateOf(node),
+    body: typeof node.body === "string" ? node.body : "",
+    createdAt: typeof node.createdAt === "string" ? node.createdAt : "",
+    assignees,
+    branches:
+      typeof node.headRefName === "string" && typeof node.baseRefName === "string"
+        ? { head: node.headRefName, base: node.baseRefName }
+        : null,
+  };
+}
+
+async function fetchItemDetails(id: string): Promise<ItemDetails> {
+  const raw = await gh(["api", "graphql", "-f", `query=${ITEM_QUERY}`, "-f", `id=${id}`]);
+  const parsed: unknown = JSON.parse(raw);
+  const node = (parsed as { data?: { node?: unknown } }).data?.node;
+  if (typeof node !== "object" || node === null) {
+    throw new Error("GitHub no longer has this item, or the account cannot see it.");
+  }
+  return toItemDetails(node as GhItemNode);
+}
+
+/**
+ * Cached like the board, and for the same reason: the panel is reopened on the
+ * same few cards, and each open would otherwise be a `gh` subprocess. `force`
+ * is the panel's Refresh button, for a body edited on GitHub in the meantime.
+ */
+const DETAILS_TTL_MS = 5 * 60_000;
+
+const cachedDetails = new Map<string, { details: ItemDetails; storedAt: number }>();
+
+export async function loadItemHandler({
+  id,
+  force,
+}: z.output<typeof loadItem.input>): Promise<z.input<typeof loadItem.output>> {
+  const hit = cachedDetails.get(id);
+  if (!force && hit !== undefined && Date.now() - hit.storedAt < DETAILS_TTL_MS) {
+    return hit.details;
+  }
+  const details = await fetchItemDetails(id);
+  cachedDetails.set(id, { details, storedAt: Date.now() });
+  return details;
 }
 
 /**

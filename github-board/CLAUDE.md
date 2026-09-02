@@ -12,10 +12,11 @@ compile time. This file covers only what is specific to `github-board`.
 
 | File               | What it owns                                                                |
 | ------------------ | --------------------------------------------------------------------------- |
-| `index.ts`         | Wiring only — binds the eight RPC contracts and registers the sidebar surface. |
+| `index.ts`         | Wiring only — binds the nine RPC contracts and registers the sidebar surface. |
 | `board.shared.ts`  | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `board.server.ts`  | Every `gh` subprocess, the settings file, and the server-side board cache.  |
-| `board.client.tsx` | The surface: columns, cards, the repository filter, and the client cache.   |
+| `board.client.tsx` | The surface: columns, cards, the detail panel, the repository filter, and the client cache. |
+| `markdown.client.tsx` | The renderer for an item's Markdown body; only the detail panel uses it.  |
 | `README.md`        | What the board shows a user, and which query backs each column.             |
 
 ## Checking a `gh` query against reality
@@ -138,6 +139,49 @@ wraps** — anything appended lands on a second line — and because the Send bu
 bottom-right corner. The plugin theme has exactly one status colour, so failure takes `statusDanger`,
 still-running takes `accent`, and passed takes `foregroundMuted`; the `✓ ✕ ●` glyphs are what
 actually carries the meaning, which is also what makes the summary readable without colour vision.
+
+## The detail panel
+
+A press on a card opens it in a panel over the board — not in the browser, which is what it used to
+do. The panel shows what the card already had (title, repository, author, comments, labels, linked
+issues, checks) and then fetches what the search never did: the body, the live state, the creation
+date, the assignees, and a pull request's branches. **Open on GitHub** is in the panel, next to
+**Send to chat**, so both of the card's old actions are one press further away and nothing has
+been lost.
+
+**The body is a separate `board.item` call, not a field on the search.** A body is the largest
+field an item has, and three columns of thirty would carry ninety of them on every refresh for text
+the user reads one at a time. The lookup is `node(id:)` on the card's node id, which resolves any
+type without saying which, so one query serves an issue, a pull request and a discussion and the
+inline fragments decide which fields come back. The answer is cached on the server for five minutes
+by id; `force`, from the panel's Refresh button, bypasses it for a body edited on GitHub since.
+
+`state` is derived, not copied: `MERGED` and `CLOSED` come from `state`, a discussion's from
+`closed`, and a draft reads `draft` rather than `open`. The board lists open items only, so the
+panel is the first place a card that has since closed says so.
+
+**The panel is positioned inside `body`, not the screen.** `body` is everything under the header,
+and the panel is its last child, so it covers the columns by paint order alone and leaves the
+header — the filter, Refresh, Configure prompts — reachable while it is open. The label menu and
+the modals are still positioned against the screen, because `openLabelMenu` measures `rootRef`.
+
+On the wide layout the panel is the **right half**, and there is no scrim: the cards on the left
+half stay clickable, and pressing one *swaps* the panel rather than closing it, which is what a
+split view is for. The open card is drawn with an accent border (`cardSelected`) so the panel reads
+as that card's. On compact the panel is the whole body and Close is the way back.
+
+`detailTarget` holds the pressed card, but the panel renders `detailItem` — the same id looked up
+on the current board — so a label edited from the context menu while the panel is up repaints in
+it. The panel is keyed by item id: opening a second card must not show the first one's body while
+the second loads.
+
+`markdown.client.tsx` renders the body. There is no Markdown library a client bundle can import,
+so it covers what an issue body actually uses — headings, lists, task lists, fenced code, quotes,
+rules, and bold, inline code and links — and leaves the rest as text. Single newlines break lines,
+as GitHub's issue flavour of GFM does. HTML comments are stripped, because that is how issue
+templates carry their instructions and GitHub does not show them either. Inline tokens are
+`split` on a capturing group and `.map`ped, never looped: every link's press handler closes over
+its URL, and a closure made in a `for…of` body captures the final value under Hermes.
 
 ## Editing labels from a card
 

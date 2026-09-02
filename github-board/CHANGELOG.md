@@ -8,6 +8,24 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.3.0] — 2026-09-02
+
+### Changed
+
+- **Clicking a card opens a detail panel instead of the browser.** The panel takes the right half
+  of the board (the whole of it on a phone) and shows the item's title, author, comment count,
+  labels, branches, state, assignees and its description rendered from Markdown. **Open on
+  GitHub** moves into the panel beside **Send to chat**, so the browser is one press further away
+  rather than gone. Clicking another card swaps the panel; the open card is outlined.
+
+### Added
+
+- `board.item`, a ninth RPC: the body and live state of one card by node id, fetched when its
+  panel opens rather than with the board, and cached on the server for five minutes. The panel's
+  Refresh button bypasses the cache.
+- `markdown.client.tsx`, a small renderer for the constructs an issue body actually uses. A plugin
+  client bundle cannot import a Markdown library.
+
 ## [0.2.0] — 2026-08-31
 
 ### Changed

@@ -343,3 +343,42 @@ export const toggleLabel = defineRpc({
   }),
   output: z.object({ labels: z.array(z.string()) }),
 });
+
+/**
+ * What a card knows about itself already — title, repository, labels, author —
+ * is left off this shape on purpose: the panel paints those from the card the
+ * moment it opens, and this round trip only adds what the search never fetched.
+ */
+export const ItemDetailsSchema = z.object({
+  /**
+   * `open` for everything the board lists today; the rest cover an item that
+   * changed on GitHub after the board was fetched, which the panel is the first
+   * place to notice. A draft pull request reads `draft` rather than `open`.
+   */
+  state: z.enum(["open", "draft", "closed", "merged"]),
+  /** Markdown, exactly as GitHub stores it. Empty when the author wrote nothing. */
+  body: z.string(),
+  createdAt: z.string(),
+  /** Logins. Always empty for a discussion, which GitHub does not assign. */
+  assignees: z.array(z.string()),
+  /** Pull requests only: the branch under review and the one it targets. */
+  branches: z.object({ head: z.string(), base: z.string() }).nullable(),
+});
+
+export type ItemDetails = z.output<typeof ItemDetailsSchema>;
+
+/**
+ * The body and status of one card, for the detail panel. Looked up by node id
+ * rather than by repository and number because `node(id:)` needs no type
+ * argument — the same id opens an issue, a pull request or a discussion — and
+ * because the id is what every card already carries.
+ */
+export const loadItem = defineRpc({
+  name: "board.item",
+  input: z.object({
+    id: z.string().min(1),
+    /** Set by the panel's Refresh button to bypass the server's short-lived cache. */
+    force: z.boolean().default(false),
+  }),
+  output: ItemDetailsSchema,
+});

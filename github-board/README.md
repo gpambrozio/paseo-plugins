@@ -125,6 +125,21 @@ ones, so a repository the filter has never seen — a new one, or one whose firs
 card only appears on a later refresh — arrives selected rather than silently
 filtered out.
 
+## Reading a card
+
+**Click a card** and it opens in a panel beside the board — the right half of the surface, or the
+whole of it on a phone. The panel shows the title, who opened it, the comment count, the labels,
+a pull request's branches, and the description rendered from its Markdown, followed by the
+assignees. A pill in the panel's header says whether the item is still open, or has been closed or
+merged since the board was fetched.
+
+**Open on GitHub** is in the panel, next to **Send to chat**, so nothing the card used to do is
+gone — it is one press further away. **Refresh** reloads the description if it was edited on
+GitHub in the meantime; otherwise the panel remembers what it fetched for five minutes.
+
+While the panel is open the cards beside it still work: clicking another one swaps the panel to
+it, and the open card is outlined so you can see which one you are reading.
+
 ## Labels
 
 **Right-click** an issue or pull request card — **long-press** on a phone or tablet — and its
