@@ -2,6 +2,8 @@ import { Icon, type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugi
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Image,
   Keyboard,
   Linking,
@@ -245,6 +247,15 @@ let cachedDetailWidth: number | null = null;
 const DETAIL_MIN_WIDTH = 320;
 /** What the board keeps, at least: one column's worth of cards. */
 const BOARD_MIN_WIDTH = 260;
+/**
+ * The panel's slide and the scrim's fade share one progress value, so they
+ * can never be out of step. Opening is a touch slower than closing: arriving
+ * content deserves a beat, a dismissal should just be gone.
+ */
+const DETAIL_OPEN_MS = 220;
+const DETAIL_CLOSE_MS = 160;
+/** Before the panel has been laid out, it slides from this far right at least. */
+const DETAIL_OFFSCREEN_FALLBACK = 800;
 
 /**
  * Follows a drag at the document level on the web renderer, where the
@@ -1108,7 +1119,7 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         bottom: 0,
         backgroundColor: withAlpha(colors.surface0, "99"),
         ...(Platform.OS === "web"
-          ? ({ backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" } as object)
+          ? ({ backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)" } as object)
           : {}),
       },
       /** The visible line inside the handle, lit while a drag is in progress. */
@@ -3014,6 +3025,7 @@ function ItemDetailPanel({
   accentColor,
   foregroundColor,
   bodyWidth,
+  progress,
   onClose,
   onSend,
 }: {
@@ -3029,11 +3041,19 @@ function ItemDetailPanel({
    * drag is clamped against so neither side can be dragged out of existence.
    */
   bodyWidth: number | null;
+  /** 0 is off-screen to the right, 1 is in place. Driven by the parent. */
+  progress: Animated.Value;
   onClose: () => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
 }) {
   const load = useRpc(loadItem);
   const [width, setWidth] = useState<number | null>(cachedDetailWidth);
+  /**
+   * The laid-out width, which is how far the panel has to travel to be
+   * off-screen. Until the first layout it travels the fallback, which is at
+   * least as far; the first frame is off-screen either way.
+   */
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
   const [resizing, setResizing] = useState(false);
   /**
    * The width when the drag began, read by the move handler. A ref rather than
@@ -3188,11 +3208,21 @@ function ItemDetailPanel({
 
   const state = details?.state ?? null;
 
+  const translateX = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [Math.max(measuredWidth ?? 0, DETAIL_OFFSCREEN_FALLBACK), 0],
+  });
+
   return (
-    <View
-      style={[styles.detailPanel, clampedWidth !== null ? { width: clampedWidth } : null]}
+    <Animated.View
+      style={[
+        styles.detailPanel,
+        clampedWidth !== null ? { width: clampedWidth } : null,
+        { transform: [{ translateX }] },
+      ]}
       onLayout={(event) => {
         panelWidth.current = event.nativeEvent.layout.width;
+        setMeasuredWidth(event.nativeEvent.layout.width);
       }}
     >
       {bodyWidth === null ? null : (
@@ -3385,7 +3415,7 @@ function ItemDetailPanel({
           </>
         )}
       </ScrollView>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -3563,8 +3593,34 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const [detailTarget, setDetailTarget] = useState<{ item: BoardItem; type: ColumnId } | null>(
     null,
   );
+  /**
+   * Whether the panel is meant to be on screen. Separate from `detailTarget`,
+   * which is kept while the panel slides out so there is still something to
+   * draw; it is cleared when the closing animation finishes.
+   */
+  const [detailOpen, setDetailOpen] = useState(false);
+  const detailProgress = useRef(new Animated.Value(0)).current;
   /** The body's width, for clamping the panel's drag. Null until laid out. */
   const [bodyWidth, setBodyWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    const animation = Animated.timing(detailProgress, {
+      toValue: detailOpen ? 1 : 0,
+      duration: detailOpen ? DETAIL_OPEN_MS : DETAIL_CLOSE_MS,
+      easing: detailOpen ? Easing.out(Easing.cubic) : Easing.in(Easing.cubic),
+      // The web renderer drives every animation from JavaScript, and a layout
+      // property could not go through the native driver anyway.
+      useNativeDriver: false,
+    });
+    animation.start(({ finished }) => {
+      // Only a *finished* close unmounts: one interrupted by a reopen must
+      // leave the panel where the reopening finds it.
+      if (finished && !detailOpen) setDetailTarget(null);
+    });
+    return () => animation.stop();
+  }, [detailOpen, detailProgress]);
+
+  const closeDetails = useCallback(() => setDetailOpen(false), []);
   /**
    * The surface's own view, measured when a menu opens. A right-click reports
    * where it happened in the window; the menu is positioned inside this view,
@@ -3795,6 +3851,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const openDetails = useCallback((item: BoardItem, type: ColumnId) => {
     setNotice(null);
     setDetailTarget({ item, type });
+    setDetailOpen(true);
   }, []);
 
   /**
@@ -4062,12 +4119,14 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               the header above keeps its own zIndex and stays reachable. The
               scrim only exists where the panel leaves board to blur. */}
           {detailTarget !== null && detailItem !== null && !props.layout.compact ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close details"
-              style={styles.detailScrim}
-              onPress={() => setDetailTarget(null)}
-            />
+            <Animated.View style={[styles.detailScrim, { opacity: detailProgress }]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close details"
+                style={styles.menuScrim}
+                onPress={closeDetails}
+              />
+            </Animated.View>
           ) : null}
           {detailTarget !== null && detailItem !== null ? (
             <ItemDetailPanel
@@ -4080,7 +4139,8 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               accentColor={props.theme.colors.accent}
               foregroundColor={props.theme.colors.foreground}
               bodyWidth={props.layout.compact ? null : bodyWidth}
-              onClose={() => setDetailTarget(null)}
+              progress={detailProgress}
+              onClose={closeDetails}
               onSend={openSendDialog}
             />
           ) : null}

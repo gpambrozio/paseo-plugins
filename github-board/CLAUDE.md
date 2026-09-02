@@ -172,13 +172,22 @@ the modals are still positioned against the screen, because `openLabelMenu` meas
 
 On the wide layout the panel is the **right half** and the board behind it sits under a scrim
 (`detailScrim`): a wash towards `surface0` like the modal backdrop, plus a `backdropFilter` blur
-spread in untyped for the web and desktop renderers — native has no blur without a library the
+(3px) spread in untyped for the web and desktop renderers — native has no blur without a library the
 client bundle cannot import, and keeps the wash. A press on the scrim closes the panel. That means
 the board is *not* clickable while the panel is open; it was at first, so a press on a second card
 swapped the panel, but a blurred board is not something to read or aim at, and the blur was asked
 for. The open card is still drawn with an accent border (`cardSelected`) so the panel reads as
 that card's through the blur. On compact the panel is the whole body, there is no scrim, and Close
 is the way back.
+
+**Opening and closing are animated on one `Animated.Value`**, `detailProgress`: the scrim's
+opacity is the value and the panel's `translateX` interpolates from its laid-out width (or a
+fallback at least as far) to zero, so the two can never be out of step. `detailOpen` is the
+intent and `detailTarget` is what is drawn: closing sets the intent false and the target is
+cleared only when the timing *finishes* — an interrupted close, reopened mid-slide, leaves the
+panel where the reopening finds it. `useNativeDriver` is false because the web renderer drives
+everything from JavaScript anyway. Opening takes 220ms with an ease-out, closing 160ms with an
+ease-in: arriving content gets a beat, a dismissal is just gone.
 
 **The wide panel is resizable** by a `PanResponder` handle astride its left edge, half over the
 board so the edge is grabbable from either side. The panel is anchored right, so a drag left grows
