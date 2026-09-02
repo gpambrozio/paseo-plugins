@@ -23,8 +23,8 @@ the open pull requests, when there are any. Everything goes through GraphQL
 rather than `gh search`, because only GraphQL exposes `closingIssuesReferences`
 and `statusCheckRollup` — see below.
 
-![The GitHub board: Issues, Draft PRs, Open PRs, and Discussions columns, with a
-login field and Refresh button in the header.](docs/screenshot.png)
+![The GitHub board: Issues, Draft PRs and Open PRs columns of cards, with the repository
+filter, the settings gear and the refresh button in the header.](docs/screenshot.png)
 
 ## Issues folded into their pull requests
 
@@ -151,6 +151,10 @@ as a share of the board, so it comes back the same after a restart and scales wi
 
 While the panel is open the board behind it is blurred, and clicking it closes the panel. The open
 card is outlined so you can see which one you are reading.
+
+![A pull request open in the detail panel: repository and state at the top, the title, who opened
+it and when, its branches, Send to chat and Open on GitHub buttons, and the description below,
+with the board blurred behind it.](docs/detail-panel.png)
 
 ## Labels
 
