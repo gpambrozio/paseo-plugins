@@ -175,6 +175,11 @@ on the current board — so a label edited from the context menu while the panel
 it. The panel is keyed by item id: opening a second card must not show the first one's body while
 the second loads.
 
+The header's Refresh and Close are icon buttons — `RefreshCw` and `X` through the host's `Icon`,
+which takes any Lucide name — each with an `accessibilityLabel`, since the glyph is the whole
+label. Icons, because the panel header on the wide layout sits beside the board's own Refresh
+button and two "Refresh" words in one row would read as one action twice.
+
 `markdown.client.tsx` renders the body. There is no Markdown library a client bundle can import,
 so it covers what an issue body actually uses — headings, lists, task lists, fenced code, quotes,
 rules, and bold, inline code and links — and leaves the rest as text. Single newlines break lines,

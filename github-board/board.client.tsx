@@ -1,4 +1,4 @@
-import { type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugin";
+import { Icon, type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -985,6 +985,19 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
         borderBottomColor: separator,
       },
       detailRepo: { flexShrink: 1, color: colors.foregroundMuted, fontSize: 12 },
+      /**
+       * Square, and 32pt on compact where it is a touch target. The glyph is
+       * the whole label, so each one carries an `accessibilityLabel`.
+       */
+      iconButton: {
+        width: layout.compact ? 32 : 28,
+        height: layout.compact ? 32 : 28,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: separator,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
       detailBody: {
         padding: layout.compact ? 12 : 16,
         gap: 10,
@@ -2710,6 +2723,7 @@ function ItemDetailPanel({
   type,
   styles,
   accentColor,
+  foregroundColor,
   onClose,
   onSend,
 }: {
@@ -2717,6 +2731,8 @@ function ItemDetailPanel({
   type: ColumnId;
   styles: Styles;
   accentColor: string;
+  /** For the header's icon buttons; `Icon` takes a colour, not a style. */
+  foregroundColor: string;
   onClose: () => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
 }) {
@@ -2784,19 +2800,23 @@ function ItemDetailPanel({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Reload details"
-          style={[styles.ghostButton, busy ? styles.buttonDisabled : null]}
+          style={({ pressed }) => [
+            styles.iconButton,
+            busy ? styles.buttonDisabled : null,
+            pressed ? styles.cardPressed : null,
+          ]}
           onPress={() => setGeneration((current) => current + 1)}
           disabled={busy}
         >
-          <Text style={styles.ghostButtonLabel}>Refresh</Text>
+          <Icon name="RefreshCw" size={14} color={foregroundColor} />
         </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close details"
-          style={styles.ghostButton}
+          style={({ pressed }) => [styles.iconButton, pressed ? styles.cardPressed : null]}
           onPress={onClose}
         >
-          <Text style={styles.ghostButtonLabel}>Close</Text>
+          <Icon name="X" size={16} color={foregroundColor} />
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={styles.detailBody}>
@@ -3544,6 +3564,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               type={detailTarget.type}
               styles={styles}
               accentColor={props.theme.colors.accent}
+              foregroundColor={props.theme.colors.foreground}
               onClose={() => setDetailTarget(null)}
               onSend={openSendDialog}
             />
