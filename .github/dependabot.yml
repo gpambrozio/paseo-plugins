@@ -18,6 +18,19 @@ updates:
       all-dependencies:
         patterns:
           - "*"
+    # The app supplies these to a running plugin, so a plugin's own copy is a
+    # type-checking stand-in for whatever Paseo ships, not a dependency it can
+    # move on its own. @getpaseo/plugin peer-depends on the exact react the
+    # app bundles, so bumping react (and react-native, which drags react with
+    # it) fails ERESOLVE outright; the others merely let the typechecker
+    # describe APIs the host does not have. They move by hand, when Paseo's
+    # `plugin init` scaffold moves.
+    ignore:
+      - dependency-name: react
+      - dependency-name: react-native
+      - dependency-name: "@types/react"
+      - dependency-name: "@tanstack/react-query"
+      - dependency-name: zod
     open-pull-requests-limit: 3
     commit-message:
       prefix: deps
