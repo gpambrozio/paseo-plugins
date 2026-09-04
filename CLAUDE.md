@@ -135,7 +135,7 @@ Because `skipLibCheck: true` is set in both, an unresolvable `@getpaseo/client` 
 silently and the entire Paseo API types as `any` — and `tsc` still exits 0, so a clean typecheck
 does not prove the types resolved. To check, add a throwaway file that reads a nonexistent member
 off a `PaseoAgentHandle` and confirm `tsc` rejects it. `skills` tracks the dependency at
-`^0.7.0-beta.2`; anything older than `^0.5.0-beta.3` is definitely wrong.
+`^0.7.1`; anything older than `^0.5.0-beta.3` is definitely wrong.
 
 `@getpaseo/plugin` peer-depends on the *exact* `@getpaseo/client` it ships against, so in
 `github-board` the two move together: `npm install @getpaseo/plugin@<v> @getpaseo/client@<v>` in one
