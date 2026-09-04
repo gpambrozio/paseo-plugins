@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # One entry per plugin folder — there is no workspace root, so each has its
+  # own package.json and lockfile.
+  #
+  # Everything is collapsed into a single group per folder on purpose:
+  # @getpaseo/plugin peer-depends on the exact @getpaseo/client it ships
+  # against, so a PR that bumps one without the other fails ERESOLVE. Grouping
+  # keeps them moving together, and keeps this to at most one PR per plugin.
+  - package-ecosystem: npm
+    directories:
+      - /skills
+      - /github-board
+      - /launchd-jobs
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: deps
