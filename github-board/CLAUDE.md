@@ -17,6 +17,7 @@ compile time. This file covers only what is specific to `github-board`.
 | `board.server.ts`  | Every `gh` subprocess, the settings file, and the server-side board cache.  |
 | `board.client.tsx` | The surface: columns, cards, the detail panel, the repository filter, and the client cache. |
 | `markdown.client.tsx` | The renderer for an item's Markdown body; only the detail panel uses it.  |
+| `html.client.tsx`  | Rewrites the HTML in a body into Markdown before the renderer parses it.    |
 | `image-host.ts`    | Unsuffixed, in both bundles: which image hosts the daemon fetches for the app. |
 | `README.md`        | What the board shows a user, and which query backs each column.             |
 
@@ -266,11 +267,36 @@ equal-width cells, and a cell that is only an image goes through `renderImage` t
 screenshots, one variant per column, is how a review thread compares them, and it was where most
 of the images in the pull request this was built against lived. There is no Markdown library a client bundle can import,
 so it covers what an issue body actually uses — headings, lists, task lists, fenced code, quotes,
-rules, and bold, inline code and links — and leaves the rest as text. Single newlines break lines,
-as GitHub's issue flavour of GFM does. HTML comments are stripped, because that is how issue
-templates carry their instructions and GitHub does not show them either. Inline tokens are
-`split` on a capturing group and `.map`ped, never looped: every link's press handler closes over
-its URL, and a closure made in a `for…of` body captures the final value under Hermes.
+rules, collapsible `<details>`, and bold, inline code and links — and leaves the rest as text.
+Single newlines break lines, as GitHub's issue flavour of GFM does. HTML comments are stripped,
+because that is how issue templates carry their instructions and GitHub does not show them
+either. Inline tokens are `split` on a capturing group and `.map`ped, never looped: every link's
+press handler closes over its URL, and a closure made in a `for…of` body captures the final value
+under Hermes.
+
+**HTML is rewritten into Markdown before parsing, not parsed alongside it.** Dependabot writes
+its whole body in HTML — `<details>` around each release-notes section, `<blockquote><h2>…<ul>`
+for the upstream changelog, `<a href><code>@login</code></a>` for credits — and it rendered as a
+wall of tags. `html.client.tsx` walks the tags in order with a small stack and emits each one's
+Markdown spelling: a `#` heading line, a list marker indented two spaces per nesting level, a
+`> ` prefix on every line written inside a quote, `[label](href)`, a pipe table whose first row is
+the header. That keeps `parseMarkdown` single-purpose and means anything the renderer learns to
+draw, HTML gets for free. Two things make it hold up against the real body rather than a tidy one:
+line breaks are idempotent (`newline()` does nothing at the start of a line), because the
+source's own newline after `</li>` plus the break a tag stands for would otherwise be a blank
+line, which ends the list and drew every bullet as its own one-item block; and only tags GitHub's
+sanitiser keeps are recognised, with inline code spans and fenced code skipped as tokens, so
+`<dependency name>` in Dependabot's own command list stays as written. `<details>` and `<summary>`
+are the one thing emitted back as tags, normalised onto their own lines with attributes intact,
+because Markdown has no spelling for them; the parser collects up to the matching `</details>`,
+parses the inside recursively, and `DetailsBlock` starts collapsed unless the author wrote
+`open`, which is how GitHub shows it too. Quotes hold blocks the same way, so a heading or list
+inside one renders as one.
+
+To check the pass against a real body, compile `html.client.tsx` and `markdown.client.tsx` to a
+scratch directory with `tsc --jsx react-jsx` over stub `react` and `react-native` modules, then
+log `parseMarkdown(body)` as a tree; the `key` prop error from the stub is expected. Dependabot's
+bodies (`gh pr view <n> --json body`) are the reference case.
 
 ## Editing labels from a card
 

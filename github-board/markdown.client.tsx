@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
-import { Text, View } from "react-native";
+import { useState, type ReactNode } from "react";
+import { Pressable, Text, View } from "react-native";
+import { htmlToMarkdown } from "./html.client";
 
 /**
  * A small renderer for the Markdown an issue body is written in.
@@ -8,11 +9,13 @@ import { Text, View } from "react-native";
  * `@getpaseo/plugin`, so no Markdown library is reachable from here. Rather
  * than dump raw Markdown in the panel, this covers the handful of constructs
  * an issue or pull request body actually uses — headings, lists, task lists,
- * fenced code, quotes, rules, and bold, code and links inline — and renders
- * anything else as a plain paragraph. Tables are rendered as rows of cells, because
- * a side-by-side of screenshots is one. Nested emphasis and raw HTML are left
- * as the text they were written as; the panel's **Open on GitHub** button
- * is there for the rest.
+ * fenced code, quotes, rules, collapsible details, and bold, code and links
+ * inline — and renders anything else as a plain paragraph. Tables are rendered
+ * as rows of cells, because a side-by-side of screenshots is one. HTML is
+ * rewritten into the Markdown spelling first (`html.client.tsx`), because a
+ * bot's body — Dependabot's, most of all — is written in it. Nested emphasis
+ * is left as the text it was written as; the panel's **Open on GitHub**
+ * button is there for the rest.
  *
  * Single newlines break lines, the way GitHub renders an issue body (its
  * comment flavour of GFM turns a newline into `<br>`), so a paragraph keeps
@@ -38,6 +41,10 @@ export interface MarkdownStyles {
   mdTableRow: object;
   mdTableCell: object;
   mdTableHeader: object;
+  /** Blocks nested inside a quote or a details block, spaced like the body. */
+  mdNested: object;
+  mdDetailsSummary: object;
+  mdDetailsMarker: object;
 }
 
 type Block =
@@ -45,10 +52,24 @@ type Block =
   | { kind: "paragraph"; text: string }
   | { kind: "list"; items: ListItem[] }
   | { kind: "code"; text: string }
-  | { kind: "quote"; text: string }
+  | { kind: "quote"; blocks: Block[] }
   | { kind: "rule" }
+  | { kind: "details"; summary: string; open: boolean; blocks: Block[] }
   | { kind: "image"; alt: string; url: string }
   | { kind: "table"; header: string[]; rows: string[][] };
+
+/**
+ * `<details>` on a line of its own, as `htmlToMarkdown` leaves it. The
+ * attributes survive because `open` decides whether it starts expanded.
+ */
+const DETAILS_OPEN = /^\s*<details\b([^>]*)>\s*$/i;
+const DETAILS_CLOSE = /^\s*<\/details>\s*$/i;
+const SUMMARY_LINE = /^\s*<summary>([\s\S]*?)<\/summary>\s*$/i;
+/**
+ * A link reference definition, `[label]: url`. GitHub shows none of them, and
+ * `[//]: # (comment)` is the idiom bots use for a comment.
+ */
+const REFERENCE_DEFINITION = /^\s*\[[^\]]+\]:\s+\S/;
 
 interface ListItem {
   marker: string;
@@ -112,16 +133,26 @@ function listItemOf(line: string): ListItem | null {
 }
 
 /**
- * Splits the source into blocks. Everything is decided line by line: a fence
- * opens a code block that runs to the next fence, a blank line ends whatever
- * is open, and any line that is not a heading, list item, quote or rule is
- * paragraph text.
+ * Splits the source into blocks. HTML comments go first — they are how issue
+ * templates carry their instructions, and GitHub does not show them either —
+ * then the HTML that remains is rewritten as Markdown.
  */
 export function parseMarkdown(source: string): Block[] {
+  const markdown = htmlToMarkdown(
+    source.replace(/\r\n?/g, "\n").replace(/<!--[\s\S]*?-->/g, ""),
+  );
+  return parseBlocks(markdown.split("\n").filter((line) => !REFERENCE_DEFINITION.test(line)));
+}
+
+/**
+ * Everything is decided line by line: a fence opens a code block that runs to
+ * the next fence, `<details>` opens a block that runs to its `</details>`, a
+ * blank line ends whatever else is open, and any line that is not a heading,
+ * list item, quote or rule is paragraph text. Quotes and details hold blocks
+ * of their own, parsed by the same rules.
+ */
+function parseBlocks(lines: string[]): Block[] {
   const blocks: Block[] = [];
-  // HTML comments are how issue templates carry their instructions, and
-  // GitHub does not show them either.
-  const lines = source.replace(/\r\n?/g, "\n").replace(/<!--[\s\S]*?-->/g, "").split("\n");
 
   let paragraph: string[] = [];
   let list: ListItem[] = [];
@@ -137,7 +168,7 @@ export function parseMarkdown(source: string): Block[] {
       list = [];
     }
     if (quote.length > 0) {
-      blocks.push({ kind: "quote", text: quote.join("\n") });
+      blocks.push({ kind: "quote", blocks: parseBlocks(quote) });
       quote = [];
     }
   }
@@ -157,6 +188,32 @@ export function parseMarkdown(source: string): Block[] {
       }
       index += 1; // the closing fence, if there was one
       blocks.push({ kind: "code", text: code.join("\n") });
+      continue;
+    }
+
+    const details = DETAILS_OPEN.exec(line);
+    if (details !== null) {
+      flush();
+      // Runs to the `</details>` that matches this one, past any nested pair.
+      const body: string[] = [];
+      let depth = 1;
+      while (index < lines.length && depth > 0) {
+        const inner = lines[index] ?? "";
+        index += 1;
+        if (DETAILS_OPEN.test(inner)) depth += 1;
+        else if (DETAILS_CLOSE.test(inner)) depth -= 1;
+        if (depth > 0) body.push(inner);
+      }
+      const first = body.findIndex((inner) => inner.trim() !== "");
+      const summary = first === -1 ? null : SUMMARY_LINE.exec(body[first] ?? "");
+      if (summary !== null) body.splice(first, 1);
+      blocks.push({
+        kind: "details",
+        // "Details" is what a browser shows for a <details> with no summary.
+        summary: summary?.[1]?.trim() || "Details",
+        open: /\bopen\b/i.test(details[1] ?? ""),
+        blocks: parseBlocks(body),
+      });
       continue;
     }
 
@@ -261,21 +318,17 @@ function renderInline(
     const link = /^(!?)\[([^\]]*)\]\(([^)]+)\)$/.exec(part);
     const url = link?.[3] ?? part;
     const label = link?.[2] === undefined || link[2] === "" ? url : link[2];
+    // A label may itself be code or bold — `<a><code>@login</code></a>` is
+    // how release notes credit an author — so it goes through the same pass.
     return (
       <Text key={index} accessibilityRole="link" style={styles.mdLink} onPress={() => onOpenLink(url)}>
-        {link?.[1] === "!" ? `[image: ${label}]` : label}
+        {link?.[1] === "!" ? `[image: ${label}]` : renderInline(label, styles, onOpenLink)}
       </Text>
     );
   });
 }
 
-export function MarkdownBody({
-  source,
-  styles,
-  onOpenLink,
-  renderImage,
-}: {
-  source: string;
+interface RenderContext {
   styles: MarkdownStyles;
   /** Every link goes through the caller, which knows how to leave the app. */
   onOpenLink: (url: string) => void;
@@ -284,13 +337,57 @@ export function MarkdownBody({
    * fetching one may need the daemon; this module only knows the URL.
    */
   renderImage: (image: { url: string; alt: string }) => ReactNode;
+}
+
+/**
+ * A `<details>` block: the summary is a row that toggles the body, collapsed
+ * unless the author wrote `open`, which is how GitHub shows it too.
+ */
+function DetailsBlock({
+  summary,
+  open,
+  blocks,
+  context,
+}: {
+  summary: string;
+  open: boolean;
+  blocks: Block[];
+  context: RenderContext;
 }) {
-  const blocks = parseMarkdown(source);
+  const [expanded, setExpanded] = useState(open);
+  const { styles } = context;
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        style={styles.mdDetailsSummary}
+        onPress={() => setExpanded((value) => !value)}
+      >
+        <Text style={styles.mdDetailsMarker}>{expanded ? "▾" : "▸"}</Text>
+        <Text style={[styles.mdParagraph, styles.mdListText]}>
+          {renderInline(summary, styles, context.onOpenLink)}
+        </Text>
+      </Pressable>
+      {expanded ? <View style={styles.mdNested}>{renderBlocks(blocks, context)}</View> : null}
+    </View>
+  );
+}
+
+export function MarkdownBody({
+  source,
+  styles,
+  onOpenLink,
+  renderImage,
+}: { source: string } & RenderContext) {
+  return <>{renderBlocks(parseMarkdown(source), { styles, onOpenLink, renderImage })}</>;
+}
+
+function renderBlocks(blocks: Block[], context: RenderContext): ReactNode[] {
+  const { styles, onOpenLink, renderImage } = context;
   // `.map`, not `for…of`: a closure made in a loop body captures the binding's
   // final value under Hermes, and every link handler here is one.
-  return (
-    <>
-      {blocks.map((block, index) => {
+  return blocks.map((block, index) => {
         switch (block.kind) {
           case "heading":
             return (
@@ -326,14 +423,22 @@ export function MarkdownBody({
             );
           case "quote":
             return (
-              <View key={index} style={styles.mdQuote}>
-                <Text style={styles.mdParagraph}>
-                  {renderInline(block.text, styles, onOpenLink)}
-                </Text>
+              <View key={index} style={[styles.mdQuote, styles.mdNested]}>
+                {renderBlocks(block.blocks, context)}
               </View>
             );
           case "rule":
             return <View key={index} style={styles.mdRule} />;
+          case "details":
+            return (
+              <DetailsBlock
+                key={index}
+                summary={block.summary}
+                open={block.open}
+                blocks={block.blocks}
+                context={context}
+              />
+            );
           case "image":
             return <View key={index}>{renderImage({ url: block.url, alt: block.alt })}</View>;
           case "table":
@@ -371,7 +476,5 @@ export function MarkdownBody({
               </Text>
             );
         }
-      })}
-    </>
-  );
+  });
 }

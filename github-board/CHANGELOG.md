@@ -8,6 +8,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.3.1] — 2026-09-03
+
+### Fixed
+
+- **Descriptions written in HTML now read the way they do on GitHub.** Dependabot's pull requests
+  were the worst case: the panel showed the release notes as a wall of angle brackets. They now
+  show as collapsible sections, closed by default like on GitHub, with the quoted changelog,
+  headings, bullet lists, links and code inside them. The same goes for HTML anyone else pastes
+  into a description or comment — line breaks, bold, links, images, quotes and tables.
+
 ## [0.3.0] — 2026-09-02
 
 ### Changed

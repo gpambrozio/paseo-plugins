@@ -1295,6 +1295,16 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       mdTableRow: { flexDirection: "row" as const, borderTopWidth: 1, borderTopColor: separator },
       mdTableCell: { flex: 1, minWidth: 0, padding: 6 },
       mdTableHeader: { fontWeight: "600" as const },
+      mdNested: { gap: 10 },
+      /** The clickable summary row of a details block: a caret and the text. */
+      mdDetailsSummary: {
+        flexDirection: "row" as const,
+        alignItems: "flex-start" as const,
+        gap: 6,
+        paddingVertical: 2,
+      },
+      /** Larger than the text it leads, or the caret reads as a bullet. */
+      mdDetailsMarker: { color: colors.foreground, fontSize: 20, lineHeight: 21, minWidth: 14 },
     };
   }, [theme, layout.compact]);
 }
