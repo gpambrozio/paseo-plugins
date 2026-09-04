@@ -6,6 +6,11 @@ a cron expression or a fixed interval — and the plugin writes it as a LaunchAg
 launchd runs it, whether or not Paseo is open. The surface shows what launchd knows about each job,
 the last twenty runs with their exit codes, and the tail of its log.
 
+![The Scheduled jobs surface: a job named "Update claude" in the list on the left, marked OK with
+"At 06:20" and its last run; on the right its detail with Run now, Disable, Edit and Delete
+buttons, the schedule, the command, the recent runs with duration and exit code, and the log
+tail.](docs/screenshot.png)
+
 It is a front for launchd, not a scheduler of its own. Nothing here has to stay running: the plugin
 holds no timers and keeps no job database. The plists in `~/Library/LaunchAgents` are the source of
 truth, and the surface reads them back on every refresh.
