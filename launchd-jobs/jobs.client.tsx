@@ -115,9 +115,9 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       title: { color: colors.foreground, fontSize: layout.compact ? 17 : 19, fontWeight: "600" as const },
       spacer: { flex: 1 },
       body: { flex: 1, flexDirection: "row" as const },
+      // On the wide layout the list and the pane split the body evenly.
       list: {
-        width: layout.compact ? undefined : 320,
-        flex: layout.compact ? 1 : undefined,
+        flex: 1,
         borderRightWidth: layout.compact ? 0 : 1,
         borderRightColor: separator,
       },
