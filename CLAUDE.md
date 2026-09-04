@@ -117,6 +117,11 @@ called from the client with `useRpc(contract)` and answered by `plugin.handle`. 
   `openExternalUrl` in `github-board/board.client.tsx`.
 - **Plugin Command Center items are pinned below file results.** The host hardcodes their group
   rank, so single-word keywords get buried by filename matches.
+- **A surface is unmounted when the user navigates away** — to a workspace, an agent, anywhere —
+  and mounted fresh on the way back, so component state is gone. Anything that should survive the
+  round trip (loaded data, the open pane, a half-typed form) lives in module-scope variables the
+  component reads on mount: `cachedBoard` in `github-board`, `cachedPane` and `cachedDraft` in
+  `launchd-jobs`.
 
 ### The plugins resolve `@getpaseo/plugin` differently
 

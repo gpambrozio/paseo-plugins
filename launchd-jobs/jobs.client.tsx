@@ -17,8 +17,16 @@ import { createJob, deleteJob, listJobs, readJobLog, runJob, setJobEnabled, upda
  * list element goes through `.map`, never a `for…of` body.
  */
 
-/** Survives a remount so the list repaints before the first load answers. */
+/**
+ * Module-scope caches, because the surface is unmounted whenever the user
+ * navigates to a workspace and mounted fresh on the way back. The list
+ * repaints before the first load answers; the open pane comes back; and a
+ * half-typed form is still there, keyed by what it was editing so a draft for
+ * one job is never adopted by another.
+ */
 let cachedJobs: Job[] | null = null;
+let cachedPane: Pane = { kind: "empty" };
+let cachedDraft: { key: string; draft: Draft } | null = null;
 
 /** How often the list re-asks launchd while the surface is on screen. */
 const REFRESH_MS = 15_000;
@@ -584,11 +592,29 @@ function JobForm({
 }) {
   const create = useRpc(createJob);
   const update = useRpc(updateJob);
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(job));
+  const draftKey = job === null ? "new" : `edit-${job.id}`;
+  const [draft, setDraft] = useState<Draft>(() =>
+    cachedDraft?.key === draftKey ? cachedDraft.draft : draftFrom(job),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const patch = useCallback((change: Partial<Draft>) => setDraft((current) => ({ ...current, ...change })), []);
+  const patch = useCallback(
+    (change: Partial<Draft>) =>
+      setDraft((current) => {
+        const next = { ...current, ...change };
+        cachedDraft = { key: draftKey, draft: next };
+        return next;
+      }),
+    [draftKey],
+  );
+
+  // Leaving on purpose, by either button, is what forgets the draft; a
+  // navigation away is not.
+  const cancel = useCallback(() => {
+    cachedDraft = null;
+    onCancel();
+  }, [onCancel]);
 
   // What launchd will be told, updated as the expression is typed.
   const preview = useMemo(() => {
@@ -615,6 +641,7 @@ function JobForm({
       setError(null);
       try {
         const saved = job === null ? await create(result.spec) : await update({ id: job.id, spec: result.spec });
+        cachedDraft = null;
         onSaved(saved);
       } catch (caught) {
         setError(errorText(caught));
@@ -629,7 +656,7 @@ function JobForm({
     <ScrollView style={styles.pane} contentContainerStyle={styles.paneContent} keyboardShouldPersistTaps="handled">
       <View style={styles.rowTop}>
         {compact ? (
-          <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={onCancel} style={styles.iconButton}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={cancel} style={styles.iconButton}>
             <Icon name="ArrowLeft" size={18} color={foreground} />
           </Pressable>
         ) : null}
@@ -718,7 +745,7 @@ function JobForm({
 
       <View style={styles.actions}>
         <Button styles={styles} label={saving ? "Saving…" : job === null ? "Create job" : "Save changes"} disabled={saving} onPress={() => void save()} />
-        <Button styles={styles} kind="ghost" label="Cancel" disabled={saving} onPress={onCancel} />
+        <Button styles={styles} kind="ghost" label="Cancel" disabled={saving} onPress={cancel} />
       </View>
     </ScrollView>
   );
@@ -739,7 +766,11 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
   const [launchAgentsDir, setLaunchAgentsDir] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(cachedJobs === null);
-  const [pane, setPane] = useState<Pane>({ kind: "empty" });
+  const [pane, setPaneState] = useState<Pane>(cachedPane);
+  const setPane = useCallback((next: Pane) => {
+    cachedPane = next;
+    setPaneState(next);
+  }, []);
   const [notice, setNotice] = useState<Notice | null>(null);
   const paneRef = useRef(pane);
   paneRef.current = pane;
