@@ -2,13 +2,15 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Plugins for [Paseo](https://paseo.sh), one self-contained folder per plugin: `skills/` and
-`github-board/`. Plugin code is trusted and unsandboxed — the server half runs next to the daemon
-with its files, processes, and credentials; the client half runs inside the Paseo app.
+Plugins for [Paseo](https://paseo.sh), one self-contained folder per plugin: `skills/`,
+`github-board/`, and `launchd-jobs/`. Plugin code is trusted and unsandboxed — the server half runs
+next to the daemon with its files, processes, and credentials; the client half runs inside the
+Paseo app.
 
 Each plugin has its own `CLAUDE.md` for what only that plugin does — `skills/CLAUDE.md` before
 touching skill discovery, `github-board/CLAUDE.md` before touching the `gh` queries or the board's
-caching. This file is only what they share.
+caching, `launchd-jobs/CLAUDE.md` before touching anything that calls `launchctl` or writes a
+plist. This file is only what they share.
 
 ## There is no workspace root
 
@@ -20,13 +22,13 @@ Every command below runs from inside a plugin folder, never from the repo root.
 path on every start, so moving this clone means reinstalling every plugin in it.
 
 ```bash
-cd skills          # or github-board
+cd skills          # or github-board, launchd-jobs
 npm install
-npm run typecheck  # both plugins
-npm test           # skills only — github-board defines no test script
+npm run typecheck  # every plugin
+npm test           # skills and launchd-jobs — github-board defines no test script
 ```
 
-Single test (skills, vitest):
+Single test (skills and launchd-jobs, vitest):
 
 ```bash
 npm test -- resolve/frontmatter.test.ts     # one file
@@ -41,12 +43,12 @@ paseo plugin logs skills          # load errors and stderr
 ```
 
 - The plugin id comes from `paseo-plugin.json`, which `paseo plugin init` seeds from the directory
-  basename. The ids are `skills` and `github-board`.
+  basename. The ids are `skills`, `github-board`, and `launchd-jobs`.
 - **A failed reload stays failed.** Paseo does not restore the previous code.
 - **Never restart the daemon** — it manages the user's running agents.
 - The daemon needs `"pluginsEnabled": true` in its `config.json`, and Paseo 0.5.0-beta or newer —
   0.5.2 or newer for `github-board`, which calls `paseo.projects.list()`, and 0.7.0-beta.2 or newer
-  for the `skills` built-in sections, which call `agent.commands()`. Both plugins load on an older
+  for the `skills` built-in sections, which call `agent.commands()`. All of them load on an older
   daemon; only the feature that needs the newer call goes missing. `github-board` also prefers the
   host's `props.navigation` (Paseo 0.7.0-beta.3) to reach a freshly created agent, and falls back to
   a hand-built route when the prop is absent — and that one is gated on the **app's** version,
@@ -57,7 +59,7 @@ paseo plugin logs skills          # load errors and stderr
 
 ## Plugin architecture
 
-Both plugins are the same shape. `index.ts` is wiring only — it binds RPC contracts to handlers and
+Every plugin is the same shape. `index.ts` is wiring only — it binds RPC contracts to handlers and
 registers UI contributions, and returns a cleanup function:
 
 ```ts
@@ -116,9 +118,10 @@ called from the client with `useRpc(contract)` and answered by `plugin.handle`. 
 - **Plugin Command Center items are pinned below file results.** The host hardcodes their group
   rank, so single-word keywords get buried by filename matches.
 
-### The two plugins resolve `@getpaseo/plugin` differently
+### The plugins resolve `@getpaseo/plugin` differently
 
-`github-board` depends on the real published `@getpaseo/plugin` package. `skills` does not — it
+`github-board` and `launchd-jobs` depend on the real published `@getpaseo/plugin` package
+(`launchd-jobs` pins `0.7.1`, the daemon this was built against). `skills` does not — it
 ships a hand-written `paseo-plugin.d.ts` declaring both `@getpaseo/plugin` and
 `@getpaseo/plugin/server`, with only `@getpaseo/client` installed. Adding a host API to `skills`
 means adding it to that shim first.

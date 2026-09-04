@@ -6,6 +6,7 @@ Plugins for [Paseo](https://paseo.sh). One folder per plugin, each self-containe
 | --- | --- | --- |
 | [`skills/`](skills) | `skills` | Lists the agent skills available to a session, shows where each comes from, renders its `SKILL.md`, and invokes it. |
 | [`github-board/`](github-board) | `github-board` | A sidebar board of open issues, draft PRs, open PRs, and discussions — yours, plus whatever is open on the repos you own — in four columns. |
+| [`launchd-jobs/`](launchd-jobs) | `launchd-jobs` | Schedules shell commands through launchd on the daemon's Mac — a cron expression or an interval, run whether or not Paseo is open, with run history and logs. macOS only. |
 
 ## Install
 
@@ -14,10 +15,11 @@ Plugins install individually — there is no repo-wide install:
 ```bash
 paseo plugin add gpambrozio/paseo-plugins --path skills
 paseo plugin add gpambrozio/paseo-plugins --path github-board
+paseo plugin add gpambrozio/paseo-plugins --path launchd-jobs
 ```
 
 The daemon clones this repo under `$PASEO_HOME/plugins` and runs no package
-manager; both plugins are source only, and everything they import at runtime the
+manager; every plugin is source only, and everything they import at runtime the
 host provides. Pin a release with `--ref <tag>`, or follow the branch with
 `paseo plugin status` and `paseo plugin update --all`.
 
