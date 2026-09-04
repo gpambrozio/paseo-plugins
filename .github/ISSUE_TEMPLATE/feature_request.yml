@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest something one of these plugins should do.
+labels: [enhancement]
+body:
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Which plugin?
+      options:
+        - skills
+        - github-board
+        - launchd-jobs
+        - A new plugin
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation you're in, not the feature you have in mind. That comes next.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: Optional — how you'd picture it working.

@@ -1,0 +1,58 @@
+name: Bug report
+description: Something in one of these plugins doesn't work.
+labels: [bug]
+body:
+  - type: dropdown
+    id: plugin
+    attributes:
+      label: Which plugin?
+      options:
+        - skills
+        - github-board
+        - launchd-jobs
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: input
+    id: paseo-version
+    attributes:
+      label: Paseo version
+      description: >
+        From `paseo daemon status`. If the app and the daemon are on different machines, give both —
+        some features are gated on the app's version rather than the daemon's.
+      placeholder: "0.7.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where did you see it?
+      description: >
+        Desktop runs the web export on V8; mobile runs Hermes. They fail in different ways, so this
+        matters.
+      multiple: true
+      options:
+        - macOS desktop
+        - Windows desktop
+        - iOS
+        - Android
+        - Web
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Plugin logs
+      description: Output of `paseo plugin logs <id>`. Redact anything private first.
+      render: text
