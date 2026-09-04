@@ -31,7 +31,7 @@ The server half is checkable on its own, though: everything it imports from `boa
 
 ```bash
 npx tsc board.server.ts --module esnext --target es2022 --moduleResolution bundler \
-  --outDir /tmp/gbcheck --skipLibCheck
+  --outDir /tmp/gbcheck --skipLibCheck --types node --ignoreConfig
 # then call loadBoardHandler from a throwaway .mjs in that directory, and delete it after
 ```
 

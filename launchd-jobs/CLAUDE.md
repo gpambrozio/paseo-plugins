@@ -109,7 +109,7 @@ module depending only on Node built-ins and `./cron`:
 
 ```bash
 npx tsc jobs.server.ts cron.ts --module esnext --target es2022 --moduleResolution bundler \
-  --outDir /tmp/ljcheck --skipLibCheck --strict --types node
+  --outDir /tmp/ljcheck --skipLibCheck --strict --types node --ignoreConfig
 sed -i '' 's#from "./cron"#from "./cron.js"#' /tmp/ljcheck/jobs.server.js
 ```
 
