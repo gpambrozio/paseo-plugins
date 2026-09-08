@@ -1,13 +1,13 @@
 import { useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
-import { htmlToMarkdown } from "./html.client";
+import { htmlToMarkdown } from "./html";
 
 /**
  * A small renderer for the Markdown an issue body is written in.
  *
- * A client bundle may import only react, react-native, react-query, zod and
- * `@getpaseo/plugin`, so no Markdown library is reachable from here. Rather
- * than dump raw Markdown in the panel, this covers the handful of constructs
+ * A client bundle may import only the modules the host provides, so no Markdown
+ * library is reachable from here. Rather than dump raw Markdown in the panel,
+ * this covers the handful of constructs
  * an issue or pull request body actually uses — headings, lists, task lists,
  * fenced code, quotes, rules, collapsible details, and bold, code and links
  * inline — and renders anything else as a plain paragraph. Tables are rendered

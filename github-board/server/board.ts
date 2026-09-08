@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { z } from "zod";
-import type { PluginHandlerContext } from "@getpaseo/plugin";
+import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type {
   BoardColumn,
   BoardItem,
@@ -28,8 +28,8 @@ import type {
   sendOptions,
   sendToChat,
   toggleLabel,
-} from "./board.shared";
-import { isGitHubImageHost } from "./image-host";
+} from "../shared/board";
+import { isGitHubImageHost } from "../shared/image-host";
 
 const execFileAsync = promisify(execFile);
 

@@ -1,4 +1,5 @@
-import { Icon, type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugin";
+import { type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -32,7 +33,7 @@ import type {
   PromptSet,
   PromptSettings,
   RepositoryLabel,
-} from "./board.shared";
+} from "../shared/board";
 import {
   COLUMN_IDS,
   listLabels,
@@ -47,9 +48,9 @@ import {
   sendOptions,
   sendToChat,
   toggleLabel,
-} from "./board.shared";
-import { isGitHubImageHost } from "./image-host";
-import { MarkdownBody } from "./markdown.client";
+} from "../shared/board";
+import { isGitHubImageHost } from "../shared/image-host";
+import { MarkdownBody } from "./markdown";
 
 /**
  * `Linking.openURL` is `window.open` on the desktop renderer, and the main
@@ -1837,7 +1838,7 @@ function Card({
  * One entry of the host's provider snapshot — every provider it knows about,
  * with the models and permission modes each one offers. Derived from the API
  * rather than imported from `@getpaseo/protocol`, because a plugin client bundle
- * may only import react, react-native, react-query, zod and `@getpaseo/plugin`.
+ * may only import the host-provided modules, which `@getpaseo/protocol` is not.
  */
 type ProviderEntry = Awaited<
   ReturnType<ReturnType<typeof usePaseo>["providers"]["snapshot"]>
