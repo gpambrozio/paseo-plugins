@@ -83,6 +83,14 @@ surface shows the last twenty runs and the last 64 KB of the log. Both files liv
 `$PASEO_HOME/plugins/launchd-jobs/` (`~/.paseo/plugins/launchd-jobs/` by default). A log is rotated
 once it passes 1 MB, and the history keeps its last two hundred runs.
 
+**Follow** shows the log as the job writes it, instead of only when you press **Refresh log** —
+useful for a job you have just started, or one that takes a while. Press it again to stop;
+following also ends when you switch jobs or leave the surface, so nothing is left running.
+
+Following needs somewhere to run, and borrows one of your open workspaces: while it lasts it shows
+up in that workspace's terminal list as `launchd: <job name>`, and it goes away when you stop. With
+no workspace open there is nowhere to run it, and the button says so — **Refresh log** still works.
+
 **Run now** asks launchd to start the job immediately. It does not change the schedule.
 
 ## Removing
