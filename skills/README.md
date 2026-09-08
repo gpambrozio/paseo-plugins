@@ -66,21 +66,22 @@ A failed reload stays failed; Paseo does not restore the previous code.
 
 ## Layout
 
-| File                            | Owns                                                     |
-| ------------------------------- | -------------------------------------------------------- |
-| `index.ts`                      | Contribution wiring only.                                 |
-| `skills.shared.ts`              | zod RPC contracts, imported by both runtimes.             |
-| `skills.server.ts`              | RPC handlers; resolves the agent, dispatches by provider. |
-| `resolve/claude.server.ts`      | Claude project, repository, personal, and plugin skills.   |
-| `resolve/codex.server.ts`       | Codex project, repository, personal, and admin skills.     |
-| `resolve/repo-root.server.ts`   | Walks up for `.git`, and lists the directories in between. |
-| `resolve/skill-directory.server.ts` | Scans one `skills` directory, and a whole search path. |
-| `resolve/skill-entry.ts`        | Entry types, skill id construction, first-wins dedupe.     |
-| `resolve/frontmatter.ts`        | `SKILL.md` frontmatter parsing.                            |
-| `resolve/reported.ts`           | Splits session-reported entries discovery did not find.    |
-| `panel.client.tsx`              | The panel: list, search, detail, invoke.                  |
-| `pill.client.tsx`               | The composer pill and the client entrypoint that owns it.  |
-| `skills-query.client.tsx`       | The `skills.list` query the panel and the pill share.      |
+| File                                | Owns                                                       |
+| ----------------------------------- | ---------------------------------------------------------- |
+| `index.client.tsx`                  | Client wiring: the panel, the Command Center item, the pills. |
+| `index.server.ts`                   | Server wiring: the two RPC handlers.                        |
+| `shared/skills.ts`                  | zod RPC contracts, imported by both runtimes.               |
+| `server/skills.ts`                  | RPC handlers; resolves the agent, dispatches by provider.   |
+| `server/resolve/claude.ts`          | Claude project, repository, personal, and plugin skills.    |
+| `server/resolve/codex.ts`           | Codex project, repository, personal, and admin skills.      |
+| `server/resolve/repo-root.ts`       | Walks up for `.git`, and lists the directories in between.  |
+| `server/resolve/skill-directory.ts` | Scans one `skills` directory, and a whole search path.      |
+| `server/resolve/skill-entry.ts`     | Entry types, skill id construction, first-wins dedupe.      |
+| `server/resolve/frontmatter.ts`     | `SKILL.md` frontmatter parsing.                             |
+| `server/resolve/reported.ts`        | Splits session-reported entries discovery did not find.     |
+| `client/panel.tsx`                  | The panel: list, search, detail, invoke.                    |
+| `client/pill.tsx`                   | The composer pill and the registration loop that owns it.   |
+| `client/skills-query.tsx`           | The `skills.list` query the panel and the pill share.       |
 
 `docs/design.md` records why it is shaped this way. Read it before changing discovery.
 

@@ -56,7 +56,8 @@ likely to be an unlabelled skill than a session control, and that bucketing them
 empty the skills section for any provider that omits the field.
 
 **The reported list needs a daemon that has `agent.commands()`.** It shipped in Paseo
-`0.7.0-beta.2`. On an older daemon the method is simply absent and the section does not render.
+`0.7.0-beta.2`, which `requirements.paseo: ">=0.8.0"` now guarantees. The structural check remains
+because the `paseo` object comes from the daemon's bundled client rather than this project's types.
 
 **Disabled Codex skills appear.** Codex disables a skill without deleting it through
 `[[skills.config]]` in `~/.codex/config.toml`, and its `skills/list` RPC reports the resulting
@@ -329,13 +330,15 @@ Colors come from `theme.colors.foreground` and `theme.colors.foregroundMuted`; p
 
 ### Copy path
 
-Plugin client code may import only `react`, `react-native`, `@tanstack/react-query`, `zod`,
-`@getpaseo/plugin`, and `@getpaseo/plugin/server`. No clipboard module is available: React Native
-dropped `Clipboard` from core and `@react-native-clipboard/clipboard` is not in the allowed set.
+Plugin client code may import only the modules the host provides, and no clipboard package is among
+them: React Native dropped `Clipboard` from core and `@react-native-clipboard/clipboard` is not in
+the allowed set.
 
-On web and desktop, copy with `navigator.clipboard.writeText` behind a `typeof navigator` check.
-On native, render the path as `selectable` `Text` for long-press copy. This is a real degradation
-on mobile and is accepted for v1.
+v1 copied with `navigator.clipboard.writeText` behind a `typeof navigator` check, which worked on
+web and desktop and did nothing on a phone — an accepted degradation at the time. Paseo 0.8's
+`copyText` from `@getpaseo/plugin/client/react-native` copies on every platform, so that
+degradation is gone. The path is still rendered as `selectable` `Text`, which is now the fallback
+for a platform that denies programmatic copying rather than the whole story on mobile.
 
 ## Error handling
 
