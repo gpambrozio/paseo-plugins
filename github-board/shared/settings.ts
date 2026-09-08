@@ -113,3 +113,34 @@ export function normalizePrompts(value: PromptSettings): PromptSettings {
   }
   return { byType, byProject };
 }
+
+/**
+ * Whether the stored templates are still exactly the built-in defaults, i.e.
+ * nobody has edited them on this host.
+ *
+ * The one-way migration from the daemon's old settings file uses this as its
+ * "do not clobber" test: an existing user who has already customised their
+ * prompts on 0.4.0 keeps what they customised, and the older values are
+ * discarded rather than reinstated over the top of them.
+ */
+export function isDefaultPrompts(value: PromptSettings): boolean {
+  if (Object.keys(value.byProject).length > 0) return false;
+  return PROMPT_KEYS.every((key) => value.byType[key] === DEFAULT_PROMPTS[key]);
+}
+
+/**
+ * Completes a partial `byType` against the defaults. The daemon's old file only
+ * stored the templates that differed, so a migration has to fill the rest in
+ * from the side that owns them, which is this one.
+ */
+export function completePrompts(value: {
+  byType: { readonly [K in keyof PromptSet]?: string | undefined };
+  byProject: PromptSettings["byProject"];
+}): PromptSettings {
+  const byType = { ...DEFAULT_PROMPTS };
+  for (const key of PROMPT_KEYS) {
+    const template = value.byType[key];
+    if (template !== undefined && template.trim() !== "") byType[key] = template;
+  }
+  return { byType, byProject: value.byProject };
+}

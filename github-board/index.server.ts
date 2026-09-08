@@ -6,7 +6,9 @@ import {
   loadCommentsHandler,
   loadImageHandler,
   loadItemHandler,
+  legacySettingsTakenHandler,
   saveLoginHandler,
+  takeLegacySettingsHandler,
   sendOptionsHandler,
   sendToChatHandler,
   toggleLabelHandler,
@@ -17,7 +19,9 @@ import {
   loadComments,
   loadImage,
   loadItem,
+  legacySettingsTaken,
   saveLogin,
+  takeLegacySettings,
   sendOptions,
   sendToChat,
   toggleLabel,
@@ -30,6 +34,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(loadComments, loadCommentsHandler);
   server.handle(loadImage, loadImageHandler);
   server.handle(saveLogin, saveLoginHandler);
+  server.handle(takeLegacySettings, takeLegacySettingsHandler);
+  server.handle(legacySettingsTaken, legacySettingsTakenHandler);
   server.handle(sendOptions, sendOptionsHandler);
   server.handle(sendToChat, sendToChatHandler);
   server.handle(listLabels, listLabelsHandler);

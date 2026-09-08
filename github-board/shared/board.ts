@@ -400,3 +400,42 @@ export const loadImage = defineRpc({
     dataUrl: z.string(),
   }),
 });
+
+/**
+ * The settings a version before 0.4.0 kept in the daemon's own file and this
+ * one keeps in the host settings store. Answered once, so the app can copy
+ * them across; `found: false` for a fresh install or a file already migrated.
+ *
+ * The daemon cannot do this itself: a settings document is written over the
+ * client's RPC channel and there is no server-side equivalent, so the values
+ * have to make the trip out to the app and back.
+ *
+ * `byType` may be partial here — an older file only stored the templates that
+ * differed — and the client completes it against the defaults it owns.
+ */
+export const takeLegacySettings = defineRpc({
+  name: "board.legacy-settings",
+  input: z.object({}),
+  output: z.discriminatedUnion("found", [
+    z.object({ found: z.literal(false) }),
+    z.object({
+      found: z.literal(true),
+      hiddenRepositories: z.array(z.string()).nullable(),
+      prompts: PromptSettingsSchema.extend({ byType: PromptSetSchema.partial() }).nullable(),
+      detailWidthFraction: z.number().min(0).max(1).nullable(),
+    }),
+  ]),
+});
+
+/**
+ * Stamps the daemon's file as migrated and drops the legacy keys from it.
+ *
+ * Called only after every document has actually been written, so a failed or
+ * interrupted migration is retried on the next load rather than silently
+ * losing the values it was carrying.
+ */
+export const legacySettingsTaken = defineRpc({
+  name: "board.legacy-settings-taken",
+  input: z.object({}),
+  output: z.object({}),
+});

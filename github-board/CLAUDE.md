@@ -675,8 +675,39 @@ root `CLAUDE.md`; this is where the line falls here.
 
 Two handlers write that one file, so both go through `updateSettings`, which read-modify-writes — a
 whole-file write from either would drop the other's key. Each reader defaults what it cannot parse.
-Keys from before the split are dropped on the next write rather than preserved; that is the intended
-one-way move.
+
+### Migrating the pre-0.4.0 file
+
+The three moved values were already saved, so they are handed across rather than reset — but **the
+daemon cannot do it alone**: a settings document is written over the client's RPC channel and
+`PluginServerContext` has no equivalent. So the migration is a round trip.
+
+```text
+board.legacy-settings   → daemon reads its file, returns the old values (writes nothing)
+                        → app writes them into the two settings documents
+board.legacy-settings-taken → daemon stamps `settingsMigratedAt`, drops the old keys
+```
+
+Three properties make that safe, and all three are load-bearing:
+
+- **The daemon's copy is the fallback until the app acknowledges.** Nothing is cleared by the read,
+  so an interrupted or failed migration is retried on the next launch instead of losing the values
+  in flight.
+- **`updateSettings` writes the legacy block back verbatim while it exists.** Otherwise a login
+  change made before the app had ever loaded the board would drop the values it was about to take.
+- **Each document is written only if it is still untouched** — `hiddenRepositories` empty,
+  `detailWidthFraction` null, `isDefaultPrompts(...)` true. Someone who customised their prompts on
+  0.4.0 before an older client got round to migrating keeps what they customised.
+
+`readLegacyPrompts` is deliberately loose, and `LEGACY_PROMPT_KEYS` is a local literal rather than
+an import of `COLUMN_IDS`: it reads a format frozen by what older versions wrote, so it should not
+track a schema that may yet gain a column — and keeping it a literal is what preserves the
+`import type`-only property the standalone check above depends on. An older file stored only the
+templates that differed, so `byType` arrives partial and `completePrompts` fills the rest from the
+side that owns the defaults.
+
+The client guard is `legacyMigrationAttempted` at module scope: the surface remounts on every
+workspace switch, and a second attempt in one session could only ever be a wasted round trip.
 
 A plugin surface unmounts whenever the user switches workspaces, so anything that should outlive
 that belongs in one of the two stores rather than in component state. The same unmount is why both

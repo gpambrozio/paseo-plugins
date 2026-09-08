@@ -14,6 +14,9 @@ import type {
   RepositoryLabel,
   LaunchDefaults,
   LinkedIssue,
+  PromptSet,
+  PromptSettings,
+  legacySettingsTaken,
   listLabels,
   loadBoard,
   loadComments,
@@ -22,6 +25,7 @@ import type {
   saveLogin,
   sendOptions,
   sendToChat,
+  takeLegacySettings,
   toggleLabel,
 } from "../shared/board";
 import { isGitHubImageHost } from "../shared/image-host";
@@ -56,7 +60,33 @@ const EMPTY_LAUNCH: LaunchDefaults = {
 };
 
 /**
- * What the *daemon* keeps, which since 0.8 is only what its own handlers act
+ * The four column ids, as a *historical* constant rather than an import of
+ * `COLUMN_IDS`. Everything this module takes from `shared/board` is an
+ * `import type` so the server half still transpiles and runs standalone (see
+ * CLAUDE.md), and this reads a file format frozen by what older versions wrote
+ * — so it should not track a schema that may yet gain a column.
+ */
+const LEGACY_PROMPT_KEYS: readonly (keyof PromptSet)[] = [
+  "issues",
+  "draft-prs",
+  "open-prs",
+  "discussions",
+];
+
+/**
+ * The three values this file used to own and no longer does, as a version
+ * before 0.4.0 wrote them. Held only until the app has copied them into the
+ * host settings store, because the daemon cannot write there itself — see
+ * `takeLegacySettingsHandler`.
+ */
+interface LegacySettings {
+  hiddenRepositories: string[] | null;
+  prompts: PromptSettings | null;
+  detailWidthFraction: number | null;
+}
+
+/**
+ * What the *daemon* keeps, which since 0.4.0 is only what its own handlers act
  * on. The repository filter, the prompt templates and the detail panel's width
  * moved to the host settings store, where the app reads them directly — see
  * `shared/settings.ts`.
@@ -65,12 +95,75 @@ interface Settings {
   /** Null until the user pins one; the caller falls back to the gh viewer. */
   login: string | null;
   launch: LaunchDefaults;
+  /**
+   * Non-null only on a file written before the move, and only until the app
+   * acknowledges having taken them. Every write puts them back untouched, so a
+   * login change made before the app ever loads the board cannot drop them.
+   */
+  legacy: LegacySettings | null;
 }
 
 const EMPTY_SETTINGS: Settings = {
   login: null,
   launch: { ...EMPTY_LAUNCH },
+  legacy: null,
 };
+
+/** A share of the body, or null for anything that is not one. */
+function readFraction(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1
+    ? value
+    : null;
+}
+
+/**
+ * The old `prompts` blob, structurally. Deliberately loose: this reads a file
+ * written by an older version, so anything unrecognisable is dropped rather
+ * than failing the migration for the keys that are fine.
+ */
+function readLegacyPrompts(value: unknown): PromptSettings | null {
+  if (typeof value !== "object" || value === null) return null;
+  const raw = value as { byType?: unknown; byProject?: unknown };
+  const byTypeRaw = typeof raw.byType === "object" && raw.byType !== null ? raw.byType : {};
+  const byType: Partial<PromptSet> = {};
+  for (const key of LEGACY_PROMPT_KEYS) {
+    const template = asString((byTypeRaw as Record<string, unknown>)[key]);
+    if (template !== null) byType[key] = template;
+  }
+
+  const byProjectRaw =
+    typeof raw.byProject === "object" && raw.byProject !== null ? raw.byProject : {};
+  const byProject: PromptSettings["byProject"] = {};
+  for (const [projectId, overrides] of Object.entries(byProjectRaw as Record<string, unknown>)) {
+    if (typeof overrides !== "object" || overrides === null) continue;
+    const kept: Partial<PromptSet> = {};
+    for (const key of LEGACY_PROMPT_KEYS) {
+      const template = asString((overrides as Record<string, unknown>)[key]);
+      if (template !== null) kept[key] = template;
+    }
+    if (Object.keys(kept).length > 0) byProject[projectId] = kept;
+  }
+
+  if (Object.keys(byType).length === 0 && Object.keys(byProject).length === 0) return null;
+  // `byType` is completed against the defaults by the client, which owns them.
+  return { byType: byType as PromptSet, byProject };
+}
+
+/**
+ * The legacy block, or null when there is nothing to hand over: a file already
+ * stamped `settingsMigratedAt`, a fresh install, or a file whose old keys are
+ * all absent or unreadable.
+ */
+function readLegacy(parsed: Record<string, unknown>): LegacySettings | null {
+  if (asString(parsed.settingsMigratedAt) !== null) return null;
+  const hiddenRepositories = Array.isArray(parsed.hiddenRepositories)
+    ? parsed.hiddenRepositories.filter((entry): entry is string => typeof entry === "string")
+    : null;
+  const prompts = readLegacyPrompts(parsed.prompts);
+  const detailWidthFraction = readFraction(parsed.detailWidthFraction);
+  if (hiddenRepositories === null && prompts === null && detailWidthFraction === null) return null;
+  return { hiddenRepositories, prompts, detailWidthFraction };
+}
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
@@ -96,10 +189,12 @@ async function readSettings(): Promise<Settings> {
   try {
     const parsed: unknown = JSON.parse(await readFile(settingsPath(), "utf8"));
     if (typeof parsed !== "object" || parsed === null) return EMPTY_SETTINGS;
-    const { login } = parsed as { login?: unknown };
+    const record = parsed as Record<string, unknown>;
+    const login = record.login;
     return {
       login: typeof login === "string" && login.trim() !== "" ? login.trim() : null,
-      launch: readLaunch((parsed as { launch?: unknown }).launch),
+      launch: readLaunch(record.launch),
+      legacy: readLegacy(record),
     };
   } catch {
     // No settings yet, or a file we can no longer parse. Either way the caller
@@ -111,15 +206,31 @@ async function readSettings(): Promise<Settings> {
 /**
  * Read-modify-write, because the login and the launch defaults are saved by
  * separate handlers and a whole-file write from either would drop the other.
- * Keys this version no longer knows about — the filter, the prompts, the panel
- * width, all of which moved to the host settings store — are dropped on the
- * next write rather than preserved, which is the intended one-way move.
+ *
+ * The legacy block is written back verbatim while it exists, so a login change
+ * made before the app has migrated cannot destroy the values it is about to
+ * take. Once it is gone the file is stamped instead, which is what makes
+ * `readLegacy` return null forever after.
  */
 async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
   const next = { ...(await readSettings()), ...patch };
+  const { legacy, ...owned } = next;
+  const serialized =
+    legacy === null
+      ? { ...owned, settingsMigratedAt: new Date().toISOString() }
+      : {
+          ...owned,
+          ...(legacy.hiddenRepositories === null
+            ? {}
+            : { hiddenRepositories: legacy.hiddenRepositories }),
+          ...(legacy.prompts === null ? {} : { prompts: legacy.prompts }),
+          ...(legacy.detailWidthFraction === null
+            ? {}
+            : { detailWidthFraction: legacy.detailWidthFraction }),
+        };
   const path = settingsPath();
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await writeFile(path, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
   return next;
 }
 
@@ -793,6 +904,31 @@ export async function loadBoardHandler(
     columns,
     fetchedAt,
   };
+}
+
+/**
+ * Hands the pre-0.4.0 settings to the app, which is the only side that can
+ * write a settings document. Nothing is cleared here: the file keeps them
+ * until `legacySettingsTakenHandler` confirms they landed.
+ */
+export async function takeLegacySettingsHandler(): Promise<
+  z.input<typeof takeLegacySettings.output>
+> {
+  const { legacy } = await readSettings();
+  if (legacy === null) return { found: false };
+  return {
+    found: true,
+    hiddenRepositories: legacy.hiddenRepositories,
+    prompts: legacy.prompts,
+    detailWidthFraction: legacy.detailWidthFraction,
+  };
+}
+
+export async function legacySettingsTakenHandler(): Promise<
+  z.input<typeof legacySettingsTaken.output>
+> {
+  await updateSettings({ legacy: null });
+  return {};
 }
 
 export async function saveLoginHandler({

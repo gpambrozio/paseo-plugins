@@ -19,8 +19,9 @@ pin and a line to read before you move.
 - **Your prompt templates, your repository filter and the width of the detail panel are now kept by
   Paseo itself.** They were already saved; what is new is that a change on one device shows up on
   your others without a reload, and that the board no longer has to fetch them before it can draw.
-  Existing settings do not carry over — the templates start from the defaults again, and the filter
-  starts with everything showing.
+  Your existing settings move across automatically the first time you open the board — you should
+  not have to set anything up again. If you had already changed something on this version before
+  the move happened, what you changed is kept.
 - **The prompt and login settings also live under Settings → Plugins → GitHub board**, alongside
   everything else you configure in Paseo. The gear button on the board still opens the same
   editor; this is a second way in, not a replacement, and both show the same values.

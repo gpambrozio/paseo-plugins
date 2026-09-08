@@ -47,14 +47,22 @@ import {
   loadComments,
   loadImage,
   loadItem,
+  legacySettingsTaken,
   saveLogin,
   sendOptions,
+  takeLegacySettings,
   sendToChat,
   toggleLabel,
 } from "../shared/board";
 import { isGitHubImageHost } from "../shared/image-host";
 import { MarkdownBody } from "./markdown";
-import { displaySettings, normalizePrompts, promptSettings } from "../shared/settings";
+import {
+  completePrompts,
+  displaySettings,
+  isDefaultPrompts,
+  normalizePrompts,
+  promptSettings,
+} from "../shared/settings";
 import { openExternalUrl, trackPointerOnDocument } from "./web";
 /**
  * The four columns in display order, with the label the settings view gives
@@ -111,6 +119,17 @@ function renderTemplate(template: string, item: BoardItem): string {
  */
 let cachedBoard: Board | null = null;
 let cachedFetchedAt = 0;
+/**
+ * Whether the one-way migration out of the daemon's old settings file has been
+ * attempted in this app session. Module scope because the surface remounts on
+ * every workspace switch and the answer cannot change underneath us: the
+ * daemon stamps the file once the values have landed, so a second attempt
+ * would only ever be a wasted round trip.
+ *
+ * A *failed* attempt leaves this true for the session but the file unstamped,
+ * so the next launch tries again rather than losing the values.
+ */
+let legacyMigrationAttempted = false;
 /**
  * Which column the compact layout is showing. Module scope for the same reason
  * the board is: the surface unmounts on every workspace switch, and coming back
@@ -3381,10 +3400,6 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    * reports values, and rendering the schema defaults during that window would
    * put a template on screen that the user may have already replaced.
    */
-  const promptValues = prompts.status === "ready" ? prompts.values : null;
-
-  const [board, setBoard] = useState<Board | null>(cachedBoard);
-  const [error, setError] = useState<string | null>(null);
   /**
    * The outcome of the last "Send to chat", success or failure, as a host
    * toast. It used to be a modal with a Close button, which was wrong for the
@@ -3396,6 +3411,79 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    * that belongs on screen until it is fixed.
    */
   const toast = useToast();
+  const promptValues = prompts.status === "ready" ? prompts.values : null;
+
+  const takeLegacy = useRpc(takeLegacySettings);
+  const ackLegacy = useRpc(legacySettingsTaken);
+  /**
+   * Copies the settings a pre-0.4.0 daemon still holds into the host settings
+   * store, once, the first time both documents are readable.
+   *
+   * The app has to do this because the daemon cannot: a settings document is
+   * written over the client's RPC channel and there is no server-side
+   * equivalent. So the daemon hands the values out, the app writes them, and
+   * only then does the daemon stamp its file — which is why an interrupted
+   * migration is retried rather than half-applied.
+   *
+   * Each document is written only if it is still untouched. Someone who has
+   * already customised their prompts on 0.4.0 before an older client got round
+   * to migrating keeps what they customised; the older values are dropped
+   * rather than reinstated on top of them.
+   */
+  useEffect(() => {
+    if (legacyMigrationAttempted) return;
+    if (display.status !== "ready" || prompts.status !== "ready") return;
+    legacyMigrationAttempted = true;
+
+    void (async function migrateLegacySettings() {
+      try {
+        const legacy = await takeLegacy({});
+        if (!legacy.found) return;
+
+        let migrated = false;
+
+        const takeFilter =
+          legacy.hiddenRepositories !== null && display.values.hiddenRepositories.length === 0;
+        const takeWidth =
+          legacy.detailWidthFraction !== null && display.values.detailWidthFraction === null;
+        if (takeFilter || takeWidth) {
+          const saved = await display.save(
+            {
+              hiddenRepositories: takeFilter
+                ? [...(legacy.hiddenRepositories ?? [])].sort()
+                : display.values.hiddenRepositories,
+              detailWidthFraction: takeWidth
+                ? legacy.detailWidthFraction
+                : display.values.detailWidthFraction,
+            },
+            display.revision,
+          );
+          if (!saved) return;
+          migrated = true;
+        }
+
+        if (legacy.prompts !== null && isDefaultPrompts(prompts.values)) {
+          const saved = await prompts.save(
+            normalizePrompts(completePrompts(legacy.prompts)),
+            prompts.revision,
+          );
+          if (!saved) return;
+          migrated = true;
+        }
+
+        // Only now: the daemon's copy is the fallback until this returns.
+        await ackLegacy({});
+        if (migrated) {
+          toast.show("Your board settings moved to Paseo's own storage.", { variant: "info" });
+        }
+      } catch (cause) {
+        console.warn("[github-board] could not migrate the saved settings", cause);
+      }
+    })();
+  }, [ackLegacy, display, prompts, takeLegacy, toast]);
+
+  const [board, setBoard] = useState<Board | null>(cachedBoard);
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(cachedBoard === null);
   const [loginDraft, setLoginDraft] = useState(cachedBoard?.login ?? "");
   const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(() => new Set());
