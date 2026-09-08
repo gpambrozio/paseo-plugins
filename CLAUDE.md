@@ -178,8 +178,16 @@ version — `paseo daemon status` prints it.
 
 Because `skipLibCheck: true` is set everywhere, an unresolvable `@getpaseo/client` import is
 swallowed silently and the entire Paseo API types as `any` — and `tsc` still exits 0, so a clean
-typecheck does not prove the types resolved. To check, add a throwaway file that reads a nonexistent
-member off a `PaseoAgentHandle` and confirm `tsc` rejects it.
+typecheck does not prove the types resolved. **`server/sdk-types.ts` in each plugin is that check**,
+standing where a throwaway file used to: it reads a nonexistent member off a `PaseoAgentHandle`
+under a `@ts-expect-error`, so it fails in both directions — the access errors while the types are
+real, and the directive itself reports TS2578 the moment they degrade to `any`. It is `import
+type`-only and lands in no bundle. Do not delete it, and do not "fix" it by removing the directive.
+
+`noImplicitAny` catches part of the same failure, but only where our own code destructures an SDK
+value; a handler that just passes `paseo` through type-checks as happily against `any`. The usual
+cause is a stale `node_modules` — the lockfiles pin the right version, so `npm install` in the
+plugin folder is the fix.
 
 Every `tsconfig.json` now includes `**/*.ts` and `**/*.tsx`; a `client/`, `server/` or `shared/`
 subdirectory invisible to `tsc` is the failure mode that made that necessary.
