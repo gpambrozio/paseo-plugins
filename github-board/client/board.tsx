@@ -1,4 +1,4 @@
-import { type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugin/client";
+import { type PluginSurfaceProps, useRpc, usePaseo, useSettings } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -41,16 +41,14 @@ import {
   loadComments,
   loadImage,
   loadItem,
-  saveDetailWidth,
-  savePrompts,
   saveLogin,
-  saveRepositoryFilter,
   sendOptions,
   sendToChat,
   toggleLabel,
 } from "../shared/board";
 import { isGitHubImageHost } from "../shared/image-host";
 import { MarkdownBody } from "./markdown";
+import { displaySettings, normalizePrompts, promptSettings } from "../shared/settings";
 import { openExternalUrl, trackPointerOnDocument } from "./web";
 /**
  * The four columns in display order, with the label the settings view gives
@@ -104,14 +102,9 @@ function renderTemplate(template: string, item: BoardItem): string {
  * past `STALE_AFTER_MS` — and even then the stale board stays on screen while
  * the refresh runs.
  *
- * The server still owns the durable copy of the filter; `cachedHidden` is only
- * here because a toggle made after the last load would otherwise be undone by
- * rehydrating from a board fetched before it.
  */
 let cachedBoard: Board | null = null;
 let cachedFetchedAt = 0;
-let cachedHidden: ReadonlySet<string> | null = null;
-let cachedPrompts: PromptSettings | null = null;
 /**
  * Which column the compact layout is showing. Module scope for the same reason
  * the board is: the surface unmounts on every workspace switch, and coming back
@@ -133,14 +126,6 @@ const cachedRepositoryLabels = new Map<string, { labels: RepositoryLabel[]; stor
  */
 const cachedImages = new Map<string, { uri: string; width: number; height: number }>();
 const IMAGE_CACHE_ENTRIES = 24;
-/**
- * The detail panel's width on the wide layout as a share of the body, once the
- * user has dragged it. Null means half. Module scope for the instant repaint
- * on remount, and the settings file — via `board.save-detail-width`, adopted
- * from `board.load` — for the next daemon start. A share, not pixels, so the
- * width chosen against one window still fits a different one.
- */
-let cachedDetailFraction: number | null = null;
 const DEFAULT_DETAIL_FRACTION = 0.5;
 /** Narrow enough for a phone-sized column of text; wide enough that a table of three screenshots still reads. */
 const DETAIL_MIN_WIDTH = 320;
@@ -157,9 +142,10 @@ const DETAIL_CLOSE_MS = 160;
 const DETAIL_OFFSCREEN_FALLBACK = 800;
 
 /**
- * Stands in until the first board lands. Blank templates are what the server
- * reads as "use the default", so the settings view opened before a load shows
- * empty fields rather than inventing values the server would disagree with.
+ * Stands in while the settings read is pending. Blank templates are what
+ * `normalizePrompts` reads as "use the default", so the settings view opened
+ * before the document lands shows empty fields rather than inventing values
+ * that saving would disagree with.
  */
 const EMPTY_PROMPTS: PromptSettings = {
   byType: { issues: "", "draft-prs": "", "open-prs": "", discussions: "" },
@@ -2511,7 +2497,6 @@ function SendDialog({
 function PromptSettingsView({
   styles,
   prompts,
-  projects,
   login,
   busy,
   mutedColor,
@@ -2520,7 +2505,6 @@ function PromptSettingsView({
 }: {
   styles: Styles;
   prompts: PromptSettings;
-  projects: readonly ProjectRef[];
   login: string;
   busy: boolean;
   mutedColor: string;
@@ -2531,6 +2515,35 @@ function PromptSettingsView({
   const [scope, setScope] = useState<string | null>(null);
   const [loginDraft, setLoginDraft] = useState(login);
   const [saving, setSaving] = useState(false);
+
+  /**
+   * Every live project, for the per-project override picker. Asked of the
+   * daemon directly rather than carried on `board.load`: this is a normal Paseo
+   * operation, and the board only ever knew the projects its own cards mapped
+   * to plus the rest along for the ride.
+   */
+  const paseo = usePaseo();
+  const [projects, setProjects] = useState<readonly ProjectRef[]>(NO_PROJECTS);
+  useEffect(() => {
+    let cancelled = false;
+    paseo.projects
+      .list()
+      .then((result) => {
+        if (cancelled) return;
+        setProjects(
+          result.projects.map((project) => ({
+            id: project.projectId,
+            name: project.projectDisplayName,
+          })),
+        );
+      })
+      .catch((cause: unknown) => {
+        console.warn("[github-board] could not list projects", cause);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [paseo]);
 
   // The saved value is the baseline for "dirty". Adopting it whenever the
   // server hands back a new one is what turns a successful save back into a
@@ -2858,6 +2871,8 @@ function ItemDetailPanel({
   foregroundColor,
   bodyWidth,
   progress,
+  widthFraction,
+  onWidthCommitted,
   onClose,
   onSend,
 }: {
@@ -2875,12 +2890,32 @@ function ItemDetailPanel({
   bodyWidth: number | null;
   /** 0 is off-screen to the right, 1 is in place. Driven by the parent. */
   progress: Animated.Value;
+  /**
+   * The saved share of the body, or null for the default half. The parent owns
+   * the settings document; this component owns the drag.
+   */
+  widthFraction: number | null;
+  /** Called once per drag, on release, with the share to persist. */
+  onWidthCommitted: (fraction: number) => void;
   onClose: () => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
 }) {
   const load = useRpc(loadItem);
-  const persistWidth = useRpc(saveDetailWidth);
-  const [fraction, setFraction] = useState<number | null>(cachedDetailFraction);
+  /**
+   * The drag's own value, seeded from the saved share. Local rather than read
+   * straight from settings on every move: a write per pixel is a write per
+   * pixel however it is spelled, so the drag runs on state and settles once.
+   */
+  const [fraction, setFraction] = useState<number | null>(widthFraction);
+  /**
+   * Adopt a share saved elsewhere — another client, or this one before the
+   * panel mounted — but never while a drag is in flight, which would yank the
+   * edge out from under the pointer.
+   */
+  const dragging = useRef(false);
+  useEffect(() => {
+    if (!dragging.current) setFraction(widthFraction);
+  }, [widthFraction]);
   /**
    * The laid-out width, which is how far the panel has to travel to be
    * off-screen. Until the first layout it travels the fallback, which is at
@@ -2906,28 +2941,24 @@ function ItemDetailPanel({
     // Anchored to the right edge, so a pointer moving left grows the panel.
     // Kept as a share of the body from the first move, so nothing converts
     // on release and the remount and the next daemon start agree.
+    let latest: number | null = null;
     const applyDelta = (dx: number) => {
       const start = dragStart.current;
       if (start === null || start.bodyWidth <= 0) return;
       const widest = Math.max(DETAIL_MIN_WIDTH, start.bodyWidth - BOARD_MIN_WIDTH);
       const next = Math.min(widest, Math.max(DETAIL_MIN_WIDTH, start.width - dx));
-      cachedDetailFraction = Math.min(1, next / start.bodyWidth);
-      setFraction(cachedDetailFraction);
+      latest = Math.min(1, next / start.bodyWidth);
+      setFraction(latest);
     };
     const finish = () => {
       stopTracking.current();
       stopTracking.current = () => {};
       const dragged = dragStart.current !== null;
       dragStart.current = null;
+      dragging.current = false;
       setResizing(false);
-      // Once per drag, not per move. A failure is logged and not shown: the
-      // width the user just chose is on screen regardless, and a setting that
-      // did not save is not a problem with the card in front of them.
-      if (dragged && cachedDetailFraction !== null) {
-        persistWidth({ fraction: cachedDetailFraction }).catch((cause: unknown) => {
-          console.warn("[github-board] could not save the panel width", cause);
-        });
-      }
+      // Once per drag, not per move: a save per move is a write per pixel.
+      if (dragged && latest !== null) onWidthCommitted(latest);
     };
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -2946,6 +2977,7 @@ function ItemDetailPanel({
           bodyWidth: bodyWidthRef.current ?? panelWidth.current,
           x,
         };
+        dragging.current = true;
         setResizing(true);
         // Document-level tracking is the web's belt and braces: it keeps the
         // drag alive past the handle, past the columns and past the window.
@@ -2958,7 +2990,7 @@ function ItemDetailPanel({
       onPanResponderRelease: finish,
       onPanResponderTerminate: finish,
     });
-  }, [persistWidth]);
+  }, [onWidthCommitted]);
 
   /**
    * The share turned back into pixels against the body as it is *now*, and
@@ -3408,8 +3440,22 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const styles = useStyles(props);
   const load = useRpc(loadBoard);
   const persistLogin = useRpc(saveLogin);
-  const persistFilter = useRpc(saveRepositoryFilter);
-  const persistPrompts = useRpc(savePrompts);
+  /**
+   * How this client draws the board, kept by the host rather than by the
+   * daemon: the filter and the panel width are read only to paint, so they no
+   * longer ride along on `board.load` and no longer cost an RPC to save. The
+   * host pushes a change to every connected client on its own.
+   */
+  const display = useSettings(displaySettings);
+  const prompts = useSettings(promptSettings);
+  const savedHidden = display.status === "ready" ? display.values.hiddenRepositories : null;
+  const savedFraction = display.status === "ready" ? display.values.detailWidthFraction : null;
+  /**
+   * Null while the read is pending. `useSettings` reports `loading` before it
+   * reports values, and rendering the schema defaults during that window would
+   * put a template on screen that the user may have already replaced.
+   */
+  const promptValues = prompts.status === "ready" ? prompts.values : null;
 
   const [board, setBoard] = useState<Board | null>(cachedBoard);
   const [error, setError] = useState<string | null>(null);
@@ -3425,15 +3471,12 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   } | null>(null);
   const [busy, setBusy] = useState(cachedBoard === null);
   const [loginDraft, setLoginDraft] = useState(cachedBoard?.login ?? "");
-  const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(
-    () => cachedHidden ?? new Set(),
-  );
+  const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(() => new Set());
   const [filterOpen, setFilterOpen] = useState(false);
   /** Which column the compact layout shows. Ignored where all four fit at once. */
   const [columnId, setColumnId] = useState<ColumnId>(cachedColumnId);
   /** The surface shows one of two things; plugins cannot route between surfaces. */
   const [showSettings, setShowSettings] = useState(false);
-  const [prompts, setPrompts] = useState<PromptSettings | null>(cachedPrompts);
   /** The card the launch dialog is open on, with its prompt already rendered. */
   const [sendTarget, setSendTarget] = useState<{ item: BoardItem; prompt: string } | null>(null);
   /** The card the label menu is open on, and where on this surface to draw it. */
@@ -3477,12 +3520,17 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    */
   const rootRef = useRef<View | null>(null);
   /**
-   * The saved filter is adopted on the first load only. Later refreshes must not
-   * overwrite what the user is toggling right now with the value the server last
-   * heard — and a remount that already restored the filter from cache counts as
-   * hydrated.
+   * The saved filter is adopted once, when the settings read first lands. Later
+   * pushes must not overwrite what the user is toggling right now — and the
+   * local set is already what was just written, so re-adopting it would only
+   * ever be a chance to undo a toggle.
    */
-  const filterHydrated = useRef(cachedHidden !== null);
+  const filterHydrated = useRef(false);
+  useEffect(() => {
+    if (filterHydrated.current || savedHidden === null) return;
+    filterHydrated.current = true;
+    setHiddenRepos(new Set(savedHidden));
+  }, [savedHidden]);
 
   /**
    * Async **function expressions**, never async arrows, anywhere in the client
@@ -3502,19 +3550,6 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         cachedFetchedAt = Date.now();
         setBoard(next);
         setLoginDraft(next.login);
-        // Unlike the filter, prompts are adopted on every load: nothing edits
-        // them outside the settings view, and that view owns its own draft.
-        cachedPrompts = next.prompts;
-        setPrompts(next.prompts);
-        // The panel width is adopted only while nothing local has been chosen
-        // yet: a drag made since the last load must not be undone by it.
-        if (cachedDetailFraction === null) cachedDetailFraction = next.detailWidthFraction;
-        if (!filterHydrated.current) {
-          filterHydrated.current = true;
-          const restored = new Set(next.hiddenRepositories);
-          cachedHidden = restored;
-          setHiddenRepos(restored);
-        }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       } finally {
@@ -3607,18 +3642,39 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     setColumnId(id);
   }, []);
 
-  /** Applies a selection locally and saves it, so it survives the next unmount. */
+  /**
+   * Applies a selection locally and saves it, so it survives the next unmount.
+   * The local set moves first: the filter is what the user is looking at, and
+   * waiting on a round trip to redraw it would make every toggle feel remote.
+   */
   const commitHidden = useCallback(
     (next: ReadonlySet<string>) => {
-      cachedHidden = next;
       setHiddenRepos(next);
-      persistFilter({ hiddenRepositories: [...next] }).catch((cause: unknown) => {
-        setError(
-          `Repository filter could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`,
-        );
-      });
+      if (display.status !== "ready") return;
+      void display
+        .save({ ...display.values, hiddenRepositories: [...next].sort() }, display.revision)
+        .then((saved) => {
+          if (!saved) setError(`Repository filter could not be saved: ${display.saveError ?? ""}`);
+        });
     },
-    [persistFilter],
+    [display],
+  );
+
+  /**
+   * The panel's width, once per drag. A failure is logged and not shown: the
+   * width the user just chose is on screen regardless, and a setting that did
+   * not save is not a problem with the card in front of them.
+   */
+  const commitWidth = useCallback(
+    (fraction: number) => {
+      if (display.status !== "ready") return;
+      void display
+        .save({ ...display.values, detailWidthFraction: fraction }, display.revision)
+        .then((saved) => {
+          if (!saved) console.warn("[github-board] could not save the panel width");
+        });
+    },
+    [display],
   );
 
   const toggleRepo = useCallback(
@@ -3719,10 +3775,11 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     (item: BoardItem, type: ColumnId) => {
       setNotice(null);
       const projectId = board?.repositoryProjects[item.repository] ?? null;
-      const template = prompts === null ? item.url : templateFor(prompts, type, projectId);
+      const template =
+        promptValues === null ? item.url : templateFor(promptValues, type, projectId);
       setSendTarget({ item, prompt: renderTemplate(template, item) });
     },
-    [board, prompts],
+    [board, promptValues],
   );
 
   /**
@@ -3774,21 +3831,20 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const applyPrompts = useCallback(
     // Async function expression, not an async arrow — see `refresh`.
     async function applyPrompts(next: PromptSettings) {
-      try {
-        const saved = await persistPrompts(next);
-        cachedPrompts = saved;
-        setPrompts(saved);
-        if (cachedBoard !== null) cachedBoard = { ...cachedBoard, prompts: saved };
-        setBoard((current) => (current === null ? current : { ...current, prompts: saved }));
-      } catch (cause) {
+      if (prompts.status !== "ready") return;
+      // Normalised here rather than in the schema, so the editor's draft can
+      // hold a blank field while it is being cleared and only the *saved*
+      // document reads a blank as "inherit".
+      const saved = await prompts.save(normalizePrompts(next), prompts.revision);
+      if (!saved) {
         setNotice({
           tone: "danger",
           title: "Could not save prompts",
-          text: cause instanceof Error ? cause.message : String(cause),
+          text: prompts.saveError ?? "The templates were not saved.",
         });
       }
     },
-    [persistPrompts],
+    [prompts],
   );
 
   return (
@@ -3881,8 +3937,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
       {showSettings ? (
         <PromptSettingsView
           styles={styles}
-          prompts={prompts ?? EMPTY_PROMPTS}
-          projects={board?.projects ?? NO_PROJECTS}
+          prompts={promptValues ?? EMPTY_PROMPTS}
           login={loginDraft}
           busy={busy}
           mutedColor={props.theme.colors.foregroundMuted}
@@ -3969,6 +4024,8 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               accentColor={props.theme.colors.accent}
               foregroundColor={props.theme.colors.foreground}
               bodyWidth={props.layout.compact ? null : bodyWidth}
+              widthFraction={savedFraction}
+              onWidthCommitted={commitWidth}
               progress={detailProgress}
               onClose={closeDetails}
               onSend={openSendDialog}

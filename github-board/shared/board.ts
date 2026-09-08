@@ -133,28 +133,6 @@ export const BoardSchema = z.object({
   login: z.string(),
   columns: z.array(BoardColumnSchema),
   /**
-   * The saved repository filter, as the repositories to hide. Rides along with
-   * the board so the surface can restore the filter on its first render instead
-   * of flashing an unfiltered board while a second round trip lands.
-   */
-  hiddenRepositories: z.array(z.string()),
-  /**
-   * Rides along for the same reason the filter does: the launch dialog opens
-   * with the card's prompt already rendered, so the template has to be on the
-   * client before the button is pressed rather than a round trip behind it.
-   */
-  prompts: PromptSettingsSchema,
-  /**
-   * How wide the detail panel was last dragged, as a fraction of the board's
-   * body, or null for the default half. A fraction rather than pixels: the
-   * width was chosen against one window, and a share of it survives the window
-   * being a different size — or a different machine — next time. Rides along
-   * with the board so the first open is already the right width.
-   */
-  detailWidthFraction: z.number().min(0).max(1).nullable(),
-  /** Every live Paseo project, so the settings view can list them all. */
-  projects: z.array(ProjectRefSchema),
-  /**
    * `owner/name` to project id, for the repositories on this board only. The
    * surface needs it to pick a template during the press gesture, and it is
    * keyed the way a card spells its repository so no host parsing is needed on
@@ -190,28 +168,6 @@ export const saveLogin = defineRpc({
   name: "board.save-login",
   input: z.object({ login: z.string() }),
   output: z.object({ login: z.string() }),
-});
-
-/**
- * The repository filter outlives the surface, which unmounts whenever the user
- * switches workspaces, so the selection lives next to the login rather than in
- * component state.
- */
-export const saveRepositoryFilter = defineRpc({
-  name: "board.save-filter",
-  input: z.object({ hiddenRepositories: z.array(z.string()) }),
-  output: z.object({ hiddenRepositories: z.array(z.string()) }),
-});
-
-/**
- * Saves the panel's width when a drag ends — not per move, which would be a
- * write per pixel. The fraction is clamped on the way in; a client cannot
- * store a width the next window could not show.
- */
-export const saveDetailWidth = defineRpc({
-  name: "board.save-detail-width",
-  input: z.object({ fraction: z.number().min(0).max(1) }),
-  output: z.object({ fraction: z.number().min(0).max(1) }),
 });
 
 /**
@@ -317,17 +273,6 @@ export const sendToChat = defineRpc({
     /** The agent the prompt was sent to, so the app can open straight into it. */
     agentId: z.string(),
   }),
-});
-
-/**
- * Saves every template at once. A blank `byType` entry is stored as the
- * built-in default and a blank override is dropped, so "clear the field" is how
- * a template is reset rather than a separate action.
- */
-export const savePrompts = defineRpc({
-  name: "board.save-prompts",
-  input: PromptSettingsSchema,
-  output: PromptSettingsSchema,
 });
 
 /**

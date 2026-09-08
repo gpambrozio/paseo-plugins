@@ -6,10 +6,7 @@ import {
   loadCommentsHandler,
   loadImageHandler,
   loadItemHandler,
-  saveDetailWidthHandler,
   saveLoginHandler,
-  savePromptsHandler,
-  saveRepositoryFilterHandler,
   sendOptionsHandler,
   sendToChatHandler,
   toggleLabelHandler,
@@ -20,14 +17,12 @@ import {
   loadComments,
   loadImage,
   loadItem,
-  saveDetailWidth,
-  savePrompts,
   saveLogin,
-  saveRepositoryFilter,
   sendOptions,
   sendToChat,
   toggleLabel,
 } from "./shared/board";
+import { displaySettings, promptSettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(loadBoard, loadBoardHandler);
@@ -35,13 +30,15 @@ export default function contribute(server: PluginServerContext) {
   server.handle(loadComments, loadCommentsHandler);
   server.handle(loadImage, loadImageHandler);
   server.handle(saveLogin, saveLoginHandler);
-  server.handle(saveRepositoryFilter, saveRepositoryFilterHandler);
-  server.handle(saveDetailWidth, saveDetailWidthHandler);
-  server.handle(savePrompts, savePromptsHandler);
   server.handle(sendOptions, sendOptionsHandler);
   server.handle(sendToChat, sendToChatHandler);
   server.handle(listLabels, listLabelsHandler);
   server.handle(toggleLabel, toggleLabelHandler);
+
+  // Storage lives on the host; registering the definitions is what makes the
+  // client's `useSettings` reads and writes valid for this installation.
+  server.registerSettings(displaySettings);
+  server.registerSettings(promptSettings);
 
   // Every handler awaits its own gh subprocess, so there is nothing to release.
   return () => {};

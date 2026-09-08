@@ -14,17 +14,12 @@ import type {
   RepositoryLabel,
   LaunchDefaults,
   LinkedIssue,
-  PromptSet,
-  PromptSettings,
   listLabels,
   loadBoard,
   loadComments,
   loadImage,
   loadItem,
-  saveDetailWidth,
-  savePrompts,
   saveLogin,
-  saveRepositoryFilter,
   sendOptions,
   sendToChat,
   toggleLabel,
@@ -45,20 +40,6 @@ function settingsPath(): string {
 }
 
 /**
- * What the send dialog opens with, before the user changes it. Each one names
- * the kind of work its column holds, because "read this URL" alone tells an
- * agent nothing about whether it is being asked to fix, finish, or review.
- */
-const DEFAULT_PROMPTS: PromptSet = {
-  issues: "Read issue {url}, investigate and give me ways to address it.",
-  "draft-prs": "Read draft pull request {url} and help me finish it.",
-  "open-prs": "Review pull request {url} and tell me what needs attention.",
-  discussions: "Read discussion {url} and summarise what is being decided.",
-};
-
-const PROMPT_KEYS = Object.keys(DEFAULT_PROMPTS) as (keyof PromptSet)[];
-
-/**
  * What the launch dialog opens on before the user touches it. Written by the
  * send itself, so the second card starts where the first one finished.
  *
@@ -74,68 +55,25 @@ const EMPTY_LAUNCH: LaunchDefaults = {
   isolation: "local",
 };
 
+/**
+ * What the *daemon* keeps, which since 0.8 is only what its own handlers act
+ * on. The repository filter, the prompt templates and the detail panel's width
+ * moved to the host settings store, where the app reads them directly — see
+ * `shared/settings.ts`.
+ */
 interface Settings {
   /** Null until the user pins one; the caller falls back to the gh viewer. */
   login: string | null;
-  /** Repositories the board hides, saved as the filter's complement. */
-  hiddenRepositories: string[];
-  prompts: PromptSettings;
   launch: LaunchDefaults;
-  /** The detail panel's width as a share of the board's body; null is the default half. */
-  detailWidthFraction: number | null;
 }
 
 const EMPTY_SETTINGS: Settings = {
   login: null,
-  hiddenRepositories: [],
-  prompts: { byType: { ...DEFAULT_PROMPTS }, byProject: {} },
   launch: { ...EMPTY_LAUNCH },
-  detailWidthFraction: null,
 };
-
-/** A share of the body, or null for anything that is not one — including an old settings file. */
-function readFraction(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1
-    ? value
-    : null;
-}
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
-}
-
-/**
- * Blank means "inherit", at both levels: a missing or empty `byType` entry
- * becomes the built-in default, and a missing or empty override is dropped so
- * the card falls back to `byType`. That is what makes clearing a field the way
- * to reset it.
- */
-function readPrompts(value: unknown): PromptSettings {
-  const raw = (typeof value === "object" && value !== null ? value : {}) as {
-    byType?: unknown;
-    byProject?: unknown;
-  };
-  const savedByType = (typeof raw.byType === "object" && raw.byType !== null ? raw.byType : {}) as
-    Record<string, unknown>;
-  const byType = { ...DEFAULT_PROMPTS };
-  for (const key of PROMPT_KEYS) {
-    byType[key] = asString(savedByType[key]) ?? DEFAULT_PROMPTS[key];
-  }
-
-  const savedByProject = (
-    typeof raw.byProject === "object" && raw.byProject !== null ? raw.byProject : {}
-  ) as Record<string, unknown>;
-  const byProject: PromptSettings["byProject"] = {};
-  for (const [repository, overrides] of Object.entries(savedByProject)) {
-    if (typeof overrides !== "object" || overrides === null) continue;
-    const kept: Partial<PromptSet> = {};
-    for (const key of PROMPT_KEYS) {
-      const template = asString((overrides as Record<string, unknown>)[key]);
-      if (template !== null) kept[key] = template;
-    }
-    if (Object.keys(kept).length > 0) byProject[repository] = kept;
-  }
-  return { byType, byProject };
 }
 
 /**
@@ -158,20 +96,10 @@ async function readSettings(): Promise<Settings> {
   try {
     const parsed: unknown = JSON.parse(await readFile(settingsPath(), "utf8"));
     if (typeof parsed !== "object" || parsed === null) return EMPTY_SETTINGS;
-    const { login, hiddenRepositories } = parsed as {
-      login?: unknown;
-      hiddenRepositories?: unknown;
-    };
+    const { login } = parsed as { login?: unknown };
     return {
       login: typeof login === "string" && login.trim() !== "" ? login.trim() : null,
-      hiddenRepositories: Array.isArray(hiddenRepositories)
-        ? hiddenRepositories.filter((entry): entry is string => typeof entry === "string")
-        : [],
-      prompts: readPrompts((parsed as { prompts?: unknown }).prompts),
       launch: readLaunch((parsed as { launch?: unknown }).launch),
-      detailWidthFraction: readFraction(
-        (parsed as { detailWidthFraction?: unknown }).detailWidthFraction,
-      ),
     };
   } catch {
     // No settings yet, or a file we can no longer parse. Either way the caller
@@ -181,9 +109,11 @@ async function readSettings(): Promise<Settings> {
 }
 
 /**
- * Read-modify-write, because the login, the repository filter, the prompts and
- * the launch defaults are saved by separate handlers and a whole-file write
- * from any of them would drop the others.
+ * Read-modify-write, because the login and the launch defaults are saved by
+ * separate handlers and a whole-file write from either would drop the other.
+ * Keys this version no longer knows about — the filter, the prompts, the panel
+ * width, all of which moved to the host settings store — are dropped on the
+ * next write rather than preserved, which is the intended one-way move.
  */
 async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
   const next = { ...(await readSettings()), ...patch };
@@ -761,10 +691,19 @@ let cachedBoard: CachedBoard | null = null;
  * collapse to one entry; the send button is unaffected, because it resolves
  * from the card's own URL rather than from this map.
  */
-async function describeProjects(
+/**
+ * `owner/name` to project id, for the repositories on this board only. The
+ * surface needs it to pick a prompt template during the press gesture, so it
+ * rides along rather than costing a round trip mid-gesture.
+ *
+ * The full project list used to ride along too, for the settings view's
+ * per-project overrides. That view now calls `paseo.projects.list()` on the
+ * client, which is the same list without the detour.
+ */
+async function describeRepositoryProjects(
   paseo: PaseoApi,
   columns: readonly BoardColumn[],
-): Promise<{ projects: { id: string; name: string }[]; repositoryProjects: Record<string, string> }> {
+): Promise<{ repositoryProjects: Record<string, string> }> {
   const index = await loadProjectIndex(paseo);
 
   const repositoryProjects: Record<string, string> = {};
@@ -778,13 +717,7 @@ async function describeProjects(
     }
   }
 
-  return {
-    projects: index.projects.map((project) => ({
-      id: project.projectId,
-      name: project.displayName,
-    })),
-    repositoryProjects,
-  };
+  return { repositoryProjects };
 }
 
 async function settle(
@@ -819,10 +752,7 @@ export async function loadBoardHandler(
   ) {
     return {
       login: resolved,
-      hiddenRepositories: settings.hiddenRepositories,
-      prompts: settings.prompts,
-      detailWidthFraction: settings.detailWidthFraction,
-      ...(await describeProjects(paseo, cachedBoard.columns)),
+      ...(await describeRepositoryProjects(paseo, cachedBoard.columns)),
       columns: cachedBoard.columns,
       fetchedAt: cachedBoard.fetchedAt,
     };
@@ -859,22 +789,10 @@ export async function loadBoardHandler(
 
   return {
     login: resolved,
-    hiddenRepositories: settings.hiddenRepositories,
-    prompts: settings.prompts,
-    detailWidthFraction: settings.detailWidthFraction,
-    ...(await describeProjects(paseo, columns)),
+    ...(await describeRepositoryProjects(paseo, columns)),
     columns,
     fetchedAt,
   };
-}
-
-export async function savePromptsHandler(
-  prompts: z.output<typeof savePrompts.input>,
-): Promise<z.input<typeof savePrompts.output>> {
-  // Round-tripped through the same reader the settings file goes through, so
-  // saving a cleared field and reloading it produce the same value.
-  const saved = await updateSettings({ prompts: readPrompts(prompts) });
-  return saved.prompts;
 }
 
 export async function saveLoginHandler({
@@ -884,22 +802,6 @@ export async function saveLoginHandler({
   const resolved = trimmed === "" || trimmed === "@me" ? await resolveViewerLogin() : trimmed;
   await updateSettings({ login: resolved });
   return { login: resolved };
-}
-
-export async function saveDetailWidthHandler({
-  fraction,
-}: z.output<typeof saveDetailWidth.input>): Promise<z.input<typeof saveDetailWidth.output>> {
-  const saved = await updateSettings({ detailWidthFraction: readFraction(fraction) });
-  return { fraction: saved.detailWidthFraction ?? fraction };
-}
-
-export async function saveRepositoryFilterHandler({
-  hiddenRepositories,
-}: z.output<typeof saveRepositoryFilter.input>): Promise<
-  z.input<typeof saveRepositoryFilter.output>
-> {
-  const saved = await updateSettings({ hiddenRepositories: [...hiddenRepositories].sort() });
-  return { hiddenRepositories: saved.hiddenRepositories };
 }
 
 /**
