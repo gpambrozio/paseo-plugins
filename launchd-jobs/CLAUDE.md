@@ -11,12 +11,12 @@ compile time. This file covers only what is specific to `launchd-jobs`.
 
 | File              | What it owns                                                                     |
 | ----------------- | -------------------------------------------------------------------------------- |
-| `index.ts`        | Wiring only — binds the seven RPC contracts and registers the sidebar surface.  |
-| `jobs.shared.ts`  | The zod contracts, and the `Job` shape both halves agree on.                     |
-| `jobs.server.ts`  | Every `launchctl` and `plutil` call, the plist writer, the runner, logs, history. |
-| `jobs.client.tsx` | The surface: the list, the detail pane, and the create/edit form.                |
-| `cron.ts`         | Unsuffixed, in both bundles: cron ⇄ `StartCalendarInterval`, and the sentences.  |
-| `cron.test.ts`    | The only tests. `npm test`.                                                      |
+| `index.client.tsx` / `index.server.ts`        | Wiring only — binds the seven RPC contracts and registers the sidebar surface.  |
+| `shared/jobs.ts`  | The zod contracts, and the `Job` shape both halves agree on.                     |
+| `server/jobs.ts`  | Every `launchctl` and `plutil` call, the plist writer, the runner, logs, history. |
+| `client/jobs.tsx` | The surface: the list, the detail pane, and the create/edit form.                |
+| `shared/cron.ts`         | Unsuffixed, in both bundles: cron ⇄ `StartCalendarInterval`, and the sentences.  |
+| `shared/cron.test.ts`    | The only tests. `npm test`.                                                      |
 | `README.md`       | What a job is to a user, and what launchd does and does not promise.             |
 
 ## launchd is the scheduler and the store
@@ -52,7 +52,7 @@ as the user, inside the login session, when the desktop app starts it.
   launchd's override database, not in the plist, so without this a later job with the same slug
   would be born disabled.
 - **Create leaves the plist in place if bootstrap fails.** The list then shows it as "Not loaded"
-  with the error in the notice, and Enable retries. Removing it would hide the thing the user needs
+  with the error in a toast, and Enable retries. Removing it would hide the thing the user needs
   to fix.
 - **Run now is `kickstart`**, refused when the label is not loaded because launchd would refuse it
   less helpfully.
@@ -68,7 +68,7 @@ lines from `print-disabled`.
 launchd spawns `/bin/zsh <data>/runner.sh <slug> <command>`, not the command itself. The runner is
 what makes the surface's history and log exist: it appends start and exit markers around the
 command's output, writes one JSON line per run, and rotates both files. It is kept as a string
-constant in `jobs.server.ts`, rewritten on every save when it differs, so a change to it ships
+constant in `server/jobs.ts`, rewritten on every save when it differs, so a change to it ships
 with the plugin and reaches every job the next time one is saved — **not** before. If the runner
 format changes incompatibly, say so in the changelog.
 
@@ -104,13 +104,13 @@ the two disagree. The README says the same.
 
 ## Checking the server half against reality
 
-Everything `jobs.server.ts` imports from `jobs.shared` is `import type`, so it transpiles to a
-module depending only on Node built-ins and `./cron`:
+Everything `server/jobs.ts` imports from `shared/jobs.ts` is `import type`, so it transpiles to a
+module depending only on Node built-ins and `shared/cron.ts`:
 
 ```bash
-npx tsc jobs.server.ts cron.ts --module esnext --target es2022 --moduleResolution bundler \
+npx tsc server/jobs.ts shared/cron.ts --module esnext --target es2022 --moduleResolution bundler \
   --outDir /tmp/ljcheck --skipLibCheck --strict --types node --ignoreConfig
-sed -i '' 's#from "./cron"#from "./cron.js"#' /tmp/ljcheck/jobs.server.js
+sed -i '' 's#from "../shared/cron"#from "../shared/cron.js"#' /tmp/ljcheck/server/jobs.js
 ```
 
 `--strict` matters: without it the `!parsed.ok` narrowing fails and `tsc` reports errors the
@@ -123,4 +123,4 @@ by hand with `launchctl bootout gui/$UID/<label>` and `rm`. A job left behind fr
 `PASEO_HOME` shows as unmanaged in the real plugin, because its runner path differs.
 
 There is no harness for the surface. A clean typecheck and a clean
-`paseo plugin reload launchd-jobs` prove `jobs.client.tsx` compiles and loads, nothing more.
+`paseo plugin reload launchd-jobs` prove `client/jobs.tsx` compiles and loads, nothing more.

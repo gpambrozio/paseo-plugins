@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { resolveClaudeSkills } from "./claude.server";
+import { resolveClaudeSkills } from "./claude";
 
 let root: string;
 let claudeHome: string;

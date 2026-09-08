@@ -1,9 +1,7 @@
 /**
- * No suffix, so it lands in both bundles: the client uses it to decide whether
- * an image needs the daemon, and the server to refuse anything else. It must
- * stay free of Node imports — and it is kept out of `board.shared.ts` so that
- * file remains type-only to the server, which is what lets the server half be
- * transpiled and run on its own (see CLAUDE.md).
+ * Shared, so it lands in both bundles: the client uses it to decide whether an
+ * image needs the daemon, and the server to refuse anything else. Like every
+ * `shared/` module it must stay free of Node and React imports.
  */
 /**
  * Hosts whose images the server fetches on the client's behalf. An attachment

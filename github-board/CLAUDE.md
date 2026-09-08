@@ -10,33 +10,37 @@ compile time. This file covers only what is specific to `github-board`.
 
 ## Orientation
 
-| File               | What it owns                                                                |
-| ------------------ | --------------------------------------------------------------------------- |
-| `index.ts`         | Wiring only — binds the twelve RPC contracts and registers the sidebar surface. |
-| `board.shared.ts`  | The zod contracts, and the `BoardItem` shape both halves agree on.          |
-| `board.server.ts`  | Every `gh` subprocess, the settings file, and the server-side board cache.  |
-| `board.client.tsx` | The surface: columns, cards, the detail panel, the repository filter, and the client cache. |
-| `markdown.client.tsx` | The renderer for an item's Markdown body; only the detail panel uses it.  |
-| `html.client.tsx`  | Rewrites the HTML in a body into Markdown before the renderer parses it.    |
-| `image-host.ts`    | Unsuffixed, in both bundles: which image hosts the daemon fetches for the app. |
-| `README.md`        | What the board shows a user, and which query backs each column.             |
+| File                       | What it owns                                                                |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `index.client.tsx`         | Client wiring — the surface, the sidebar item, the settings screen, two Command Center items. |
+| `index.server.ts`          | Server wiring — the nine RPC contracts and the two settings documents.      |
+| `shared/board.ts`          | The zod contracts, and the `BoardItem` shape both halves agree on.          |
+| `shared/settings.ts`       | The two host-stored settings documents, the default prompts, and `normalizePrompts`. |
+| `shared/image-host.ts`     | Which image hosts the daemon fetches for the app; used by both halves.      |
+| `server/board.ts`          | Every `gh` subprocess, the daemon's own settings file, and the server-side board cache. |
+| `client/board.tsx`         | The surface: columns, cards, the detail panel, the repository filter, the send dialog, and the client cache. |
+| `client/settings-screen.tsx` | The Settings → Plugins frame around the same editor the gear button opens. |
+| `client/markdown.tsx`      | The renderer for an item's Markdown body; only the detail panel uses it.    |
+| `client/html.tsx`          | Rewrites the HTML in a body into Markdown before the renderer parses it.    |
+| `client/web.ts`            | Every browser global this plugin touches: the desktop URL opener and the drag's document listeners. |
+| `README.md`                | What the board shows a user, and which query backs each column.             |
 
 ## Checking a `gh` query against reality
 
 There is no test script and no UI harness here, so a clean `npm run typecheck` plus a clean
 `paseo plugin reload github-board` prove the code compiles and loads, nothing more.
 
-The server half is checkable on its own, though: everything it imports from `board.shared` is an
+The server half is checkable on its own, though: everything it imports from `shared/board` is an
 `import type`, so it transpiles to a module with no runtime dependency beyond Node built-ins.
 
 ```bash
-npx tsc board.server.ts --module esnext --target es2022 --moduleResolution bundler \
-  --outDir /tmp/gbcheck --skipLibCheck --types node --ignoreConfig
+npx tsc server/board.ts shared/image-host.ts --module esnext --target es2022 \
+  --moduleResolution bundler --outDir /tmp/gbcheck --skipLibCheck --types node --ignoreConfig
 # then call loadBoardHandler from a throwaway .mjs in that directory, and delete it after
 ```
 
-`board.server.ts` also imports `./image-host` at runtime, so pass `image-host.ts` to `tsc` as
-well, and add the `.js` extension to that one import in the emitted `board.server.js` before
+`server/board.ts` imports `../shared/image-host` at runtime, which is why that file is passed to
+`tsc` too; add the `.js` extension to that one import in the emitted `server/board.js` before
 running it — the bundler resolves extensionless imports, plain Node does not.
 
 Run it with `PASEO_HOME` pointed at a scratch directory so a throwaway never writes the real
@@ -195,21 +199,23 @@ board so the edge is grabbable from either side. The panel is anchored right, so
 it: `start.width - gesture.dx`, clamped between `DETAIL_MIN_WIDTH` and the body's width less
 `BOARD_MIN_WIDTH`, so neither side can be dragged out of existence. The body's width comes from
 the parent's `onLayout` and is threaded in as `bodyWidth`, null on compact, which is also what
-hides the handle. The chosen width is a **share of the body, not pixels** — `cachedDetailFraction` at module scope
-for the instant repaint on remount, and `detailWidthFraction` in the settings file for the next
-daemon start, saved once per drag by `board.save-detail-width` on release and adopted from
-`board.load` only while nothing has been dragged locally since. A share, because the width was
-chosen against one window and has to fit a different one — or a different machine, since the
-settings live with the daemon. It is turned back into pixels against the body as laid out now and
-clamped the same way a drag is, so a share that made sense on a wide window still leaves a column
-of board on a narrow one. The drag
-start is a ref, not state: the responder is created once and must read the latest value.
+hides the handle. The chosen width is a **share of the body, not pixels** — because the width was
+chosen against one window and has to fit a different one, or a different machine. It is turned back
+into pixels against the body as laid out now and clamped the same way a drag is, so a share that
+made sense on a wide window still leaves a column of board on a narrow one.
+
+The drag runs on component state and settles **once, on release**, into the `display` settings
+document — a save per move would be a write per pixel. The board owns that document and passes the
+saved share down as `widthFraction` with an `onWidthCommitted` callback back, so there is one writer
+rather than two hooks racing on one revision. The panel adopts a share saved elsewhere, but never
+while a drag is in flight, which would yank the edge out from under the pointer. The drag start is a
+ref, not state: the responder is created once and must read the latest value.
 
 **Widening needs two things narrowing does not**, because widening drags the pointer *left*, off
 the handle and across the board's columns. First, `onPanResponderTerminationRequest` returns
 false: every scroll view the pointer crosses asks for the responder, and the default answer is
 yes, which is why the drag used to stop partway. Second, on the web renderer the grant also
-installs document-level `pointermove`/`pointerup` listeners (`trackPointerOnDocument`) that drive
+installs document-level `pointermove`/`pointerup` listeners (`trackPointerOnDocument`, in `client/web.ts`) that drive
 the same clamp from `clientX`, so a pointer that outruns the handle, or leaves the window, still
 moves the edge; a window `blur` stands in for the release the browser cannot report. Both feed
 `applyDelta`, so whichever arrives first wins and they cannot disagree. Native has no `document`
@@ -246,15 +252,15 @@ anyone without the token and, with it, a 302 to a signed S3 URL good for five mi
 no token, so `board.image` fetches the bytes on the daemon with `gh auth token` and answers a data
 URL; `fetch` follows the redirect and drops `Authorization` across origins as the spec says. The
 size cap is 4 MB and the server keeps the last 24 by URL. **Only GitHub hosts**, decided by
-`isGitHubImageHost` in `image-host.ts` and checked again on the server rather than trusted from
+`isGitHubImageHost` in `shared/image-host.ts` and checked again on the server rather than trusted from
 the client: this is the daemon fetching a URL a comment's author chose, so anything else is loaded
 by `Image` directly, the way a browser would. A release-asset download URL is not an attachment
 and answers 404 even with the token; it is left as the text it was.
 
-`image-host.ts` has no suffix and no Node imports on purpose — it is in both bundles — and it is
-kept out of `board.shared.ts` so that file stays type-only to the server, which is what lets the
-server half be transpiled and run alone. The standalone check now needs `image-host.ts` passed to
-`tsc` alongside `board.server.ts`.
+`shared/image-host.ts` has no Node imports on purpose: it is in both bundles, which is what
+`shared/` means. It is kept out of `shared/board.ts` so that file stays type-only to the server,
+which is what lets the server half be transpiled and run alone — and why the standalone check passes
+both files to `tsc`.
 
 `RemoteImage` measures the image with `Image.getSize` — the callback form; the promise form is
 newer than some react-native-web builds and returns nothing there — before rendering it, so the
@@ -262,7 +268,7 @@ frame is sized by `aspectRatio` before the bitmap paints and the thread does not
 480pt tall. A press opens the original on GitHub; a failure falls back to the `[image: alt]` link
 the panel used to show. The client keeps its own 24-entry cache of fetched images at module scope.
 
-`markdown.client.tsx` renders the body and every comment. It renders pipe tables as rows of
+`client/markdown.tsx` renders the body and every comment. It renders pipe tables as rows of
 equal-width cells, and a cell that is only an image goes through `renderImage` too: a table of
 screenshots, one variant per column, is how a review thread compares them, and it was where most
 of the images in the pull request this was built against lived. There is no Markdown library a client bundle can import,
@@ -277,7 +283,7 @@ under Hermes.
 **HTML is rewritten into Markdown before parsing, not parsed alongside it.** Dependabot writes
 its whole body in HTML — `<details>` around each release-notes section, `<blockquote><h2>…<ul>`
 for the upstream changelog, `<a href><code>@login</code></a>` for credits — and it rendered as a
-wall of tags. `html.client.tsx` walks the tags in order with a small stack and emits each one's
+wall of tags. `client/html.tsx` walks the tags in order with a small stack and emits each one's
 Markdown spelling: a `#` heading line, a list marker indented two spaces per nesting level, a
 `> ` prefix on every line written inside a quote, `[label](href)`, a pipe table whose first row is
 the header. That keeps `parseMarkdown` single-purpose and means anything the renderer learns to
@@ -293,7 +299,7 @@ parses the inside recursively, and `DetailsBlock` starts collapsed unless the au
 `open`, which is how GitHub shows it too. Quotes hold blocks the same way, so a heading or list
 inside one renders as one.
 
-To check the pass against a real body, compile `html.client.tsx` and `markdown.client.tsx` to a
+To check the pass against a real body, compile `client/html.tsx` and `client/markdown.tsx` to a
 scratch directory with `tsc --jsx react-jsx` over stub `react` and `react-native` modules, then
 log `parseMarkdown(body)` as a tree; the `key` prop error from the stub is expected. Dependabot's
 bodies (`gh pr view <n> --json body`) are the reference case.
@@ -386,17 +392,32 @@ that daemon's client (`surface-runtime.ts`), the board's `gh` runs there, and no
 API reaches another host. Switching hosts is the surface header's own `PluginHostSwitcher`. The
 dialog names the host instead of offering it.
 
-**The backdrop does not cancel.** The dialog opens with a prompt the user is expected to edit, and a
-modal that closes on any press outside itself puts that edit one stray thumb away from being lost —
-on a phone, where the card is small and the backdrop is most of the screen, that is a matter of time
-rather than of luck. Cancel is the only way out, and it is labelled. The backdrop still *catches* the
-press so nothing reaches the board underneath: an open popover swallows it the way every menu does,
-and otherwise it dismisses the keyboard, which is what a press outside a field means on a touch
-platform. It is hidden from screen readers unless it has a menu to close, because a button that does
-nothing is worse than no button.
+**It is the host's `Modal`**, which is a bottom sheet on compact layouts and a centred dialog
+otherwise. Paseo owns the frame, the backdrop, the header, the safe-area clearance and every
+dismissal gesture; the plugin owns `open` and answers `onOpenChange`.
 
-This is the opposite of the label context menu, which *does* dismiss on the next press — a menu holds
-no unsaved work, and pressing away from one is how every menu is closed.
+**Dismissal is answered per case, in `requestClose`.** The dialog opens with a prompt the user is
+expected to edit, and losing that edit to a press outside the sheet — on a phone, where the backdrop
+is most of the screen — is a matter of time rather than of luck. So:
+
+| State | A backdrop press, Escape, back action or swipe does |
+| --- | --- |
+| A popover is open | Closes the popover, the way every menu swallows the press that dismisses it |
+| A send is in flight | Nothing; it is not interruptible |
+| The prompt has been edited | Nothing, and a toast points at Cancel |
+| The prompt is untouched | Closes the dialog |
+
+The last row is what keeps it a modal rather than a trap, and the toast is why the third does not
+read as broken. Before 0.8 the whole dialog was hand-built and the backdrop simply never cancelled,
+because there was nothing to say so with.
+
+This is still the opposite of the label context menu, which *does* dismiss on the next press — a
+menu holds no unsaved work, and pressing away from one is how every menu is closed.
+
+**The popover scrollers come from `@getpaseo/plugin/client/react-native`**, not from `react-native`,
+so they share the sheet's gestures instead of competing with it for them on Android. Outside a sheet
+they are ordinary React Native scrolling, which is why the label menu — positioned against the
+surface, not in a modal — uses the same import without caring.
 
 ### The popovers
 
@@ -450,54 +471,35 @@ pretending nothing happened.
 
 ### Selecting the new workspace
 
-The route is the app's own: `/h/<serverId>/workspace/<workspaceId>?open=agent:<agentId>`.
-`props.host.id` **is** that `serverId` (`surface-screen.tsx` passes `{ id: serverId, label:
-hostLabel }`), and `?open=agent:…` is the cold deep-link intent the workspace screen consumes and
-then strips (`app/h/[serverId]/workspace/[workspaceId]/index.tsx`).
+`handleLaunched` calls `props.navigation.openAgent({ agentId })`, which lands on the workspace *and*
+opens that agent's tab, because it runs the app's own `navigateToAgent` against the host rendering
+the surface. No route, no platform branch, no reload.
 
 **It runs in the client bundle, and that is the point.** The server half lives next to the daemon,
 which on a remote host is a different machine from the one the user is looking at — a link opened
 there would surface on the wrong screen.
 
-Since Paseo 0.7.0-beta.3 ([getpaseo/paseo#3901](https://github.com/getpaseo/paseo/pull/3901)) the
-host passes `props.navigation`, and `handleLaunched` prefers it: `openAgent({ agentId })` alone
-lands on the workspace *and* opens that agent's tab, because it runs the app's own `navigateToAgent`
-against the host rendering the surface. No route, no platform branch, no reload. The prop is
-optional and its **absence is the compatibility gate**.
+The prop shipped in Paseo 0.7.0-beta.3
+([getpaseo/paseo#3901](https://github.com/getpaseo/paseo/pull/3901)) and is still typed optional,
+because hosts before it passed nothing. It used to have a fallback behind that `undefined`:
+`selectWorkspaceInApp` hand-built `/h/<serverId>/workspace/<workspaceId>?open=agent:<agentId>` and
+delivered it as a `paseo://` link through `Linking` on native, or a `history.pushState` plus a
+synthesized `popstate` on web, with a `location.assign` reload if neither took.
 
-**That gate is the app's version, not the daemon's.** `usePluginHostNavigation` lives in
-`packages/app`, so the prop arrives or not according to the client rendering the surface — and one
-daemon serves several. Measured on 2026-08-31 against a single 0.7.0-beta.3 daemon by throwing
-instead of falling back: desktop navigated, the phone reported no prop, because the mobile app
-ships on its own cadence and was still behind. If you need to re-run that experiment, throw *before*
-`setSendTarget(null)` — the caller's `.catch` writes into the send dialog, so a throw after the
-dialog closes sets state on an unmounted component and you see nothing.
-
-So `selectWorkspaceInApp` is not dead code awaiting a cleanup: it is live on every client older than
-the newest one, which today includes mobile. It is the pre-0.7.0-beta.3 path, and it uses what the
-platform gives it:
-
-- Native opens `paseo:/<route>` through `Linking`, which expo-router handles in-process.
-- Web and the desktop renderer `history.pushState` the route and dispatch a `popstate`, which is the
-  event expo-router's forked `useLinking` listens on; it finds no matching history record and
-  `resetRoot`s to the route.
-
-`paseoDesktop.opener.openUrl` is **not** usable for this: `desktop/src/features/opener.ts` allows
-only `http:` and `https:` and throws on anything else, and `Linking.openURL` on the desktop renderer
-is `window.open`, which opens a bare child window. Hence the history push.
-
-The push is best effort and self-checking: routing away unmounts this surface, so if the surface is
-still mounted `ROUTER_SETTLE_MS` later, nothing routed and `location.assign` finishes the job with a
-reload. The success notice is set *before* navigating, so a platform where neither works still says
-where the work went.
+That fallback was live because the gate was the **app's** version, not the daemon's — measured on
+2026-08-31 against a single 0.7.0-beta.3 daemon, desktop navigated and the phone did not, since the
+mobile app ships on its own cadence. `requirements.paseo: ">=0.8.0"` closed it: each app checks the
+range against its own version before evaluating this bundle, so a client too old to pass the prop is
+a client that never runs this code. The `undefined` branch now does nothing beyond leaving the
+success toast standing, which already names the workspace.
 
 **The clipboard is gone.** It used to carry the prompt because a plugin cannot seed a composer —
-drafts are app state and a client bundle may only import react, react-native, react-query, zod and
-`@getpaseo/plugin`. Sending the prompt to an agent we create ourselves sidesteps that entirely.
-`plugin.addAttachmentSource` was the documented route for plugin content into a composer unsent, and
-this plugin **tried it and reverted it** (see git history for `board.search-attachments`): the
-handler returned items that passed the host's own `PluginAttachmentSearchPayloadSchema` and the
-picker still showed nothing. Budget for debugging the host before reaching for that API again.
+drafts are app state, and no client-reachable module writes into one. Sending the prompt to an agent
+we create ourselves sidesteps that entirely. `addAttachmentSource` is the documented route for
+plugin content into a composer unsent, and this plugin **tried it and reverted it** (see git history
+for `board.search-attachments`): the handler returned items that passed the host's own
+`PluginAttachmentSearchPayloadSchema` and the picker still showed nothing. That was against 0.7 and
+has not been retried on 0.8; budget for debugging the host before reaching for that API again.
 
 **The overlay is the wide layout's button, and only its.** Where the columns share a row the button
 is absolutely positioned in the card's bottom-right corner, so revealing it neither reflows the card
@@ -549,22 +551,23 @@ glyph is the one label that always fits.
 
 ### The keyboard
 
-The launch dialog is centred in a layer that fills the surface, so on a phone the keyboard opens
-straight over it. `useKeyboardInset` shortens that layer by the keyboard's height and the card
-recentres in what is left — **padding, not a translation**, so the card can also *shrink* into the
-remaining space, which moving it could not.
+The launch dialog's prompt field is the SDK's `TextInput`, not React Native's. It registers focus
+with the native sheet, so the keyboard **raises the form** rather than covering it, and the host
+owns the arithmetic.
 
-It is **iOS-only on purpose**: Android resizes the window itself when the keyboard opens, so the
-layout has already shrunk by the time the event lands and padding again would push the dialog off
-the top. It listens on `keyboardWillShow`, which fires with the opening animation rather than after
-it — and which Android does not emit at all, the other reason this is not shared. The settings view
-needs none of it: a `ScrollView` can be told to inset itself with
+That replaced `useKeyboardInset`, a hook that shortened the dialog's own layer by the keyboard's
+height so the card could recentre above it. It worked, and only on iOS: it listened on
+`keyboardWillShow`, which fires with the opening animation and which **Android does not emit at
+all**. Android was left relying on the window resizing itself. Anything that needs the keyboard's
+height directly should reach for the host's input first and check whether it still does.
+
+The settings view needs none of this: a `ScrollView` can be told to inset itself with
 `automaticallyAdjustKeyboardInsets`, and that is what it does.
 
-Shrinking needs two `flexShrink: 1`s, because **Yoga does not shrink flex children by default** the
-way CSS does. One on `dialogCard`, so the card obeys the shortened layer instead of overflowing it;
-one on `promptInput`, so the height comes out of the prompt — which scrolls itself, being multiline
-— rather than off the bottom row with the Send button on it.
+`promptInput` keeps its `flexShrink: 1`, because **Yoga does not shrink flex children by default**
+the way CSS does — the height has to come out of the prompt, which scrolls itself being multiline,
+rather than off the bottom row with the Send button on it. The card's own `flexShrink` went with
+`dialogCard`; the sheet is the host's to size now.
 
 Opening any picker calls `Keyboard.dismiss()` first (`togglePicker`). The popovers are sized to the
 card and the card is sized to what the keyboard leaves, so a menu opened mid-typing would otherwise
@@ -587,30 +590,38 @@ prompt instead of silently swallowing part of it.
 Overrides are keyed by **Paseo project id, not repository**. A card that reaches no project cannot
 be sent anywhere, so a per-repository override for one would configure something unusable — and a
 fork's origin and upstream are two repositories but one project, which should not need configuring
-twice. `board.load` carries `projects` (every live project, so the settings view can list them all)
-and `repositoryProjects` (`owner/name` to project id, for the repositories on this board only).
+twice. `board.load` carries `repositoryProjects` (`owner/name` to project id, for the repositories
+on this board only), because the surface needs it *during* the press gesture that opens the dialog.
+The full project list is not on it: the settings view calls `paseo.projects.list()` itself, which is
+the same list without the detour through a handler that only forwarded it.
 
 **Blank means inherit, at both levels.** A blank `byType` entry is stored as the built-in default,
 and a blank project override is dropped. That is deliberate: clearing a field *is* the reset, so
 there is no separate reset action and no way to end up with a saved empty prompt that sends
-nothing. `savePromptsHandler` runs its input back through `readPrompts` — the same function that
-parses the settings file — so saving a cleared field and reloading it cannot disagree.
+nothing. `normalizePrompts` in `shared/settings.ts` applies it at the **save boundary** rather than
+on read, which is what lets the editor's draft hold a blank field while it is being cleared while
+only the saved document reads that blank as "inherit".
 
 An override stores only the types it overrides, never a copy of the inherited value. Storing the
 copy would freeze it, and the override would stop tracking a default the user later edits.
 
 Resolution happens **on the client**, in `templateFor` + `renderTemplate`, because the launch dialog
 opens with the prompt already in it: a round trip first would show an empty field and then rewrite
-what the user may already be typing into. That is why `prompts` rides along on `board.load` the way
-`hiddenRepositories` does — and why, unlike the filter, it is adopted on *every* load rather than
-once: nothing edits it outside the settings view, and that view owns its own draft.
+what the user may already be typing into. The templates are a **settings document**, so they are on
+the client without riding along on anything — `useSettings(promptSettings)` reads them, and the host
+pushes an edit made on one client to every other without a board reload.
 
-The settings view is a second view inside the same surface, toggled by `showSettings`, not a second
-surface: `openSurface` exists only on a Command Center item's context, so a surface cannot route to
-another one. It owns the GitHub login field too, which used to sit in the board header. It edits a
-draft and persists on Save — writing per keystroke would save half-typed templates and cost a round
-trip per character — and both its draft and its login field adopt a new prop only when the prop
-actually changes, so neither fights what is being typed.
+**The editor has two doors and one implementation.** `PromptSettingsView` is rendered by the board's
+own `showSettings` view, reached from the gear in the header, and by `client/settings-screen.tsx`
+under Settings → Plugins, reached from that list or from the `board-settings` Command Center item.
+Two doors rather than one because `PluginSurfaceProps` carries no `openSettings` — a surface cannot
+route to its own settings screen — so moving the editor out would have left the gear with nowhere to
+go. They cannot diverge: both bind to the same document, and a save against a revision the other has
+moved past fails and reports rather than silently winning.
+
+It edits a draft and persists on Save — writing per keystroke would save half-typed templates and
+cost a round trip per character — and both its draft and its login field adopt a new value only when
+that value actually changes, so neither fights what is being typed.
 
 The match asks the daemon, through `paseo.projects.list()` — added to the plugin `PaseoApi` in
 Paseo 0.5.2 ([getpaseo/paseo#3899](https://github.com/getpaseo/paseo/pull/3899)) for exactly this
@@ -625,9 +636,8 @@ daemon-internal file format, archived projects filtered out by the daemon rather
 plugin, and `projectDisplayName` already resolved through the project's custom name, so a renamed
 project reads on a card the way it reads everywhere else in Paseo. The list is requested with no
 `sync` cursor, so the answer is always the full list rather than a diff against a cursor this plugin
-does not keep. It costs no reach: a handler already holds a daemon session, so a board that can load
-at all can list projects. It does raise the floor to Paseo 0.5.2, and the SDK dependency to a version
-that declares `paseo.projects`.
+does not keep. It costs no reach: both a handler and a surface hold a daemon session, so anything
+that can talk to Paseo at all can list projects.
 
 `projectKey` is `remote:<host>/<owner>/<name>`, lowercased by the daemon, which is exactly a card's
 identity — so the lookup is an equality test on that key, not a guess at directory names. It is
@@ -647,29 +657,68 @@ repository Paseo itself considers the project's home; the remote scan costs one 
 project and only runs on a miss. A directory that is not a checkout, or has gone missing,
 contributes no remotes rather than failing the search for every other project.
 
-The launch outcome lands in a modal centred over the surface — the last child of the screen view, so
-it paints above the columns by order and not only where `zIndex` is honoured. It is separate from
-the board's `error`, because a card that matched no project says nothing about whether the board
-loaded.
+The launch outcome is a host toast. It used to be a modal with a Close button, which was wrong for
+the success case in particular: it announced the new workspace *while* navigating the user into it,
+so the thing to dismiss was gone before it could be read. It is separate from the board's `error`
+because a card that matched no project says nothing about whether the board loaded — and `error`
+stays a banner for the same reason, being a state rather than an event.
 
 ## Settings and caching
 
-Settings persist to `$PASEO_HOME/plugins/github-board/settings.json`, defaulting to `~/.paseo`, and
-hold `login`, the repository filter's `hiddenRepositories`, the `prompts`, the `launch` defaults
-the dialog reopens on, and the detail panel's `detailWidthFraction`. Five handlers write that one file, so all of them go through
-`updateSettings`, which read-modify-writes — a whole-file write from any would drop the others'
-keys. Each reader defaults what it cannot parse, so a settings file written before a key existed is
-read and upgraded in place rather than rejected.
+**Two stores, split on which side has to read the value.** The rule and its rationale are in the
+root `CLAUDE.md`; this is where the line falls here.
+
+| Where | What | Why there |
+| --- | --- | --- |
+| Host settings store, `shared/settings.ts` | `hiddenRepositories`, `detailWidthFraction` (`display`); the prompt templates (`prompts`) | Read only to draw the board. `useSettings` puts them on the client with no round trip, and the host pushes an edit to every connected client. |
+| `$PASEO_HOME/plugins/github-board/settings.json` | `login`, the `launch` defaults | Handlers act on them: `gh` runs every query as that login, and `board.send-options` answers with those defaults. A settings document is readable from the client only. |
+
+Two handlers write that one file, so both go through `updateSettings`, which read-modify-writes — a
+whole-file write from either would drop the other's key. Each reader defaults what it cannot parse.
+
+### Migrating the pre-0.4.0 file
+
+The three moved values were already saved, so they are handed across rather than reset — but **the
+daemon cannot do it alone**: a settings document is written over the client's RPC channel and
+`PluginServerContext` has no equivalent. So the migration is a round trip.
+
+```text
+board.legacy-settings   → daemon reads its file, returns the old values (writes nothing)
+                        → app writes them into the two settings documents
+board.legacy-settings-taken → daemon stamps `settingsMigratedAt`, drops the old keys
+```
+
+Three properties make that safe, and all three are load-bearing:
+
+- **The daemon's copy is the fallback until the app acknowledges.** Nothing is cleared by the read,
+  so an interrupted or failed migration is retried on the next launch instead of losing the values
+  in flight.
+- **`updateSettings` writes the legacy block back verbatim while it exists.** Otherwise a login
+  change made before the app had ever loaded the board would drop the values it was about to take.
+- **Each document is written only if it is still untouched** — `hiddenRepositories` empty,
+  `detailWidthFraction` null, `isDefaultPrompts(...)` true. Someone who customised their prompts on
+  0.4.0 before an older client got round to migrating keeps what they customised.
+
+`readLegacyPrompts` is deliberately loose, and `LEGACY_PROMPT_KEYS` is a local literal rather than
+an import of `COLUMN_IDS`: it reads a format frozen by what older versions wrote, so it should not
+track a schema that may yet gain a column — and keeping it a literal is what preserves the
+`import type`-only property the standalone check above depends on. An older file stored only the
+templates that differed, so `byType` arrives partial and `completePrompts` fills the rest from the
+side that owns the defaults.
+
+The client guard is `legacyMigrationAttempted` at module scope: the surface remounts on every
+workspace switch, and a second attempt in one session could only ever be a wasted round trip.
 
 A plugin surface unmounts whenever the user switches workspaces, so anything that should outlive
-that (the repository filter, the launch defaults) belongs in settings, not component state. The same unmount is why both
-halves cache the board for five minutes — module scope in `board.client.tsx` for an instant repaint,
-and a keyed value in `board.server.ts` so a cold mount still skips the `gh` calls. `force` on
-`board.load` is the Refresh button bypassing both. Keep `hiddenRepositories` out of the server's
-cached value: settings are read per load, or a filter saved after that board was built comes back
-stale on the next hit.
+that belongs in one of the two stores rather than in component state. The same unmount is why both
+halves cache the board for five minutes — module scope in `client/board.tsx` for an instant repaint,
+and a keyed value in `server/board.ts` so a cold mount still skips the `gh` calls. `force` on
+`board.load` is the Refresh button bypassing both.
 
 The client bundle's module scope surviving an unmount is an assumption about the host, not a
-guarantee — the server cache is what makes the speedup hold if it turns out to be wrong. The board's
-filter rides along in the `board.load` response and is adopted once, guarded by a ref: later
-refreshes must not overwrite a selection the user is mid-way through changing.
+guarantee — the server cache is what makes the speedup hold if it turns out to be wrong.
+
+The filter is adopted from settings **once**, guarded by a ref: later pushes must not overwrite a
+selection the user is mid-way through changing, and the local set is already what was just written,
+so re-adopting could only ever undo a toggle. The panel width is the same shape, guarded by whether
+a drag is in flight — adopting mid-drag would yank the edge out from under the pointer.

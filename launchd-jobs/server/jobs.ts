@@ -12,8 +12,8 @@ import {
   parseCron,
   toCalendarEntries,
   type CalendarEntry,
-} from "./cron";
-import type { Job, JobSpec, RunRecord, Schedule } from "./jobs.shared";
+} from "../shared/cron";
+import type { Job, JobSpec, RunRecord, Schedule } from "../shared/jobs";
 
 /**
  * The daemon half: every `launchctl` and `plutil` call, the plist files, the

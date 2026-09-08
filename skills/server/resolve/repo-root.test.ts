@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { dirsUpToRepoRoot, findRepoRoot } from "./repo-root.server";
+import { dirsUpToRepoRoot, findRepoRoot } from "./repo-root";
 
 let root: string;
 

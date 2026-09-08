@@ -30,6 +30,10 @@ npm run typecheck
 paseo plugin install "$PWD"
 ```
 
+Requires **Paseo 0.8.0 or newer**, on the computer running the daemon and on whatever you view the
+surface on. Both check the version themselves, so an older one reports the plugin as incompatible
+rather than half working.
+
 The **daemon** has to be running on macOS, because that is where the agents live and where the
 commands run. A daemon on Linux loads the plugin and the surface says so instead of showing a list.
 The Paseo app can be anywhere.

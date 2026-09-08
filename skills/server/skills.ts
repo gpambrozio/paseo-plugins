@@ -5,8 +5,8 @@ import path from "node:path";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 
 import { parseFrontmatter } from "./resolve/frontmatter";
-import { resolveClaudeSkills } from "./resolve/claude.server";
-import { resolveCodexSkills } from "./resolve/codex.server";
+import { resolveClaudeSkills } from "./resolve/claude";
+import { resolveCodexSkills } from "./resolve/codex";
 import { selectReported, supportsCommands } from "./resolve/reported";
 import type { ReportedSkill } from "./resolve/reported";
 import type { SkillEntry } from "./resolve/skill-entry";

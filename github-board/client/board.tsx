@@ -1,4 +1,11 @@
-import { Icon, type PluginSurfaceProps, useRpc, usePaseo } from "@getpaseo/plugin";
+import { type PluginSurfaceProps, useRpc, usePaseo, useSettings } from "@getpaseo/plugin/client";
+import {
+  Icon,
+  Modal,
+  ScrollView as SheetScrollView,
+  TextInput as SheetTextInput,
+  useToast,
+} from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -32,7 +39,7 @@ import type {
   PromptSet,
   PromptSettings,
   RepositoryLabel,
-} from "./board.shared";
+} from "../shared/board";
 import {
   COLUMN_IDS,
   listLabels,
@@ -40,123 +47,23 @@ import {
   loadComments,
   loadImage,
   loadItem,
-  saveDetailWidth,
-  savePrompts,
+  legacySettingsTaken,
   saveLogin,
-  saveRepositoryFilter,
   sendOptions,
+  takeLegacySettings,
   sendToChat,
   toggleLabel,
-} from "./board.shared";
-import { isGitHubImageHost } from "./image-host";
-import { MarkdownBody } from "./markdown.client";
-
-/**
- * `Linking.openURL` is `window.open` on the desktop renderer, and the main
- * Electron window installs no window-open handler, so a card click lands in a
- * bare child window instead of the browser. The desktop preload exposes the
- * same opener Paseo's own links go through, which hands the URL to the OS
- * browser as a normal tab. Mobile and plain web have no bridge and keep
- * `Linking`, which already opens a tab there.
- */
-interface DesktopOpenerBridge {
-  readonly opener?: { readonly openUrl?: (url: string) => Promise<void> };
-}
-
-function openExternalUrl(url: string): void {
-  const openUrl = (globalThis as { paseoDesktop?: DesktopOpenerBridge }).paseoDesktop?.opener
-    ?.openUrl;
-  if (typeof openUrl !== "function") {
-    void Linking.openURL(url);
-    return;
-  }
-  void openUrl(url).catch((error: unknown) => {
-    console.warn("[github-board] desktop opener refused the URL, falling back", error);
-    void Linking.openURL(url);
-  });
-}
-
-/**
- * Selects the freshly created workspace in the app by hand-building its route.
- *
- * Only for hosts that pass no `props.navigation` — Paseo before 0.7.0-beta.3,
- * where a plugin had no way to ask the client to navigate. Newer hosts take the
- * `navigation.openAgent` path in `handleLaunched`, which reaches the same screen
- * without any of this.
- *
- * This runs in the **client** bundle on purpose. The plugin's server half lives
- * next to the daemon, which on a remote host is a different machine from the one
- * the user is looking at — a link opened there would surface on the wrong
- * screen. `props.host.id` is the `serverId` the app's routes are keyed by
- * (`surface-screen.tsx` passes `{ id: serverId }`), so the client can address
- * the workspace on any host it is connected to.
- *
- * `?open=agent:<id>` is the app's own cold deep-link intent: the workspace
- * screen reads it, opens that agent's tab, and strips it from the URL. Without
- * it the workspace opens on whichever tab it feels like.
- *
- * Two mechanisms, because the route has to be delivered differently per platform:
- *
- * - Native runs the app's own `paseo://` scheme through `Linking`, which expo
- *   router handles in-process.
- * - Web and the desktop renderer push the route onto `history` and announce it
- *   with a `popstate`, which is the event expo-router's linking listens on.
- *   `paseoDesktop.opener.openUrl` is *not* usable here: it only accepts http and
- *   https (`desktop/src/features/opener.ts`), so a `paseo://` link throws.
- *
- * The push is best effort, so the caller re-checks: `stillHere` reports whether
- * the surface is still mounted a beat later, and if it is, nothing routed and a
- * full location change finishes the job.
- */
-function selectWorkspaceInApp(input: {
-  serverId: string;
-  workspaceId: string;
-  agentId: string;
-  platform: PluginSurfaceProps["layout"]["platform"];
-  stillHere: () => boolean;
-}): void {
-  // A `wks_…` id needs no encoding; encodeURIComponent covers the legacy
-  // path-shaped ids too, which the app decodes back on the way in.
-  const route = `/h/${encodeURIComponent(input.serverId)}/workspace/${encodeURIComponent(
-    input.workspaceId,
-  )}?open=${encodeURIComponent(`agent:${input.agentId}`)}`;
-
-  if (input.platform !== "web") {
-    void Linking.openURL(`paseo:/${route}`).catch((error: unknown) => {
-      console.warn("[github-board] could not open the workspace deep link", error);
-    });
-    return;
-  }
-
-  // Typed structurally: this plugin compiles against Node's lib, not the DOM's,
-  // and these globals only exist on the platforms this branch runs on anyway.
-  const web = globalThis as {
-    history?: { pushState?: (state: unknown, title: string, url: string) => void };
-    location?: { assign?: (url: string) => void };
-    dispatchEvent?: (event: unknown) => boolean;
-    PopStateEvent?: new (type: string) => unknown;
-    Event?: new (type: string) => unknown;
-  };
-  const PopState = web.PopStateEvent ?? web.Event;
-  if (typeof web.history?.pushState !== "function" || PopState === undefined) return;
-  try {
-    web.history.pushState({}, "", route);
-    web.dispatchEvent?.(new PopState("popstate"));
-  } catch (error) {
-    console.warn("[github-board] history navigation failed", error);
-  }
-  setTimeout(() => {
-    // Still mounted means the router ignored the push — the surface would have
-    // gone with the route otherwise. Loading the same URL outright is the
-    // fallback, and it costs nothing when it never runs.
-    if (!input.stillHere()) return;
-    web.location?.assign?.(route);
-  }, ROUTER_SETTLE_MS);
-}
-
-/** Long enough for expo-router to swap the screen, short enough not to feel stuck. */
-const ROUTER_SETTLE_MS = 600;
-
+} from "../shared/board";
+import { isGitHubImageHost } from "../shared/image-host";
+import { MarkdownBody } from "./markdown";
+import {
+  completePrompts,
+  displaySettings,
+  isDefaultPrompts,
+  normalizePrompts,
+  promptSettings,
+} from "../shared/settings";
+import { openExternalUrl, trackPointerOnDocument } from "./web";
 /**
  * The four columns in display order, with the label the settings view gives
  * each one. Declared here rather than read off the board so the settings view
@@ -209,14 +116,20 @@ function renderTemplate(template: string, item: BoardItem): string {
  * past `STALE_AFTER_MS` — and even then the stale board stays on screen while
  * the refresh runs.
  *
- * The server still owns the durable copy of the filter; `cachedHidden` is only
- * here because a toggle made after the last load would otherwise be undone by
- * rehydrating from a board fetched before it.
  */
 let cachedBoard: Board | null = null;
 let cachedFetchedAt = 0;
-let cachedHidden: ReadonlySet<string> | null = null;
-let cachedPrompts: PromptSettings | null = null;
+/**
+ * Whether the one-way migration out of the daemon's old settings file has been
+ * attempted in this app session. Module scope because the surface remounts on
+ * every workspace switch and the answer cannot change underneath us: the
+ * daemon stamps the file once the values have landed, so a second attempt
+ * would only ever be a wasted round trip.
+ *
+ * A *failed* attempt leaves this true for the session but the file unstamped,
+ * so the next launch tries again rather than losing the values.
+ */
+let legacyMigrationAttempted = false;
 /**
  * Which column the compact layout is showing. Module scope for the same reason
  * the board is: the surface unmounts on every workspace switch, and coming back
@@ -238,14 +151,6 @@ const cachedRepositoryLabels = new Map<string, { labels: RepositoryLabel[]; stor
  */
 const cachedImages = new Map<string, { uri: string; width: number; height: number }>();
 const IMAGE_CACHE_ENTRIES = 24;
-/**
- * The detail panel's width on the wide layout as a share of the body, once the
- * user has dragged it. Null means half. Module scope for the instant repaint
- * on remount, and the settings file — via `board.save-detail-width`, adopted
- * from `board.load` — for the next daemon start. A share, not pixels, so the
- * width chosen against one window still fits a different one.
- */
-let cachedDetailFraction: number | null = null;
 const DEFAULT_DETAIL_FRACTION = 0.5;
 /** Narrow enough for a phone-sized column of text; wide enough that a table of three screenshots still reads. */
 const DETAIL_MIN_WIDTH = 320;
@@ -262,88 +167,12 @@ const DETAIL_CLOSE_MS = 160;
 const DETAIL_OFFSCREEN_FALLBACK = 800;
 
 /**
- * Follows a drag at the document level on the web renderer, where the
- * responder system alone is not enough: widening the panel means dragging
- * *left*, across the board's columns, whose scroll views ask for the responder
- * as the pointer crosses them, and a pointer moving faster than the handle
- * leaves it altogether. Document listeners see every move until the button is
- * released, wherever the pointer is — including outside the window, where a
- * `blur` stands in for the release the browser cannot report.
- *
- * Typed structurally: this plugin compiles against Node's lib, not the DOM's,
- * and on native the globals are simply absent, so the function does nothing.
+ * Stands in while the settings read is pending. Blank templates are what
+ * `normalizePrompts` reads as "use the default", so the settings view opened
+ * before the document lands shows empty fields rather than inventing values
+ * that saving would disagree with.
  */
-function trackPointerOnDocument(
-  onMove: (clientX: number) => void,
-  onEnd: () => void,
-): () => void {
-  const web = globalThis as {
-    document?: {
-      addEventListener?: (type: string, listener: (event: unknown) => void) => void;
-      removeEventListener?: (type: string, listener: (event: unknown) => void) => void;
-      body?: { style?: Record<string, string> };
-    };
-    addEventListener?: (type: string, listener: () => void) => void;
-    removeEventListener?: (type: string, listener: () => void) => void;
-  };
-  const document = web.document;
-  if (
-    document === undefined ||
-    typeof document.addEventListener !== "function" ||
-    typeof document.removeEventListener !== "function"
-  ) {
-    return () => {};
-  }
-  const move = (event: unknown) => {
-    const clientX = typeof event === "object" && event !== null ? Reflect.get(event, "clientX") : null;
-    if (typeof clientX === "number") onMove(clientX);
-  };
-  /**
-   * A drag is also a mouse-down followed by movement, which is how a browser
-   * starts a text selection — and once the pointer leaves the handle, every
-   * card title it crosses is selectable. Selection is switched off on the body
-   * for the drag's duration, and the resize cursor is pinned there too so it
-   * does not flicker back to an I-beam over text.
-   */
-  const bodyStyle = document.body?.style;
-  const previous = {
-    userSelect: bodyStyle?.userSelect ?? "",
-    webkitUserSelect: bodyStyle?.webkitUserSelect ?? "",
-    cursor: bodyStyle?.cursor ?? "",
-  };
-  if (bodyStyle !== undefined) {
-    bodyStyle.userSelect = "none";
-    bodyStyle.webkitUserSelect = "none";
-    bodyStyle.cursor = "col-resize";
-  }
-  let done = false;
-  const end = () => {
-    if (done) return;
-    done = true;
-    if (bodyStyle !== undefined) {
-      bodyStyle.userSelect = previous.userSelect;
-      bodyStyle.webkitUserSelect = previous.webkitUserSelect;
-      bodyStyle.cursor = previous.cursor;
-    }
-    document.removeEventListener?.("pointermove", move);
-    document.removeEventListener?.("pointerup", end);
-    document.removeEventListener?.("pointercancel", end);
-    web.removeEventListener?.("blur", end);
-    onEnd();
-  };
-  document.addEventListener("pointermove", move);
-  document.addEventListener("pointerup", end);
-  document.addEventListener("pointercancel", end);
-  web.addEventListener?.("blur", end);
-  return end;
-}
-
-/**
- * Stands in until the first board lands. Blank templates are what the server
- * reads as "use the default", so the settings view opened before a load shows
- * empty fields rather than inventing values the server would disagree with.
- */
-const EMPTY_PROMPTS: PromptSettings = {
+export const EMPTY_PROMPTS: PromptSettings = {
   byType: { issues: "", "draft-prs": "", "open-prs": "", discussions: "" },
   byProject: {},
 };
@@ -391,7 +220,7 @@ function relativeTime(iso: string): string {
   return `${Math.round(days / 30)}mo ago`;
 }
 
-function useStyles({ theme, layout }: PluginSurfaceProps) {
+export function useStyles({ theme, layout }: PluginSurfaceProps) {
   return useMemo(() => {
     const { colors } = theme;
     const gap = layout.compact ? 8 : 12;
@@ -522,75 +351,18 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
        * its own view and nothing else. The layer clears the header's `zIndex`
        * of 30 and the repository filter's backdrop of 20.
        */
-      modalLayer: {
-        position: "absolute" as const,
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        alignItems: "center" as const,
-        justifyContent: "center" as const,
-        padding: 20,
-        zIndex: 40,
-      },
-      /**
-       * The theme has no scrim token, and dimming with `foreground` would wash
-       * light on a dark theme. Washing towards `surface0` instead reads as
-       * de-emphasis in both, and leaves the card — same fill, but bordered —
-       * as the only thing with an edge.
-       */
-      modalBackdrop: {
-        position: "absolute" as const,
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: withAlpha(colors.surface0, "e6"),
-      },
-      modalCard: {
-        width: "100%" as const,
-        maxWidth: 420,
-        gap: 12,
-        backgroundColor: colors.surface0,
-        borderWidth: 1,
-        borderColor: separator,
-        borderRadius: 12,
-        padding: 16,
-      },
-      modalTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" as const },
-      modalTitleDanger: {
-        color: colors.statusDanger,
-        fontSize: 15,
-        fontWeight: "600" as const,
-      },
       modalBody: { color: colors.foregroundMuted, fontSize: 13, lineHeight: 19 },
-      modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const },
       centered: { flex: 1, alignItems: "center" as const, justifyContent: "center" as const },
 
       // --- New workspace dialog ---
       /**
-       * Wider than the message modal because it holds a prompt the user is
-       * expected to edit, not a sentence they are expected to read.
+       * The host's sheet owns the frame, the backdrop, the header and the
+       * safe-area clearance, so this is only the body's own rhythm. The default
+       * `Modal.Content` padding is 24 and gap 16; 16 and 12 keep the dialog as
+       * tight as it was, which matters most on a phone where the prompt field
+       * is competing with the keyboard.
        */
-      dialogCard: {
-        width: "100%" as const,
-        maxWidth: 560,
-        /**
-         * Yoga does not shrink flex children by default, so without this the
-         * card keeps its full height and overflows a layer the keyboard has
-         * shortened — clipped on Android, and off the top on both. The prompt
-         * is the child that gives the height back; everything else keeps its
-         * size.
-         */
-        flexShrink: 1,
-        gap: 12,
-        backgroundColor: colors.surface0,
-        borderWidth: 1,
-        borderColor: separator,
-        borderRadius: 12,
-        padding: 16,
-      },
-      dialogHeader: { gap: 2 },
+      dialogBody: { padding: 16, gap: 12 },
       /**
        * A row of chips, and the anchor its popover hangs off. `zIndex` puts both
        * rows above the scrim that closes an open popover, so the chips stay
@@ -1592,7 +1364,7 @@ function LabelMenu({
           {labels.length === 0 ? "This repository defines no labels." : "No label matches."}
         </Text>
       ) : (
-        <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
+        <SheetScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
           {shown.map((label) => {
             const on = applied.has(label.name);
             return (
@@ -1616,7 +1388,7 @@ function LabelMenu({
               </Pressable>
             );
           })}
-        </ScrollView>
+        </SheetScrollView>
       )}
       {error !== null ? <Text style={styles.labelMenuError}>{error}</Text> : null}
       <Pressable
@@ -1837,7 +1609,7 @@ function Card({
  * One entry of the host's provider snapshot — every provider it knows about,
  * with the models and permission modes each one offers. Derived from the API
  * rather than imported from `@getpaseo/protocol`, because a plugin client bundle
- * may only import react, react-native, react-query, zod and `@getpaseo/plugin`.
+ * may only import the host-provided modules, which `@getpaseo/protocol` is not.
  */
 type ProviderEntry = Awaited<
   ReturnType<ReturnType<typeof usePaseo>["providers"]["snapshot"]>
@@ -2127,7 +1899,7 @@ function ChoicePopover({
 }) {
   return (
     <Popover styles={styles} direction={direction}>
-      <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
+      <SheetScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
         {options.map((option) => (
           <PopoverRow
             key={option.id}
@@ -2138,7 +1910,7 @@ function ChoicePopover({
             onPress={() => onSelect(option.id)}
           />
         ))}
-      </ScrollView>
+      </SheetScrollView>
     </Popover>
   );
 }
@@ -2230,7 +2002,7 @@ function ModelPopover({
         placeholderTextColor={styles.subtle.color}
         autoCorrect={false}
       />
-      <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
+      <SheetScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
         {browsing ? (
           <>
             <Text style={styles.popoverSection}>Providers</Text>
@@ -2266,7 +2038,7 @@ function ModelPopover({
             />
           ))
         )}
-      </ScrollView>
+      </SheetScrollView>
     </Popover>
   );
 }
@@ -2283,38 +2055,6 @@ interface LaunchResult {
   workspaceName: string;
   projectName: string;
   agentId: string;
-}
-
-/**
- * How much of the surface the software keyboard is covering, so a modal centred
- * over it can centre in what is left rather than under it.
- *
- * **iOS only, deliberately.** Android resizes the window itself when the
- * keyboard opens, so the layout has already shrunk by the time the event
- * arrives and padding by the same amount again would push the dialog off the
- * top. Web reports nothing and gets 0.
- *
- * `keyboardWillShow` rather than `keyboardDidShow`: it fires with the opening
- * animation, so the dialog travels with the keyboard instead of jumping once it
- * has arrived. Android has no `will` event, which is the other reason this is
- * not shared.
- */
-function useKeyboardInset(): number {
-  const [inset, setInset] = useState(0);
-
-  useEffect(() => {
-    if (Platform.OS !== "ios") return;
-    const shown = Keyboard.addListener("keyboardWillShow", (event) => {
-      setInset(event.endCoordinates.height);
-    });
-    const hidden = Keyboard.addListener("keyboardWillHide", () => setInset(0));
-    return () => {
-      shown.remove();
-      hidden.remove();
-    };
-  }, []);
-
-  return inset;
 }
 
 /**
@@ -2348,6 +2088,7 @@ function SendDialog({
   const paseo = usePaseo();
   const loadOptions = useRpc(sendOptions);
   const launch = useRpc(sendToChat);
+  const toast = useToast();
 
   const [prompt, setPrompt] = useState(initialPrompt);
   const [project, setProject] = useState<SendProject | null>(null);
@@ -2361,8 +2102,6 @@ function SendDialog({
 
   const closePicker = useCallback(() => setPicker(null), []);
 
-  const keyboardInset = useKeyboardInset();
-
   /**
    * Opening a menu puts the keyboard away first. The popovers are sized to the
    * card, and the card is sized to what the keyboard leaves — so a menu opened
@@ -2374,6 +2113,38 @@ function SendDialog({
     Keyboard.dismiss();
     setPicker((current) => (current === id ? null : id));
   }, []);
+
+  /**
+   * What the host's own dismissals — backdrop, Escape, the platform back
+   * action, the compact sheet's swipe — are allowed to do.
+   *
+   * An open popover swallows the press the way every menu does. A send in
+   * flight is not interruptible. And an *edited* prompt is not thrown away on
+   * a gesture: the dialog opens with a message the user is expected to rewrite,
+   * and on a phone the backdrop is most of the screen, so losing that edit to a
+   * stray thumb is a matter of time rather than of luck. Cancel is still the
+   * way out and still says so — the toast points at it, because a modal that
+   * silently refuses to close reads as broken.
+   *
+   * An untouched prompt has nothing to lose, so those gestures close it
+   * normally, which is what makes this a modal rather than a trap.
+   */
+  const requestClose = useCallback(
+    (next: boolean) => {
+      if (next) return;
+      if (picker !== null) {
+        setPicker(null);
+        return;
+      }
+      if (busy) return;
+      if (prompt !== initialPrompt) {
+        toast.show("Press Cancel to discard your message.", { variant: "info" });
+        return;
+      }
+      onCancel();
+    },
+    [busy, initialPrompt, onCancel, picker, prompt, toast],
+  );
 
   // Which project this card belongs to, and what the last send was set to.
   useEffect(() => {
@@ -2498,37 +2269,12 @@ function SendDialog({
   const modes = provider?.modes ?? [];
 
   return (
-    // The inset is padding rather than a translation: the card is centred in the
-    // layer, so shortening the layer recentres it in the space above the
-    // keyboard and lets it shrink there too, which moving it would not.
-    <View style={[styles.modalLayer, keyboardInset > 0 ? { paddingBottom: keyboardInset } : null]}>
-      {/* The backdrop is not a way out. This dialog opens with a prompt the
-          user is expected to edit, and dismissing on any press outside it puts
-          that edit one stray thumb away from being lost — on a phone, where the
-          card is small and the backdrop is most of the screen, that is a matter
-          of time rather than of luck. Cancel is the way out, and it says so.
-
-          It still catches the press, so nothing lands on the board underneath:
-          an open popover swallows it the way every menu does, and otherwise it
-          puts the keyboard away, which is what a press outside a field means on
-          a touch platform. Inert to a screen reader unless it has a menu to
-          close, since a button that does nothing is worse than no button. */}
-      <Pressable
-        accessibilityRole={picker === null ? undefined : "button"}
-        accessibilityLabel={picker === null ? undefined : "Close menu"}
-        accessibilityElementsHidden={picker === null}
-        importantForAccessibility={picker === null ? "no-hide-descendants" : "auto"}
-        style={styles.modalBackdrop}
-        onPress={picker !== null ? closePicker : Keyboard.dismiss}
-      />
-      <View accessibilityViewIsModal style={styles.dialogCard}>
-        <View style={styles.dialogHeader}>
-          <Text style={styles.modalTitle}>New workspace</Text>
-          <Text style={styles.subtle} numberOfLines={1}>
-            {hostLabel}
-            {project === null ? "" : ` · ${project.name}`}
-          </Text>
-        </View>
+    <Modal title="New workspace" open onOpenChange={requestClose}>
+      <Modal.Content contentContainerStyle={styles.dialogBody}>
+        <Text style={styles.subtle} numberOfLines={1}>
+          {hostLabel}
+          {project === null ? "" : ` · ${project.name}`}
+        </Text>
         <Text style={styles.modalBody} numberOfLines={2}>
           {item.repository} #{item.number} — {item.title}
         </Text>
@@ -2559,7 +2305,10 @@ function SendDialog({
           ) : null}
         </View>
 
-        <TextInput
+        {/* The host's input, not React Native's: it registers focus with the
+            sheet, so the keyboard raises the form instead of covering it. That
+            is what retired `useKeyboardInset`, which only ever ran on iOS. */}
+        <SheetTextInput
           accessibilityLabel="First message"
           style={styles.promptInput}
           value={prompt}
@@ -2675,8 +2424,8 @@ function SendDialog({
             />
           ) : null}
         </View>
-      </View>
-    </View>
+      </Modal.Content>
+    </Modal>
   );
 }
 
@@ -2690,10 +2439,9 @@ function SendDialog({
  * one project's overrides. One set of fields serves both, because a project
  * override is the same four templates with "inherit" as an option.
  */
-function PromptSettingsView({
+export function PromptSettingsView({
   styles,
   prompts,
-  projects,
   login,
   busy,
   mutedColor,
@@ -2702,7 +2450,6 @@ function PromptSettingsView({
 }: {
   styles: Styles;
   prompts: PromptSettings;
-  projects: readonly ProjectRef[];
   login: string;
   busy: boolean;
   mutedColor: string;
@@ -2713,6 +2460,35 @@ function PromptSettingsView({
   const [scope, setScope] = useState<string | null>(null);
   const [loginDraft, setLoginDraft] = useState(login);
   const [saving, setSaving] = useState(false);
+
+  /**
+   * Every live project, for the per-project override picker. Asked of the
+   * daemon directly rather than carried on `board.load`: this is a normal Paseo
+   * operation, and the board only ever knew the projects its own cards mapped
+   * to plus the rest along for the ride.
+   */
+  const paseo = usePaseo();
+  const [projects, setProjects] = useState<readonly ProjectRef[]>(NO_PROJECTS);
+  useEffect(() => {
+    let cancelled = false;
+    paseo.projects
+      .list()
+      .then((result) => {
+        if (cancelled) return;
+        setProjects(
+          result.projects.map((project) => ({
+            id: project.projectId,
+            name: project.projectDisplayName,
+          })),
+        );
+      })
+      .catch((cause: unknown) => {
+        console.warn("[github-board] could not list projects", cause);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [paseo]);
 
   // The saved value is the baseline for "dirty". Adopting it whenever the
   // server hands back a new one is what turns a successful save back into a
@@ -3040,6 +2816,8 @@ function ItemDetailPanel({
   foregroundColor,
   bodyWidth,
   progress,
+  widthFraction,
+  onWidthCommitted,
   onClose,
   onSend,
 }: {
@@ -3057,12 +2835,32 @@ function ItemDetailPanel({
   bodyWidth: number | null;
   /** 0 is off-screen to the right, 1 is in place. Driven by the parent. */
   progress: Animated.Value;
+  /**
+   * The saved share of the body, or null for the default half. The parent owns
+   * the settings document; this component owns the drag.
+   */
+  widthFraction: number | null;
+  /** Called once per drag, on release, with the share to persist. */
+  onWidthCommitted: (fraction: number) => void;
   onClose: () => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
 }) {
   const load = useRpc(loadItem);
-  const persistWidth = useRpc(saveDetailWidth);
-  const [fraction, setFraction] = useState<number | null>(cachedDetailFraction);
+  /**
+   * The drag's own value, seeded from the saved share. Local rather than read
+   * straight from settings on every move: a write per pixel is a write per
+   * pixel however it is spelled, so the drag runs on state and settles once.
+   */
+  const [fraction, setFraction] = useState<number | null>(widthFraction);
+  /**
+   * Adopt a share saved elsewhere — another client, or this one before the
+   * panel mounted — but never while a drag is in flight, which would yank the
+   * edge out from under the pointer.
+   */
+  const dragging = useRef(false);
+  useEffect(() => {
+    if (!dragging.current) setFraction(widthFraction);
+  }, [widthFraction]);
   /**
    * The laid-out width, which is how far the panel has to travel to be
    * off-screen. Until the first layout it travels the fallback, which is at
@@ -3088,28 +2886,24 @@ function ItemDetailPanel({
     // Anchored to the right edge, so a pointer moving left grows the panel.
     // Kept as a share of the body from the first move, so nothing converts
     // on release and the remount and the next daemon start agree.
+    let latest: number | null = null;
     const applyDelta = (dx: number) => {
       const start = dragStart.current;
       if (start === null || start.bodyWidth <= 0) return;
       const widest = Math.max(DETAIL_MIN_WIDTH, start.bodyWidth - BOARD_MIN_WIDTH);
       const next = Math.min(widest, Math.max(DETAIL_MIN_WIDTH, start.width - dx));
-      cachedDetailFraction = Math.min(1, next / start.bodyWidth);
-      setFraction(cachedDetailFraction);
+      latest = Math.min(1, next / start.bodyWidth);
+      setFraction(latest);
     };
     const finish = () => {
       stopTracking.current();
       stopTracking.current = () => {};
       const dragged = dragStart.current !== null;
       dragStart.current = null;
+      dragging.current = false;
       setResizing(false);
-      // Once per drag, not per move. A failure is logged and not shown: the
-      // width the user just chose is on screen regardless, and a setting that
-      // did not save is not a problem with the card in front of them.
-      if (dragged && cachedDetailFraction !== null) {
-        persistWidth({ fraction: cachedDetailFraction }).catch((cause: unknown) => {
-          console.warn("[github-board] could not save the panel width", cause);
-        });
-      }
+      // Once per drag, not per move: a save per move is a write per pixel.
+      if (dragged && latest !== null) onWidthCommitted(latest);
     };
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -3128,6 +2922,7 @@ function ItemDetailPanel({
           bodyWidth: bodyWidthRef.current ?? panelWidth.current,
           x,
         };
+        dragging.current = true;
         setResizing(true);
         // Document-level tracking is the web's belt and braces: it keeps the
         // drag alive past the handle, past the columns and past the window.
@@ -3140,7 +2935,7 @@ function ItemDetailPanel({
       onPanResponderRelease: finish,
       onPanResponderTerminate: finish,
     });
-  }, [persistWidth]);
+  }, [onWidthCommitted]);
 
   /**
    * The share turned back into pixels against the body as it is *now*, and
@@ -3590,32 +3385,113 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const styles = useStyles(props);
   const load = useRpc(loadBoard);
   const persistLogin = useRpc(saveLogin);
-  const persistFilter = useRpc(saveRepositoryFilter);
-  const persistPrompts = useRpc(savePrompts);
+  /**
+   * How this client draws the board, kept by the host rather than by the
+   * daemon: the filter and the panel width are read only to paint, so they no
+   * longer ride along on `board.load` and no longer cost an RPC to save. The
+   * host pushes a change to every connected client on its own.
+   */
+  const display = useSettings(displaySettings);
+  const prompts = useSettings(promptSettings);
+  const savedHidden = display.status === "ready" ? display.values.hiddenRepositories : null;
+  const savedFraction = display.status === "ready" ? display.values.detailWidthFraction : null;
+  /**
+   * Null while the read is pending. `useSettings` reports `loading` before it
+   * reports values, and rendering the schema defaults during that window would
+   * put a template on screen that the user may have already replaced.
+   */
+  /**
+   * The outcome of the last "Send to chat", success or failure, as a host
+   * toast. It used to be a modal with a Close button, which was wrong for the
+   * success case in particular: it announced a workspace while navigating the
+   * user to it, so the thing to dismiss was gone before it could be read.
+   *
+   * Deliberately not `error`: a card that could not be matched to a project
+   * says nothing about whether the board itself loaded, and `error` is a state
+   * that belongs on screen until it is fixed.
+   */
+  const toast = useToast();
+  const promptValues = prompts.status === "ready" ? prompts.values : null;
+
+  const takeLegacy = useRpc(takeLegacySettings);
+  const ackLegacy = useRpc(legacySettingsTaken);
+  /**
+   * Copies the settings a pre-0.4.0 daemon still holds into the host settings
+   * store, once, the first time both documents are readable.
+   *
+   * The app has to do this because the daemon cannot: a settings document is
+   * written over the client's RPC channel and there is no server-side
+   * equivalent. So the daemon hands the values out, the app writes them, and
+   * only then does the daemon stamp its file — which is why an interrupted
+   * migration is retried rather than half-applied.
+   *
+   * Each document is written only if it is still untouched. Someone who has
+   * already customised their prompts on 0.4.0 before an older client got round
+   * to migrating keeps what they customised; the older values are dropped
+   * rather than reinstated on top of them.
+   */
+  useEffect(() => {
+    if (legacyMigrationAttempted) return;
+    if (display.status !== "ready" || prompts.status !== "ready") return;
+    legacyMigrationAttempted = true;
+
+    void (async function migrateLegacySettings() {
+      try {
+        const legacy = await takeLegacy({});
+        if (!legacy.found) return;
+
+        let migrated = false;
+
+        const takeFilter =
+          legacy.hiddenRepositories !== null && display.values.hiddenRepositories.length === 0;
+        const takeWidth =
+          legacy.detailWidthFraction !== null && display.values.detailWidthFraction === null;
+        if (takeFilter || takeWidth) {
+          const saved = await display.save(
+            {
+              hiddenRepositories: takeFilter
+                ? [...(legacy.hiddenRepositories ?? [])].sort()
+                : display.values.hiddenRepositories,
+              detailWidthFraction: takeWidth
+                ? legacy.detailWidthFraction
+                : display.values.detailWidthFraction,
+            },
+            display.revision,
+          );
+          if (!saved) return;
+          migrated = true;
+        }
+
+        if (legacy.prompts !== null && isDefaultPrompts(prompts.values)) {
+          const saved = await prompts.save(
+            normalizePrompts(completePrompts(legacy.prompts)),
+            prompts.revision,
+          );
+          if (!saved) return;
+          migrated = true;
+        }
+
+        // Only now: the daemon's copy is the fallback until this returns.
+        await ackLegacy({});
+        if (migrated) {
+          toast.show("Your board settings moved to Paseo's own storage.", { variant: "info" });
+        }
+      } catch (cause) {
+        console.warn("[github-board] could not migrate the saved settings", cause);
+      }
+    })();
+  }, [ackLegacy, display, prompts, takeLegacy, toast]);
 
   const [board, setBoard] = useState<Board | null>(cachedBoard);
   const [error, setError] = useState<string | null>(null);
-  /**
-   * The outcome of the last "Send to chat", success or failure. It is deliberately
-   * not `error`: a card that could not be matched to a project says nothing about
-   * whether the board itself loaded.
-   */
-  const [notice, setNotice] = useState<{
-    tone: "info" | "danger";
-    title: string;
-    text: string;
-  } | null>(null);
   const [busy, setBusy] = useState(cachedBoard === null);
   const [loginDraft, setLoginDraft] = useState(cachedBoard?.login ?? "");
-  const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(
-    () => cachedHidden ?? new Set(),
-  );
+  const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(() => new Set());
   const [filterOpen, setFilterOpen] = useState(false);
   /** Which column the compact layout shows. Ignored where all four fit at once. */
   const [columnId, setColumnId] = useState<ColumnId>(cachedColumnId);
   /** The surface shows one of two things; plugins cannot route between surfaces. */
   const [showSettings, setShowSettings] = useState(false);
-  const [prompts, setPrompts] = useState<PromptSettings | null>(cachedPrompts);
   /** The card the launch dialog is open on, with its prompt already rendered. */
   const [sendTarget, setSendTarget] = useState<{ item: BoardItem; prompt: string } | null>(null);
   /** The card the label menu is open on, and where on this surface to draw it. */
@@ -3659,23 +3535,17 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    */
   const rootRef = useRef<View | null>(null);
   /**
-   * Whether this surface is still on screen, read after a navigation attempt:
-   * routing away unmounts it, so still being here means nothing routed.
+   * The saved filter is adopted once, when the settings read first lands. Later
+   * pushes must not overwrite what the user is toggling right now — and the
+   * local set is already what was just written, so re-adopting it would only
+   * ever be a chance to undo a toggle.
    */
-  const mounted = useRef(true);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
-  /**
-   * The saved filter is adopted on the first load only. Later refreshes must not
-   * overwrite what the user is toggling right now with the value the server last
-   * heard — and a remount that already restored the filter from cache counts as
-   * hydrated.
-   */
-  const filterHydrated = useRef(cachedHidden !== null);
+  const filterHydrated = useRef(false);
+  useEffect(() => {
+    if (filterHydrated.current || savedHidden === null) return;
+    filterHydrated.current = true;
+    setHiddenRepos(new Set(savedHidden));
+  }, [savedHidden]);
 
   /**
    * Async **function expressions**, never async arrows, anywhere in the client
@@ -3695,19 +3565,6 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         cachedFetchedAt = Date.now();
         setBoard(next);
         setLoginDraft(next.login);
-        // Unlike the filter, prompts are adopted on every load: nothing edits
-        // them outside the settings view, and that view owns its own draft.
-        cachedPrompts = next.prompts;
-        setPrompts(next.prompts);
-        // The panel width is adopted only while nothing local has been chosen
-        // yet: a drag made since the last load must not be undone by it.
-        if (cachedDetailFraction === null) cachedDetailFraction = next.detailWidthFraction;
-        if (!filterHydrated.current) {
-          filterHydrated.current = true;
-          const restored = new Set(next.hiddenRepositories);
-          cachedHidden = restored;
-          setHiddenRepos(restored);
-        }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       } finally {
@@ -3800,18 +3657,39 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     setColumnId(id);
   }, []);
 
-  /** Applies a selection locally and saves it, so it survives the next unmount. */
+  /**
+   * Applies a selection locally and saves it, so it survives the next unmount.
+   * The local set moves first: the filter is what the user is looking at, and
+   * waiting on a round trip to redraw it would make every toggle feel remote.
+   */
   const commitHidden = useCallback(
     (next: ReadonlySet<string>) => {
-      cachedHidden = next;
       setHiddenRepos(next);
-      persistFilter({ hiddenRepositories: [...next] }).catch((cause: unknown) => {
-        setError(
-          `Repository filter could not be saved: ${cause instanceof Error ? cause.message : String(cause)}`,
-        );
-      });
+      if (display.status !== "ready") return;
+      void display
+        .save({ ...display.values, hiddenRepositories: [...next].sort() }, display.revision)
+        .then((saved) => {
+          if (!saved) setError(`Repository filter could not be saved: ${display.saveError ?? ""}`);
+        });
     },
-    [persistFilter],
+    [display],
+  );
+
+  /**
+   * The panel's width, once per drag. A failure is logged and not shown: the
+   * width the user just chose is on screen regardless, and a setting that did
+   * not save is not a problem with the card in front of them.
+   */
+  const commitWidth = useCallback(
+    (fraction: number) => {
+      if (display.status !== "ready") return;
+      void display
+        .save({ ...display.values, detailWidthFraction: fraction }, display.revision)
+        .then((saved) => {
+          if (!saved) console.warn("[github-board] could not save the panel width");
+        });
+    },
+    [display],
   );
 
   const toggleRepo = useCallback(
@@ -3883,7 +3761,6 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   }, []);
 
   const openDetails = useCallback((item: BoardItem, type: ColumnId) => {
-    setNotice(null);
     setDetailTarget({ item, type });
     setDetailOpen(true);
   }, []);
@@ -3910,12 +3787,12 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    */
   const openSendDialog = useCallback(
     (item: BoardItem, type: ColumnId) => {
-      setNotice(null);
       const projectId = board?.repositoryProjects[item.repository] ?? null;
-      const template = prompts === null ? item.url : templateFor(prompts, type, projectId);
+      const template =
+        promptValues === null ? item.url : templateFor(promptValues, type, projectId);
       setSendTarget({ item, prompt: renderTemplate(template, item) });
     },
-    [board, prompts],
+    [board, promptValues],
   );
 
   /**
@@ -3926,38 +3803,26 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    * looking like nothing happened.
    *
    * `navigation` is the host's own agent navigation, so `openAgent` alone lands
-   * on the workspace *and* opens that agent's tab; the workspace id is only
-   * needed by the hand-built route below. Its absence is the compatibility gate
-   * the API is documented to be used as.
+   * on the workspace *and* opens that agent's tab, because it runs the app's own
+   * `navigateToAgent` against the host rendering the surface.
    *
-   * **The gate is the app, not the daemon.** `usePluginHostNavigation` runs in
-   * the client, so whether this prop arrives depends on the version of the app
-   * rendering the surface. Observed on 2026-08-31 against one 0.7.0-beta.3
-   * daemon: desktop passed it and navigated, the phone passed nothing — the
-   * mobile app ships separately and was still behind. So the fallback is not a
-   * transitional courtesy; it is live for as long as any client is older.
+   * The prop is still typed optional because hosts before 0.7.0-beta.3 passed
+   * nothing. This plugin now requires Paseo >=0.8.0, and each app checks that
+   * against its *own* version before it evaluates this bundle, so every client
+   * that can run this code passes it. The `undefined` branch therefore only
+   * leaves the notice standing — which already names the workspace the work went
+   * to — instead of the hand-built `paseo://` route this used to fall back on.
    */
   const handleLaunched = useCallback(
     (result: LaunchResult) => {
       setSendTarget(null);
-      setNotice({
-        tone: "info",
-        title: "Workspace created",
-        text: `“${result.workspaceName}” in ${result.projectName}. Opening it…`,
-      });
-      if (props.navigation !== undefined) {
-        props.navigation.openAgent({ agentId: result.agentId });
-        return;
-      }
-      selectWorkspaceInApp({
-        serverId: props.host.id,
-        workspaceId: result.workspaceId,
-        agentId: result.agentId,
-        platform: props.layout.platform,
-        stillHere: () => mounted.current,
-      });
+      toast.show(
+        `Created “${result.workspaceName}” in ${result.projectName}. Opening it…`,
+        { variant: "success" },
+      );
+      props.navigation?.openAgent({ agentId: result.agentId });
     },
-    [props.navigation, props.host.id, props.layout.platform],
+    [props.navigation, toast],
   );
 
   const applyLogin = useCallback(
@@ -3978,21 +3843,14 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const applyPrompts = useCallback(
     // Async function expression, not an async arrow — see `refresh`.
     async function applyPrompts(next: PromptSettings) {
-      try {
-        const saved = await persistPrompts(next);
-        cachedPrompts = saved;
-        setPrompts(saved);
-        if (cachedBoard !== null) cachedBoard = { ...cachedBoard, prompts: saved };
-        setBoard((current) => (current === null ? current : { ...current, prompts: saved }));
-      } catch (cause) {
-        setNotice({
-          tone: "danger",
-          title: "Could not save prompts",
-          text: cause instanceof Error ? cause.message : String(cause),
-        });
-      }
+      if (prompts.status !== "ready") return;
+      // Normalised here rather than in the schema, so the editor's draft can
+      // hold a blank field while it is being cleared and only the *saved*
+      // document reads a blank as "inherit".
+      const saved = await prompts.save(normalizePrompts(next), prompts.revision);
+      if (!saved) toast.error(prompts.saveError ?? "The templates were not saved.");
     },
-    [persistPrompts],
+    [prompts, toast],
   );
 
   return (
@@ -4085,8 +3943,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
       {showSettings ? (
         <PromptSettingsView
           styles={styles}
-          prompts={prompts ?? EMPTY_PROMPTS}
-          projects={board?.projects ?? NO_PROJECTS}
+          prompts={promptValues ?? EMPTY_PROMPTS}
           login={loginDraft}
           busy={busy}
           mutedColor={props.theme.colors.foregroundMuted}
@@ -4173,6 +4030,8 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               accentColor={props.theme.colors.accent}
               foregroundColor={props.theme.colors.foreground}
               bodyWidth={props.layout.compact ? null : bodyWidth}
+              widthFraction={savedFraction}
+              onWidthCommitted={commitWidth}
               progress={detailProgress}
               onClose={closeDetails}
               onSend={openSendDialog}
@@ -4217,31 +4076,6 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         />
       ) : null}
 
-      {notice !== null ? (
-        <View style={styles.modalLayer}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss message"
-            style={styles.modalBackdrop}
-            onPress={() => setNotice(null)}
-          />
-          <View accessibilityRole="alert" accessibilityViewIsModal style={styles.modalCard}>
-            <Text style={notice.tone === "danger" ? styles.modalTitleDanger : styles.modalTitle}>
-              {notice.title}
-            </Text>
-            <Text style={styles.modalBody}>{notice.text}</Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                style={styles.button}
-                onPress={() => setNotice(null)}
-              >
-                <Text style={styles.buttonLabel}>Close</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      ) : null}
     </View>
   );
 }

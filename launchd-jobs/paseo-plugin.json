@@ -1,1 +1,4 @@
-{ "id": "launchd-jobs" }
+{
+  "id": "launchd-jobs",
+  "requirements": { "paseo": ">=0.8.0" }
+}

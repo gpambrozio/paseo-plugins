@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { z } from "zod";
-import type { PluginHandlerContext } from "@getpaseo/plugin";
+import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type {
   BoardColumn,
   BoardItem,
@@ -16,20 +16,19 @@ import type {
   LinkedIssue,
   PromptSet,
   PromptSettings,
+  legacySettingsTaken,
   listLabels,
   loadBoard,
   loadComments,
   loadImage,
   loadItem,
-  saveDetailWidth,
-  savePrompts,
   saveLogin,
-  saveRepositoryFilter,
   sendOptions,
   sendToChat,
+  takeLegacySettings,
   toggleLabel,
-} from "./board.shared";
-import { isGitHubImageHost } from "./image-host";
+} from "../shared/board";
+import { isGitHubImageHost } from "../shared/image-host";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,20 +42,6 @@ function paseoHome(): string {
 function settingsPath(): string {
   return join(paseoHome(), "plugins", "github-board", "settings.json");
 }
-
-/**
- * What the send dialog opens with, before the user changes it. Each one names
- * the kind of work its column holds, because "read this URL" alone tells an
- * agent nothing about whether it is being asked to fix, finish, or review.
- */
-const DEFAULT_PROMPTS: PromptSet = {
-  issues: "Read issue {url}, investigate and give me ways to address it.",
-  "draft-prs": "Read draft pull request {url} and help me finish it.",
-  "open-prs": "Review pull request {url} and tell me what needs attention.",
-  discussions: "Read discussion {url} and summarise what is being decided.",
-};
-
-const PROMPT_KEYS = Object.keys(DEFAULT_PROMPTS) as (keyof PromptSet)[];
 
 /**
  * What the launch dialog opens on before the user touches it. Written by the
@@ -74,68 +59,114 @@ const EMPTY_LAUNCH: LaunchDefaults = {
   isolation: "local",
 };
 
+/**
+ * The four column ids, as a *historical* constant rather than an import of
+ * `COLUMN_IDS`. Everything this module takes from `shared/board` is an
+ * `import type` so the server half still transpiles and runs standalone (see
+ * CLAUDE.md), and this reads a file format frozen by what older versions wrote
+ * — so it should not track a schema that may yet gain a column.
+ */
+const LEGACY_PROMPT_KEYS: readonly (keyof PromptSet)[] = [
+  "issues",
+  "draft-prs",
+  "open-prs",
+  "discussions",
+];
+
+/**
+ * The three values this file used to own and no longer does, as a version
+ * before 0.4.0 wrote them. Held only until the app has copied them into the
+ * host settings store, because the daemon cannot write there itself — see
+ * `takeLegacySettingsHandler`.
+ */
+interface LegacySettings {
+  hiddenRepositories: string[] | null;
+  prompts: PromptSettings | null;
+  detailWidthFraction: number | null;
+}
+
+/**
+ * What the *daemon* keeps, which since 0.4.0 is only what its own handlers act
+ * on. The repository filter, the prompt templates and the detail panel's width
+ * moved to the host settings store, where the app reads them directly — see
+ * `shared/settings.ts`.
+ */
 interface Settings {
   /** Null until the user pins one; the caller falls back to the gh viewer. */
   login: string | null;
-  /** Repositories the board hides, saved as the filter's complement. */
-  hiddenRepositories: string[];
-  prompts: PromptSettings;
   launch: LaunchDefaults;
-  /** The detail panel's width as a share of the board's body; null is the default half. */
-  detailWidthFraction: number | null;
+  /**
+   * Non-null only on a file written before the move, and only until the app
+   * acknowledges having taken them. Every write puts them back untouched, so a
+   * login change made before the app ever loads the board cannot drop them.
+   */
+  legacy: LegacySettings | null;
 }
 
 const EMPTY_SETTINGS: Settings = {
   login: null,
-  hiddenRepositories: [],
-  prompts: { byType: { ...DEFAULT_PROMPTS }, byProject: {} },
   launch: { ...EMPTY_LAUNCH },
-  detailWidthFraction: null,
+  legacy: null,
 };
 
-/** A share of the body, or null for anything that is not one — including an old settings file. */
+/** A share of the body, or null for anything that is not one. */
 function readFraction(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1
     ? value
     : null;
 }
 
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() !== "" ? value : null;
-}
-
 /**
- * Blank means "inherit", at both levels: a missing or empty `byType` entry
- * becomes the built-in default, and a missing or empty override is dropped so
- * the card falls back to `byType`. That is what makes clearing a field the way
- * to reset it.
+ * The old `prompts` blob, structurally. Deliberately loose: this reads a file
+ * written by an older version, so anything unrecognisable is dropped rather
+ * than failing the migration for the keys that are fine.
  */
-function readPrompts(value: unknown): PromptSettings {
-  const raw = (typeof value === "object" && value !== null ? value : {}) as {
-    byType?: unknown;
-    byProject?: unknown;
-  };
-  const savedByType = (typeof raw.byType === "object" && raw.byType !== null ? raw.byType : {}) as
-    Record<string, unknown>;
-  const byType = { ...DEFAULT_PROMPTS };
-  for (const key of PROMPT_KEYS) {
-    byType[key] = asString(savedByType[key]) ?? DEFAULT_PROMPTS[key];
+function readLegacyPrompts(value: unknown): PromptSettings | null {
+  if (typeof value !== "object" || value === null) return null;
+  const raw = value as { byType?: unknown; byProject?: unknown };
+  const byTypeRaw = typeof raw.byType === "object" && raw.byType !== null ? raw.byType : {};
+  const byType: Partial<PromptSet> = {};
+  for (const key of LEGACY_PROMPT_KEYS) {
+    const template = asString((byTypeRaw as Record<string, unknown>)[key]);
+    if (template !== null) byType[key] = template;
   }
 
-  const savedByProject = (
-    typeof raw.byProject === "object" && raw.byProject !== null ? raw.byProject : {}
-  ) as Record<string, unknown>;
+  const byProjectRaw =
+    typeof raw.byProject === "object" && raw.byProject !== null ? raw.byProject : {};
   const byProject: PromptSettings["byProject"] = {};
-  for (const [repository, overrides] of Object.entries(savedByProject)) {
+  for (const [projectId, overrides] of Object.entries(byProjectRaw as Record<string, unknown>)) {
     if (typeof overrides !== "object" || overrides === null) continue;
     const kept: Partial<PromptSet> = {};
-    for (const key of PROMPT_KEYS) {
+    for (const key of LEGACY_PROMPT_KEYS) {
       const template = asString((overrides as Record<string, unknown>)[key]);
       if (template !== null) kept[key] = template;
     }
-    if (Object.keys(kept).length > 0) byProject[repository] = kept;
+    if (Object.keys(kept).length > 0) byProject[projectId] = kept;
   }
-  return { byType, byProject };
+
+  if (Object.keys(byType).length === 0 && Object.keys(byProject).length === 0) return null;
+  // `byType` is completed against the defaults by the client, which owns them.
+  return { byType: byType as PromptSet, byProject };
+}
+
+/**
+ * The legacy block, or null when there is nothing to hand over: a file already
+ * stamped `settingsMigratedAt`, a fresh install, or a file whose old keys are
+ * all absent or unreadable.
+ */
+function readLegacy(parsed: Record<string, unknown>): LegacySettings | null {
+  if (asString(parsed.settingsMigratedAt) !== null) return null;
+  const hiddenRepositories = Array.isArray(parsed.hiddenRepositories)
+    ? parsed.hiddenRepositories.filter((entry): entry is string => typeof entry === "string")
+    : null;
+  const prompts = readLegacyPrompts(parsed.prompts);
+  const detailWidthFraction = readFraction(parsed.detailWidthFraction);
+  if (hiddenRepositories === null && prompts === null && detailWidthFraction === null) return null;
+  return { hiddenRepositories, prompts, detailWidthFraction };
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
 /**
@@ -158,20 +189,12 @@ async function readSettings(): Promise<Settings> {
   try {
     const parsed: unknown = JSON.parse(await readFile(settingsPath(), "utf8"));
     if (typeof parsed !== "object" || parsed === null) return EMPTY_SETTINGS;
-    const { login, hiddenRepositories } = parsed as {
-      login?: unknown;
-      hiddenRepositories?: unknown;
-    };
+    const record = parsed as Record<string, unknown>;
+    const login = record.login;
     return {
       login: typeof login === "string" && login.trim() !== "" ? login.trim() : null,
-      hiddenRepositories: Array.isArray(hiddenRepositories)
-        ? hiddenRepositories.filter((entry): entry is string => typeof entry === "string")
-        : [],
-      prompts: readPrompts((parsed as { prompts?: unknown }).prompts),
-      launch: readLaunch((parsed as { launch?: unknown }).launch),
-      detailWidthFraction: readFraction(
-        (parsed as { detailWidthFraction?: unknown }).detailWidthFraction,
-      ),
+      launch: readLaunch(record.launch),
+      legacy: readLegacy(record),
     };
   } catch {
     // No settings yet, or a file we can no longer parse. Either way the caller
@@ -181,15 +204,33 @@ async function readSettings(): Promise<Settings> {
 }
 
 /**
- * Read-modify-write, because the login, the repository filter, the prompts and
- * the launch defaults are saved by separate handlers and a whole-file write
- * from any of them would drop the others.
+ * Read-modify-write, because the login and the launch defaults are saved by
+ * separate handlers and a whole-file write from either would drop the other.
+ *
+ * The legacy block is written back verbatim while it exists, so a login change
+ * made before the app has migrated cannot destroy the values it is about to
+ * take. Once it is gone the file is stamped instead, which is what makes
+ * `readLegacy` return null forever after.
  */
 async function updateSettings(patch: Partial<Settings>): Promise<Settings> {
   const next = { ...(await readSettings()), ...patch };
+  const { legacy, ...owned } = next;
+  const serialized =
+    legacy === null
+      ? { ...owned, settingsMigratedAt: new Date().toISOString() }
+      : {
+          ...owned,
+          ...(legacy.hiddenRepositories === null
+            ? {}
+            : { hiddenRepositories: legacy.hiddenRepositories }),
+          ...(legacy.prompts === null ? {} : { prompts: legacy.prompts }),
+          ...(legacy.detailWidthFraction === null
+            ? {}
+            : { detailWidthFraction: legacy.detailWidthFraction }),
+        };
   const path = settingsPath();
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  await writeFile(path, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
   return next;
 }
 
@@ -761,10 +802,19 @@ let cachedBoard: CachedBoard | null = null;
  * collapse to one entry; the send button is unaffected, because it resolves
  * from the card's own URL rather than from this map.
  */
-async function describeProjects(
+/**
+ * `owner/name` to project id, for the repositories on this board only. The
+ * surface needs it to pick a prompt template during the press gesture, so it
+ * rides along rather than costing a round trip mid-gesture.
+ *
+ * The full project list used to ride along too, for the settings view's
+ * per-project overrides. That view now calls `paseo.projects.list()` on the
+ * client, which is the same list without the detour.
+ */
+async function describeRepositoryProjects(
   paseo: PaseoApi,
   columns: readonly BoardColumn[],
-): Promise<{ projects: { id: string; name: string }[]; repositoryProjects: Record<string, string> }> {
+): Promise<{ repositoryProjects: Record<string, string> }> {
   const index = await loadProjectIndex(paseo);
 
   const repositoryProjects: Record<string, string> = {};
@@ -778,13 +828,7 @@ async function describeProjects(
     }
   }
 
-  return {
-    projects: index.projects.map((project) => ({
-      id: project.projectId,
-      name: project.displayName,
-    })),
-    repositoryProjects,
-  };
+  return { repositoryProjects };
 }
 
 async function settle(
@@ -819,10 +863,7 @@ export async function loadBoardHandler(
   ) {
     return {
       login: resolved,
-      hiddenRepositories: settings.hiddenRepositories,
-      prompts: settings.prompts,
-      detailWidthFraction: settings.detailWidthFraction,
-      ...(await describeProjects(paseo, cachedBoard.columns)),
+      ...(await describeRepositoryProjects(paseo, cachedBoard.columns)),
       columns: cachedBoard.columns,
       fetchedAt: cachedBoard.fetchedAt,
     };
@@ -859,22 +900,35 @@ export async function loadBoardHandler(
 
   return {
     login: resolved,
-    hiddenRepositories: settings.hiddenRepositories,
-    prompts: settings.prompts,
-    detailWidthFraction: settings.detailWidthFraction,
-    ...(await describeProjects(paseo, columns)),
+    ...(await describeRepositoryProjects(paseo, columns)),
     columns,
     fetchedAt,
   };
 }
 
-export async function savePromptsHandler(
-  prompts: z.output<typeof savePrompts.input>,
-): Promise<z.input<typeof savePrompts.output>> {
-  // Round-tripped through the same reader the settings file goes through, so
-  // saving a cleared field and reloading it produce the same value.
-  const saved = await updateSettings({ prompts: readPrompts(prompts) });
-  return saved.prompts;
+/**
+ * Hands the pre-0.4.0 settings to the app, which is the only side that can
+ * write a settings document. Nothing is cleared here: the file keeps them
+ * until `legacySettingsTakenHandler` confirms they landed.
+ */
+export async function takeLegacySettingsHandler(): Promise<
+  z.input<typeof takeLegacySettings.output>
+> {
+  const { legacy } = await readSettings();
+  if (legacy === null) return { found: false };
+  return {
+    found: true,
+    hiddenRepositories: legacy.hiddenRepositories,
+    prompts: legacy.prompts,
+    detailWidthFraction: legacy.detailWidthFraction,
+  };
+}
+
+export async function legacySettingsTakenHandler(): Promise<
+  z.input<typeof legacySettingsTaken.output>
+> {
+  await updateSettings({ legacy: null });
+  return {};
 }
 
 export async function saveLoginHandler({
@@ -884,22 +938,6 @@ export async function saveLoginHandler({
   const resolved = trimmed === "" || trimmed === "@me" ? await resolveViewerLogin() : trimmed;
   await updateSettings({ login: resolved });
   return { login: resolved };
-}
-
-export async function saveDetailWidthHandler({
-  fraction,
-}: z.output<typeof saveDetailWidth.input>): Promise<z.input<typeof saveDetailWidth.output>> {
-  const saved = await updateSettings({ detailWidthFraction: readFraction(fraction) });
-  return { fraction: saved.detailWidthFraction ?? fraction };
-}
-
-export async function saveRepositoryFilterHandler({
-  hiddenRepositories,
-}: z.output<typeof saveRepositoryFilter.input>): Promise<
-  z.input<typeof saveRepositoryFilter.output>
-> {
-  const saved = await updateSettings({ hiddenRepositories: [...hiddenRepositories].sort() });
-  return { hiddenRepositories: saved.hiddenRepositories };
 }
 
 /**

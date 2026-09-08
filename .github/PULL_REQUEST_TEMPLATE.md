@@ -17,7 +17,7 @@
 
 ## UI
 
-<!-- Skip if this touches no *.client.tsx. There's no UI harness, so a clean typecheck proves
+<!-- Skip if this touches nothing under client/. There's no UI harness, so a clean typecheck proves
      nothing about how it renders. Say what you looked at and where. -->
 
 - [ ] Not applicable

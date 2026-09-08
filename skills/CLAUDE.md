@@ -40,28 +40,30 @@ entries there exist because a reviewer proved the code was wrong about the real 
   `/etc/codex/skills`. `.codex/skills` is read one rank lower only because Paseo's orchestration
   sync writes there and older builds read it. Paseo's own `listCodexSkills` is stale on this; do
   not "fix" the resolver back to matching it.
-- **A source kind lives in three files.** `SkillSourceKind` (`resolve/skill-entry.ts`), the zod
-  enum (`skills.shared.ts`), and `SOURCE_ORDER` (`panel.client.tsx`). The first two disagreeing
+- **A source kind lives in three files.** `SkillSourceKind` (`server/resolve/skill-entry.ts`), the
+  zod enum (`shared/skills.ts`), and `SOURCE_ORDER` (`client/panel.tsx`). The first two disagreeing
   fails validation at runtime; a kind missing from the third sorts to the top of the panel, since
   `indexOf` returns `-1`.
 - **Claude plugin scoping keys on `projectPath`, not on `scope`.** Real manifests carry
   `scope: "local"` entries that are per-project. An entry with a `projectPath` applies only inside
   it; one without applies everywhere.
-- **Do not apply `unquote()` to block-scalar continuation lines** in `resolve/frontmatter.ts`.
+- **Do not apply `unquote()` to block-scalar continuation lines** in `server/resolve/frontmatter.ts`.
   Block scalar content is literal YAML, quotes included; stripping them corrupts real skills.
-- **`agent.commands()` may be missing at runtime however the types read.** It shipped in Paseo
-  `0.7.0-beta.2`, and `@getpaseo/client` declares it required — but the `paseo` object comes from
-  the daemon's bundled client, not this folder's `node_modules`, so an older daemon has no such
-  method. `supportsCommands()` in `resolve/reported.ts` is a real guard, not a leftover; deleting it
-  because the type says the method exists breaks the panel on every daemon below that version.
+- **`agent.commands()` is detected structurally, not trusted from the types.** The `paseo` object
+  comes from the daemon's bundled client, not this folder's `node_modules`, so what the types
+  declare and what the object has are two different questions. `requirements.paseo: ">=0.8.0"` now
+  guarantees a daemon well past the `0.7.0-beta.2` that added the method, so `supportsCommands()` in
+  `server/resolve/reported.ts` is belt and braces rather than load-bearing — but it costs one
+  `typeof` and it documents that the boundary is a runtime one. Keep it.
 - **Nothing in Paseo enumerates registered panels.** `addWorkspacePanel` registers the tab type
   only; the panel is reachable because the Command Center item and the composer pill both call
   `openPanel`. Remove both and the panel exists but cannot be opened.
-- **The composer pill needs `addClientSide`, which the shim had to grow.** `skills` types
-  `@getpaseo/plugin` from its own hand-written `paseo-plugin.d.ts`, so `addClientSide`, `Icon`, and
-  the `PluginClientContext` / `PluginComposerPillProps` types are declared there, not imported. Any
-  further host API the pill needs has to be added to that file first.
-- **A pill's registration is not its render.** `contributeClient` registers a pill for every agent
+- **The pill's registration loop *is* the client entry.** Before 0.8 it was a callback handed to
+  `addClientSide`; now `index.client.tsx` runs in the app directly and calls `contributePills`,
+  returning its cleanup as the entry's. The `paseo-plugin.d.ts` shim that used to type all of this
+  by hand is gone — `@getpaseo/plugin` is a real dependency, so a new host API needs no declaration
+  written first.
+- **A pill's registration is not its render.** `contributePills` registers a pill for every agent
   on the host, but the component only mounts when that agent's composer is on screen — which is
   what keeps the badge's `skills.list` call bounded to visible agents rather than to every agent
   that exists.

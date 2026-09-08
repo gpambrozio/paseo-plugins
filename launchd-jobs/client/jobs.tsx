@@ -1,9 +1,10 @@
-import { Icon, type PluginSurfaceProps, useRpc } from "@getpaseo/plugin";
+import { type PluginSurfaceProps, useRpc } from "@getpaseo/plugin/client";
+import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { describeCron, describeInterval, entryCount, parseCron } from "./cron";
-import type { Job, JobSpec, RunRecord } from "./jobs.shared";
-import { createJob, deleteJob, listJobs, readJobLog, runJob, setJobEnabled, updateJob } from "./jobs.shared";
+import { describeCron, describeInterval, entryCount, parseCron } from "../shared/cron";
+import type { Job, JobSpec, RunRecord } from "../shared/jobs";
+import { createJob, deleteJob, listJobs, readJobLog, runJob, setJobEnabled, updateJob } from "../shared/jobs";
 
 /**
  * The surface: a list of the plugin's LaunchAgents on the left, and on the
@@ -33,6 +34,11 @@ const REFRESH_MS = 15_000;
 
 type Pane = { kind: "empty" } | { kind: "view"; id: string } | { kind: "edit"; id: string } | { kind: "new" };
 
+/**
+ * A one-off outcome — a job created, a run started, a log that would not read.
+ * Delivered as a host toast rather than a banner in the surface: it is an event
+ * rather than a state, and the surface's own `error` banner is the state.
+ */
 interface Notice {
   tone: "info" | "danger";
   text: string;
@@ -187,7 +193,6 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       chipText: { color: colors.foreground, fontSize: 12 },
       disabled: { opacity: 0.5 },
       notice: { marginHorizontal: pad, marginTop: 10, padding: 10, borderRadius: 6, borderWidth: 1 },
-      noticeInfo: { borderColor: colors.accent },
       noticeDanger: { borderColor: colors.statusDanger },
       noticeText: { color: colors.foreground, fontSize: 13 },
       empty: { flex: 1, alignItems: "center" as const, justifyContent: "center" as const, padding: 24, gap: 8 },
@@ -771,7 +776,6 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
     cachedPane = next;
     setPaneState(next);
   }, []);
-  const [notice, setNotice] = useState<Notice | null>(null);
   const paneRef = useRef(pane);
   paneRef.current = pane;
 
@@ -811,7 +815,14 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
     });
   }, []);
 
-  const showNotice = useCallback((next: Notice) => setNotice(next), []);
+  const toast = useToast();
+  const showNotice = useCallback(
+    (next: Notice) => {
+      if (next.tone === "danger") toast.error(next.text);
+      else toast.show(next.text, { variant: "success" });
+    },
+    [toast],
+  );
 
   const selectedId = pane.kind === "view" || pane.kind === "edit" ? pane.id : null;
   const selected = selectedId === null ? null : (jobs ?? []).find((job) => job.id === selectedId) ?? null;
@@ -838,7 +849,7 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
         onSaved={(job) => {
           replaceJob(job);
           setPane({ kind: "view", id: job.id });
-          setNotice({ tone: "info", text: `Created "${job.name}" and loaded it into launchd.` });
+          showNotice({ tone: "info", text: `Created "${job.name}" and loaded it into launchd.` });
         }}
       />
     );
@@ -855,7 +866,7 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
         onSaved={(job) => {
           replaceJob(job);
           setPane({ kind: "view", id: job.id });
-          setNotice({ tone: "info", text: `Saved "${job.name}" and reloaded it in launchd.` });
+          showNotice({ tone: "info", text: `Saved "${job.name}" and reloaded it in launchd.` });
         }}
       />
     );
@@ -877,7 +888,7 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
             return next;
           });
           setPane({ kind: "empty" });
-          setNotice({ tone: "info", text: `Deleted "${selected.name}".` });
+          showNotice({ tone: "info", text: `Deleted "${selected.name}".` });
         }}
         onNotice={showNotice}
       />
@@ -920,16 +931,6 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
         <Button styles={styles} label="New job" onPress={() => setPane({ kind: "new" })} />
       </View>
 
-      {notice !== null ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss"
-          onPress={() => setNotice(null)}
-          style={[styles.notice, notice.tone === "danger" ? styles.noticeDanger : styles.noticeInfo]}
-        >
-          <Text style={styles.noticeText}>{notice.text}</Text>
-        </Pressable>
-      ) : null}
       {error !== null ? (
         <View style={[styles.notice, styles.noticeDanger]}>
           <Text style={styles.noticeText}>{error}</Text>

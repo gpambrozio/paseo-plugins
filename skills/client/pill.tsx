@@ -1,8 +1,9 @@
-import { Icon, type PluginClientContext, type PluginComposerPillProps } from "@getpaseo/plugin";
+import { type PluginClientContext, type PluginComposerPillProps } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { Text } from "react-native";
 
-import { countEntries, useSkillsQuery } from "./skills-query.client";
+import { countEntries, useSkillsQuery } from "./skills-query";
 
 /**
  * Paseo owns the pressable and the pill chrome; this renders only the icon and
@@ -31,11 +32,11 @@ function SkillsPill({ theme, agentId }: PluginComposerPillProps) {
 /**
  * One pill per agent, opening that agent's Skills panel.
  *
- * `addClientSide` runs once per installation per connected app, so this owns the
- * whole set: it seeds from the agents that already exist, follows the update
+ * The client entry runs once per installation per connected app, so this owns
+ * the whole set: it seeds from the agents that already exist, follows the update
  * stream for the rest, and hands every registration back on teardown.
  */
-export function contributeClient(client: PluginClientContext) {
+export function contributePills(client: PluginClientContext) {
   const pills = new Map<string, () => void>();
 
   function addPill(agentId: string, workspaceId: string) {

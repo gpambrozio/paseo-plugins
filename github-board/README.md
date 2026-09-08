@@ -118,9 +118,10 @@ The header dropdown next to **Set** lists every repository with a card anywhere
 on the board and filters all four columns at once. Everything starts selected;
 **All** and **None** set the whole list.
 
-The selection saves to the same `settings.json` as the login, because the
-surface unmounts on every workspace switch and component state would not
-survive it. It is stored as the *hidden* repositories rather than the visible
+The selection is saved by Paseo, per daemon, because the surface unmounts on
+every workspace switch and component state would not survive it. Changing it on
+one device shows up on the others without a reload. It is stored as the
+*hidden* repositories rather than the visible
 ones, so a repository the filter has never seen — a new one, or one whose first
 card only appears on a later refresh — arrives selected rather than silently
 filtered out.
@@ -217,20 +218,15 @@ in memory and both five minutes:
   the `gh` calls. A board with a failed column is not cached, so the retry
   is not held off for five minutes.
 
-**Refresh** bypasses both. The repository filter is read from settings on every
-load and is never part of the cached board, so changing it cannot be undone by
-a cache hit.
+**Refresh** bypasses both. The repository filter is not part of the cached board
+at all — Paseo keeps it separately — so changing it cannot be undone by a cache
+hit.
 
 ## Requirements
 
-- **Paseo 0.5.0-beta or newer.** The plugin system does not exist in 0.4.0 —
-  there is no `paseo plugin` command to install this with. The board itself
-  needs 0.5.2, which is where the daemon learned to list projects.
-- **Paseo 0.7.0-beta.3 or newer to open a chat without a page reload.** That
-  release lets a plugin ask the app to navigate. Older apps still land on the
-  new agent, by way of a deep link that reloads the app on web and desktop.
-  This one is gated on the app, not the daemon, so an up-to-date desktop and an
-  older phone can differ while talking to the same daemon.
+- **Paseo 0.8.0 or newer**, for the daemon *and* the app that shows the board.
+  Both check the version themselves, so an older one reports the plugin as
+  incompatible rather than loading part of it.
 - `gh` installed and authenticated **on the daemon machine**, not the device
   running the app. Handlers run in a subprocess next to the daemon.
 
@@ -294,7 +290,7 @@ header tells you nothing about which account you are looking at.
   commented on elsewhere is neither. GitHub's discussion search silently returns
   nothing for `involves:` and `commenter:`, so a "discussions I participated in"
   column cannot be built at all; for issues and pull requests it would mean a
-  third aliased `involves:<login>` search in `board.server.ts`.
+  third aliased `involves:<login>` search in `server/board.ts`.
 - **"Repositories you own" means `user:<login>`.** An organisation whose
   repositories you maintain but do not own contributes only what you authored
   yourself. Widening that means an `org:` search per organisation, and a list of

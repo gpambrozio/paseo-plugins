@@ -39,20 +39,24 @@ Two things worth knowing:
 - **A failed reload stays failed.** Paseo does not restore the previous code. Check the logs.
 - **Never restart the daemon** to pick up a change. It manages the user's running agents.
 
-The daemon needs `"pluginsEnabled": true` in its `config.json`.
+The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.8.0 or newer** — the
+app too, which checks the plugin's `requirements.paseo` against its own version.
 
 ## Client and server are separate bundles
 
-File suffixes decide which bundle your code lands in, and crossing the boundary fails compilation:
+Each plugin has up to two entries, `index.client.tsx` and `index.server.ts`, and at least one is
+required. **Directories** decide which bundle your code lands in, and crossing the boundary fails
+compilation:
 
-| Suffix | Owns |
+| Directory | Owns |
 | --- | --- |
-| `*.client.tsx` | React and UI. May import only `react`, `react-native`, `@tanstack/react-query`, `zod`, `@getpaseo/plugin`. |
-| `*.server.ts` | Node built-ins, filesystem, subprocesses. |
-| `*.shared.ts` | zod RPC contracts (`defineRpc`), imported by both halves. |
+| `client/` | React and UI. May import only the modules the host provides: `react`, `react-native`, `@tanstack/react-query`, `zod`, `@getpaseo/plugin`, `@getpaseo/plugin/client`, `@getpaseo/plugin/client/react-native`, `@getpaseo/plugin/client/ui`. |
+| `server/` | Node built-ins, filesystem, subprocesses, RPC handlers. |
+| `shared/` | zod RPC contracts (`defineRpc`) and settings documents (`defineSettings`), imported by both halves. No Node, no React. |
 
-A plain `.ts` file with no suffix lands in **both** bundles, so it has to stay free of Node imports.
-Client and server never share a process; every crossing is a `defineRpc` contract.
+Filename suffixes mean nothing, and a code module at the plugin root is a compile error — only the
+manifest, `package.json`, `tsconfig.json` and the entries live there. Client and server never share
+a process; every crossing is a `defineRpc` contract.
 
 ## The rules a compiler won't catch
 
@@ -65,16 +69,20 @@ that bite most often:
   `function` expression. Desktop runs on V8 and won't show you this.
 - **RPC wire names must match `/^[a-z][a-z0-9._-]*$/`.** camelCase load-fails the whole plugin. Use
   dotted namespacing: `board.load`, `skills.list`.
-- **Only six theme tokens exist**: `surface0`, `foreground`, `foregroundMuted`, `accent`,
-  `accentForeground`, `statusDanger`. Anything else renders undefined. Never hardcode a colour.
+- **Colour comes from `theme.colors`, never a literal.** The tokens are `surface0`, `surface1`,
+  `surface2`, `foreground`, `foregroundMuted`, `border`, `accent`, `accentForeground`,
+  `statusSuccess`, `statusWarning`, `statusDanger`. Anything else renders undefined.
+- **Browser globals live only in `client/web.ts`.** No `tsconfig` here has `DOM` in `lib`, so
+  `document` and `window` are type errors by default; that one module declares what it uses and
+  gates each export on `Platform.OS`.
 - **Relative imports are extensionless** — `./frontmatter`, not `./frontmatter.js`.
 - **A surface is unmounted when the user navigates away.** Anything that should survive the round
   trip lives in a module-scope variable the component reads on mount.
 
 ## Testing UI
 
-There is no harness for plugin UI. A clean typecheck and a clean reload prove a `*.client.tsx`
-change compiles and loads — nothing more. Someone has to look at the panel. If your change touches
+There is no harness for plugin UI. A clean typecheck and a clean reload prove a `client/` change
+compiles and loads — nothing more. Someone has to look at the panel. If your change touches
 UI, say in the PR what you saw, and on which platform: desktop is the web export on V8, and mobile
 is Hermes, so they fail differently.
 
