@@ -16,7 +16,7 @@ as the app you view the panel in, which checks the version itself.
 paseo plugin add gpambrozio/paseo-plugins --path skills
 ```
 
-This repository holds two plugins, hence `--path`. The daemon clones it under `$PASEO_HOME/plugins`
+This repository holds three plugins, hence `--path`. The daemon clones it under `$PASEO_HOME/plugins`
 and runs no package manager — the plugin is source only, and everything it imports at runtime the
 host provides. Pin a release with `--ref <tag>`; later, `paseo plugin status` and
 `paseo plugin update skills` follow the branch.

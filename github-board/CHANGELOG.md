@@ -1,7 +1,6 @@
 # Changelog
 
-Notable changes to `github-board`. The other plugin in this repository, `skills`, versions
-separately.
+Notable changes to `github-board`. The other plugins in this repository version separately.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the version numbers
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here is published to a
