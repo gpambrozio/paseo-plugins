@@ -29,6 +29,10 @@ import type {
   toggleLabel,
 } from "../shared/board";
 import { isGitHubImageHost } from "../shared/image-host";
+// A value import, unlike everything taken from `../shared/board`: the row this
+// module writes has to carry the same key the client renderer registers, and
+// `shared/timeline` imports nothing, so the standalone transpile still runs.
+import { BOARD_ITEM_TIMELINE_KIND, BOARD_ITEM_TIMELINE_VERSION } from "../shared/timeline";
 
 const execFileAsync = promisify(execFile);
 
@@ -1626,6 +1630,8 @@ export async function sendToChatHandler(
     number,
     title,
     url,
+    author,
+    labels,
     prompt,
     isolation,
     provider,
@@ -1686,6 +1692,32 @@ export async function sendToChatHandler(
       throw new Error(
         `Workspace “${workspace.name ?? project.displayName}” was created, but the agent could not be started: ${detail}`,
       );
+    });
+
+  /**
+   * The card the agent is working on, as a persisted row in its own transcript.
+   *
+   * It lands *after* the opening prompt rather than above it, because the prompt
+   * rides along with `agents.create` and there is no agent to append to until
+   * that has resolved. That ordering is the price of not opening a window where
+   * the workspace exists with a silent agent in it, which matters more.
+   *
+   * Deliberately not fatal. By this point the workspace and the agent both
+   * exist and the prompt has been delivered — the send the user asked for has
+   * happened. Failing it here would report an error for a launch that worked and
+   * invite the user to send the card a second time, which would cut a second
+   * worktree. A missing row costs the transcript its header and nothing else.
+   */
+  await agent.timeline
+    .append({
+      type: "plugin",
+      id: `${BOARD_ITEM_TIMELINE_KIND}:${repository}#${number}`,
+      kind: BOARD_ITEM_TIMELINE_KIND,
+      version: BOARD_ITEM_TIMELINE_VERSION,
+      data: { repository, number, title, url, author, labels },
+    })
+    .catch((cause: unknown) => {
+      console.warn("[github-board] could not append the timeline row", cause);
     });
 
   // Saved only once the send has actually worked, so a configuration that the
