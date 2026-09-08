@@ -147,7 +147,7 @@ const DETAIL_OFFSCREEN_FALLBACK = 800;
  * before the document lands shows empty fields rather than inventing values
  * that saving would disagree with.
  */
-const EMPTY_PROMPTS: PromptSettings = {
+export const EMPTY_PROMPTS: PromptSettings = {
   byType: { issues: "", "draft-prs": "", "open-prs": "", discussions: "" },
   byProject: {},
 };
@@ -195,7 +195,7 @@ function relativeTime(iso: string): string {
   return `${Math.round(days / 30)}mo ago`;
 }
 
-function useStyles({ theme, layout }: PluginSurfaceProps) {
+export function useStyles({ theme, layout }: PluginSurfaceProps) {
   return useMemo(() => {
     const { colors } = theme;
     const gap = layout.compact ? 8 : 12;
@@ -2494,7 +2494,7 @@ function SendDialog({
  * one project's overrides. One set of fields serves both, because a project
  * override is the same four templates with "inherit" as an option.
  */
-function PromptSettingsView({
+export function PromptSettingsView({
   styles,
   prompts,
   login,
