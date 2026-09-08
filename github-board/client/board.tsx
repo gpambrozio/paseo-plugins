@@ -1,5 +1,5 @@
 import { type PluginSurfaceProps, useRpc, usePaseo, useSettings } from "@getpaseo/plugin/client";
-import { Icon } from "@getpaseo/plugin/client/react-native";
+import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -351,24 +351,8 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
         bottom: 0,
         backgroundColor: withAlpha(colors.surface0, "e6"),
       },
-      modalCard: {
-        width: "100%" as const,
-        maxWidth: 420,
-        gap: 12,
-        backgroundColor: colors.surface0,
-        borderWidth: 1,
-        borderColor: separator,
-        borderRadius: 12,
-        padding: 16,
-      },
       modalTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" as const },
-      modalTitleDanger: {
-        color: colors.statusDanger,
-        fontSize: 15,
-        fontWeight: "600" as const,
-      },
       modalBody: { color: colors.foregroundMuted, fontSize: 13, lineHeight: 19 },
-      modalActions: { flexDirection: "row" as const, justifyContent: "flex-end" as const },
       centered: { flex: 1, alignItems: "center" as const, justifyContent: "center" as const },
 
       // --- New workspace dialog ---
@@ -3460,15 +3444,16 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const [board, setBoard] = useState<Board | null>(cachedBoard);
   const [error, setError] = useState<string | null>(null);
   /**
-   * The outcome of the last "Send to chat", success or failure. It is deliberately
-   * not `error`: a card that could not be matched to a project says nothing about
-   * whether the board itself loaded.
+   * The outcome of the last "Send to chat", success or failure, as a host
+   * toast. It used to be a modal with a Close button, which was wrong for the
+   * success case in particular: it announced a workspace while navigating the
+   * user to it, so the thing to dismiss was gone before it could be read.
+   *
+   * Deliberately not `error`: a card that could not be matched to a project
+   * says nothing about whether the board itself loaded, and `error` is a state
+   * that belongs on screen until it is fixed.
    */
-  const [notice, setNotice] = useState<{
-    tone: "info" | "danger";
-    title: string;
-    text: string;
-  } | null>(null);
+  const toast = useToast();
   const [busy, setBusy] = useState(cachedBoard === null);
   const [loginDraft, setLoginDraft] = useState(cachedBoard?.login ?? "");
   const [hiddenRepos, setHiddenRepos] = useState<ReadonlySet<string>>(() => new Set());
@@ -3746,7 +3731,6 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   }, []);
 
   const openDetails = useCallback((item: BoardItem, type: ColumnId) => {
-    setNotice(null);
     setDetailTarget({ item, type });
     setDetailOpen(true);
   }, []);
@@ -3773,7 +3757,6 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    */
   const openSendDialog = useCallback(
     (item: BoardItem, type: ColumnId) => {
-      setNotice(null);
       const projectId = board?.repositoryProjects[item.repository] ?? null;
       const template =
         promptValues === null ? item.url : templateFor(promptValues, type, projectId);
@@ -3803,14 +3786,13 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const handleLaunched = useCallback(
     (result: LaunchResult) => {
       setSendTarget(null);
-      setNotice({
-        tone: "info",
-        title: "Workspace created",
-        text: `“${result.workspaceName}” in ${result.projectName}. Opening it…`,
-      });
+      toast.show(
+        `Created “${result.workspaceName}” in ${result.projectName}. Opening it…`,
+        { variant: "success" },
+      );
       props.navigation?.openAgent({ agentId: result.agentId });
     },
-    [props.navigation],
+    [props.navigation, toast],
   );
 
   const applyLogin = useCallback(
@@ -3836,15 +3818,9 @@ export function GitHubBoard(props: PluginSurfaceProps) {
       // hold a blank field while it is being cleared and only the *saved*
       // document reads a blank as "inherit".
       const saved = await prompts.save(normalizePrompts(next), prompts.revision);
-      if (!saved) {
-        setNotice({
-          tone: "danger",
-          title: "Could not save prompts",
-          text: prompts.saveError ?? "The templates were not saved.",
-        });
-      }
+      if (!saved) toast.error(prompts.saveError ?? "The templates were not saved.");
     },
-    [prompts],
+    [prompts, toast],
   );
 
   return (
@@ -4070,31 +4046,6 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         />
       ) : null}
 
-      {notice !== null ? (
-        <View style={styles.modalLayer}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss message"
-            style={styles.modalBackdrop}
-            onPress={() => setNotice(null)}
-          />
-          <View accessibilityRole="alert" accessibilityViewIsModal style={styles.modalCard}>
-            <Text style={notice.tone === "danger" ? styles.modalTitleDanger : styles.modalTitle}>
-              {notice.title}
-            </Text>
-            <Text style={styles.modalBody}>{notice.text}</Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                accessibilityRole="button"
-                style={styles.button}
-                onPress={() => setNotice(null)}
-              >
-                <Text style={styles.buttonLabel}>Close</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      ) : null}
     </View>
   );
 }
