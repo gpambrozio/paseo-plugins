@@ -51,113 +51,7 @@ import {
 } from "../shared/board";
 import { isGitHubImageHost } from "../shared/image-host";
 import { MarkdownBody } from "./markdown";
-
-/**
- * `Linking.openURL` is `window.open` on the desktop renderer, and the main
- * Electron window installs no window-open handler, so a card click lands in a
- * bare child window instead of the browser. The desktop preload exposes the
- * same opener Paseo's own links go through, which hands the URL to the OS
- * browser as a normal tab. Mobile and plain web have no bridge and keep
- * `Linking`, which already opens a tab there.
- */
-interface DesktopOpenerBridge {
-  readonly opener?: { readonly openUrl?: (url: string) => Promise<void> };
-}
-
-function openExternalUrl(url: string): void {
-  const openUrl = (globalThis as { paseoDesktop?: DesktopOpenerBridge }).paseoDesktop?.opener
-    ?.openUrl;
-  if (typeof openUrl !== "function") {
-    void Linking.openURL(url);
-    return;
-  }
-  void openUrl(url).catch((error: unknown) => {
-    console.warn("[github-board] desktop opener refused the URL, falling back", error);
-    void Linking.openURL(url);
-  });
-}
-
-/**
- * Selects the freshly created workspace in the app by hand-building its route.
- *
- * Only for hosts that pass no `props.navigation` — Paseo before 0.7.0-beta.3,
- * where a plugin had no way to ask the client to navigate. Newer hosts take the
- * `navigation.openAgent` path in `handleLaunched`, which reaches the same screen
- * without any of this.
- *
- * This runs in the **client** bundle on purpose. The plugin's server half lives
- * next to the daemon, which on a remote host is a different machine from the one
- * the user is looking at — a link opened there would surface on the wrong
- * screen. `props.host.id` is the `serverId` the app's routes are keyed by
- * (`surface-screen.tsx` passes `{ id: serverId }`), so the client can address
- * the workspace on any host it is connected to.
- *
- * `?open=agent:<id>` is the app's own cold deep-link intent: the workspace
- * screen reads it, opens that agent's tab, and strips it from the URL. Without
- * it the workspace opens on whichever tab it feels like.
- *
- * Two mechanisms, because the route has to be delivered differently per platform:
- *
- * - Native runs the app's own `paseo://` scheme through `Linking`, which expo
- *   router handles in-process.
- * - Web and the desktop renderer push the route onto `history` and announce it
- *   with a `popstate`, which is the event expo-router's linking listens on.
- *   `paseoDesktop.opener.openUrl` is *not* usable here: it only accepts http and
- *   https (`desktop/src/features/opener.ts`), so a `paseo://` link throws.
- *
- * The push is best effort, so the caller re-checks: `stillHere` reports whether
- * the surface is still mounted a beat later, and if it is, nothing routed and a
- * full location change finishes the job.
- */
-function selectWorkspaceInApp(input: {
-  serverId: string;
-  workspaceId: string;
-  agentId: string;
-  platform: PluginSurfaceProps["layout"]["platform"];
-  stillHere: () => boolean;
-}): void {
-  // A `wks_…` id needs no encoding; encodeURIComponent covers the legacy
-  // path-shaped ids too, which the app decodes back on the way in.
-  const route = `/h/${encodeURIComponent(input.serverId)}/workspace/${encodeURIComponent(
-    input.workspaceId,
-  )}?open=${encodeURIComponent(`agent:${input.agentId}`)}`;
-
-  if (input.platform !== "web") {
-    void Linking.openURL(`paseo:/${route}`).catch((error: unknown) => {
-      console.warn("[github-board] could not open the workspace deep link", error);
-    });
-    return;
-  }
-
-  // Typed structurally: this plugin compiles against Node's lib, not the DOM's,
-  // and these globals only exist on the platforms this branch runs on anyway.
-  const web = globalThis as {
-    history?: { pushState?: (state: unknown, title: string, url: string) => void };
-    location?: { assign?: (url: string) => void };
-    dispatchEvent?: (event: unknown) => boolean;
-    PopStateEvent?: new (type: string) => unknown;
-    Event?: new (type: string) => unknown;
-  };
-  const PopState = web.PopStateEvent ?? web.Event;
-  if (typeof web.history?.pushState !== "function" || PopState === undefined) return;
-  try {
-    web.history.pushState({}, "", route);
-    web.dispatchEvent?.(new PopState("popstate"));
-  } catch (error) {
-    console.warn("[github-board] history navigation failed", error);
-  }
-  setTimeout(() => {
-    // Still mounted means the router ignored the push — the surface would have
-    // gone with the route otherwise. Loading the same URL outright is the
-    // fallback, and it costs nothing when it never runs.
-    if (!input.stillHere()) return;
-    web.location?.assign?.(route);
-  }, ROUTER_SETTLE_MS);
-}
-
-/** Long enough for expo-router to swap the screen, short enough not to feel stuck. */
-const ROUTER_SETTLE_MS = 600;
-
+import { openExternalUrl, trackPointerOnDocument } from "./web";
 /**
  * The four columns in display order, with the label the settings view gives
  * each one. Declared here rather than read off the board so the settings view
@@ -261,83 +155,6 @@ const DETAIL_OPEN_MS = 220;
 const DETAIL_CLOSE_MS = 160;
 /** Before the panel has been laid out, it slides from this far right at least. */
 const DETAIL_OFFSCREEN_FALLBACK = 800;
-
-/**
- * Follows a drag at the document level on the web renderer, where the
- * responder system alone is not enough: widening the panel means dragging
- * *left*, across the board's columns, whose scroll views ask for the responder
- * as the pointer crosses them, and a pointer moving faster than the handle
- * leaves it altogether. Document listeners see every move until the button is
- * released, wherever the pointer is — including outside the window, where a
- * `blur` stands in for the release the browser cannot report.
- *
- * Typed structurally: this plugin compiles against Node's lib, not the DOM's,
- * and on native the globals are simply absent, so the function does nothing.
- */
-function trackPointerOnDocument(
-  onMove: (clientX: number) => void,
-  onEnd: () => void,
-): () => void {
-  const web = globalThis as {
-    document?: {
-      addEventListener?: (type: string, listener: (event: unknown) => void) => void;
-      removeEventListener?: (type: string, listener: (event: unknown) => void) => void;
-      body?: { style?: Record<string, string> };
-    };
-    addEventListener?: (type: string, listener: () => void) => void;
-    removeEventListener?: (type: string, listener: () => void) => void;
-  };
-  const document = web.document;
-  if (
-    document === undefined ||
-    typeof document.addEventListener !== "function" ||
-    typeof document.removeEventListener !== "function"
-  ) {
-    return () => {};
-  }
-  const move = (event: unknown) => {
-    const clientX = typeof event === "object" && event !== null ? Reflect.get(event, "clientX") : null;
-    if (typeof clientX === "number") onMove(clientX);
-  };
-  /**
-   * A drag is also a mouse-down followed by movement, which is how a browser
-   * starts a text selection — and once the pointer leaves the handle, every
-   * card title it crosses is selectable. Selection is switched off on the body
-   * for the drag's duration, and the resize cursor is pinned there too so it
-   * does not flicker back to an I-beam over text.
-   */
-  const bodyStyle = document.body?.style;
-  const previous = {
-    userSelect: bodyStyle?.userSelect ?? "",
-    webkitUserSelect: bodyStyle?.webkitUserSelect ?? "",
-    cursor: bodyStyle?.cursor ?? "",
-  };
-  if (bodyStyle !== undefined) {
-    bodyStyle.userSelect = "none";
-    bodyStyle.webkitUserSelect = "none";
-    bodyStyle.cursor = "col-resize";
-  }
-  let done = false;
-  const end = () => {
-    if (done) return;
-    done = true;
-    if (bodyStyle !== undefined) {
-      bodyStyle.userSelect = previous.userSelect;
-      bodyStyle.webkitUserSelect = previous.webkitUserSelect;
-      bodyStyle.cursor = previous.cursor;
-    }
-    document.removeEventListener?.("pointermove", move);
-    document.removeEventListener?.("pointerup", end);
-    document.removeEventListener?.("pointercancel", end);
-    web.removeEventListener?.("blur", end);
-    onEnd();
-  };
-  document.addEventListener("pointermove", move);
-  document.addEventListener("pointerup", end);
-  document.addEventListener("pointercancel", end);
-  web.addEventListener?.("blur", end);
-  return end;
-}
 
 /**
  * Stands in until the first board lands. Blank templates are what the server
@@ -3660,17 +3477,6 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    */
   const rootRef = useRef<View | null>(null);
   /**
-   * Whether this surface is still on screen, read after a navigation attempt:
-   * routing away unmounts it, so still being here means nothing routed.
-   */
-  const mounted = useRef(true);
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
-  /**
    * The saved filter is adopted on the first load only. Later refreshes must not
    * overwrite what the user is toggling right now with the value the server last
    * heard — and a remount that already restored the filter from cache counts as
@@ -3927,16 +3733,15 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    * looking like nothing happened.
    *
    * `navigation` is the host's own agent navigation, so `openAgent` alone lands
-   * on the workspace *and* opens that agent's tab; the workspace id is only
-   * needed by the hand-built route below. Its absence is the compatibility gate
-   * the API is documented to be used as.
+   * on the workspace *and* opens that agent's tab, because it runs the app's own
+   * `navigateToAgent` against the host rendering the surface.
    *
-   * **The gate is the app, not the daemon.** `usePluginHostNavigation` runs in
-   * the client, so whether this prop arrives depends on the version of the app
-   * rendering the surface. Observed on 2026-08-31 against one 0.7.0-beta.3
-   * daemon: desktop passed it and navigated, the phone passed nothing — the
-   * mobile app ships separately and was still behind. So the fallback is not a
-   * transitional courtesy; it is live for as long as any client is older.
+   * The prop is still typed optional because hosts before 0.7.0-beta.3 passed
+   * nothing. This plugin now requires Paseo >=0.8.0, and each app checks that
+   * against its *own* version before it evaluates this bundle, so every client
+   * that can run this code passes it. The `undefined` branch therefore only
+   * leaves the notice standing — which already names the workspace the work went
+   * to — instead of the hand-built `paseo://` route this used to fall back on.
    */
   const handleLaunched = useCallback(
     (result: LaunchResult) => {
@@ -3946,19 +3751,9 @@ export function GitHubBoard(props: PluginSurfaceProps) {
         title: "Workspace created",
         text: `“${result.workspaceName}” in ${result.projectName}. Opening it…`,
       });
-      if (props.navigation !== undefined) {
-        props.navigation.openAgent({ agentId: result.agentId });
-        return;
-      }
-      selectWorkspaceInApp({
-        serverId: props.host.id,
-        workspaceId: result.workspaceId,
-        agentId: result.agentId,
-        platform: props.layout.platform,
-        stillHere: () => mounted.current,
-      });
+      props.navigation?.openAgent({ agentId: result.agentId });
     },
-    [props.navigation, props.host.id, props.layout.platform],
+    [props.navigation],
   );
 
   const applyLogin = useCallback(
