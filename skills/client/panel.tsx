@@ -1,7 +1,7 @@
 import { type PluginAgentPanelProps, useAgent, usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -88,8 +88,12 @@ type DetailStyles = ReturnType<typeof detailStyles>;
  * Owns the arguments field and the send. The re-entrancy guard lives here rather
  * than in each detail screen: a double tap on a slow connection would otherwise
  * invoke the skill twice on the user's live agent.
+ *
+ * `onInvoked` is deliberately not `onBack`. Both used to be the same callback,
+ * which meant a successful invoke left the user on the Skills tab watching the
+ * list — the turn it had just started was one tab away, with nothing saying so.
  */
-function useInvoke(agentId: string, onBack: () => void) {
+function useInvoke(agentId: string, onInvoked: () => void) {
   const paseo = usePaseo();
   const [args, setArgs] = useState("");
   const [invokeError, setInvokeError] = useState<string | null>(null);
@@ -102,7 +106,7 @@ function useInvoke(agentId: string, onBack: () => void) {
     const trimmed = args.trim();
     try {
       await paseo.agents.ref(agentId).send(trimmed ? `/${name} ${trimmed}` : `/${name}`);
-      onBack();
+      onInvoked();
     } catch (error) {
       setInvokeError(error instanceof Error ? error.message : String(error));
       setIsInvoking(false);
@@ -153,6 +157,7 @@ function SkillDetail({
   skillId,
   userInvocable,
   onBack,
+  onInvoked,
 }: {
   theme: PluginAgentPanelProps["theme"];
   layout: PluginAgentPanelProps["layout"];
@@ -160,10 +165,11 @@ function SkillDetail({
   skillId: string;
   userInvocable: boolean;
   onBack: () => void;
+  onInvoked: () => void;
 }) {
   const callReadSkill = useRpc(readSkill);
   const toast = useToast();
-  const controls = useInvoke(agentId, onBack);
+  const controls = useInvoke(agentId, onInvoked);
 
   const query = useQuery({
     queryKey: ["skill", agentId, skillId],
@@ -235,14 +241,16 @@ function ReportedDetail({
   agentId,
   entry,
   onBack,
+  onInvoked,
 }: {
   theme: PluginAgentPanelProps["theme"];
   layout: PluginAgentPanelProps["layout"];
   agentId: string;
   entry: ReportedSkill;
   onBack: () => void;
+  onInvoked: () => void;
 }) {
-  const controls = useInvoke(agentId, onBack);
+  const controls = useInvoke(agentId, onInvoked);
   const padding = layout.compact ? 12 : 20;
   const styles = useMemo(() => detailStyles(theme, padding), [theme, padding]);
 
@@ -299,7 +307,7 @@ function listStyles(theme: PluginAgentPanelProps["theme"], padding: number) {
 
 type ListStyles = ReturnType<typeof listStyles>;
 
-export function SkillsPanel({ theme, layout, agentId }: PluginAgentPanelProps) {
+export function SkillsPanel({ theme, layout, agentId, navigation }: PluginAgentPanelProps) {
   // Only a liveness check — the panel reads everything else off the query, whose
   // own hook is what tracks `cwd`.
   const agentCwd = useAgent(agentId, (snapshot) => snapshot.cwd);
@@ -310,6 +318,29 @@ export function SkillsPanel({ theme, layout, agentId }: PluginAgentPanelProps) {
   const [selected, setSelected] = useState<Selection | null>(null);
 
   const query = useSkillsQuery(agentId);
+
+  /**
+   * Invoking sent a message to the user's live agent, so the agent's own tab is
+   * where the result appears — leaving the user on the Skills tab hides the
+   * thing they just asked for. `openAgent` runs the app's own `navigateToAgent`
+   * against this host, which is the same call `github-board` makes after a send.
+   *
+   * The selection is cleared first, so the panel is back on its list when the
+   * user returns to this tab rather than on the detail of a skill already run.
+   *
+   * `navigation` is typed optional because hosts before 0.7.0-beta.3 passed
+   * nothing; this plugin requires Paseo >=0.8.0 and each app checks that against
+   * its own version before evaluating this bundle, so every client that can run
+   * this code passes it. The `undefined` branch is the old behaviour — back to
+   * the list, still on this tab — rather than a broken one.
+   */
+  const handleInvoked = useCallback(
+    function handleInvoked() {
+      setSelected(null);
+      navigation?.openAgent({ agentId });
+    },
+    [agentId, navigation],
+  );
 
   const padding = layout.compact ? 12 : 20;
   const styles = useMemo(() => listStyles(theme, padding), [theme, padding]);
@@ -346,6 +377,7 @@ export function SkillsPanel({ theme, layout, agentId }: PluginAgentPanelProps) {
         skillId={selected.id}
         userInvocable={entry?.userInvocable ?? true}
         onBack={() => setSelected(null)}
+        onInvoked={handleInvoked}
       />
     );
   }
@@ -368,6 +400,7 @@ export function SkillsPanel({ theme, layout, agentId }: PluginAgentPanelProps) {
         agentId={agentId}
         entry={reportedEntry}
         onBack={() => setSelected(null)}
+        onInvoked={handleInvoked}
       />
     );
   }

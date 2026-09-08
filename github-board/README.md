@@ -193,6 +193,12 @@ from that card's repository, titled after the issue, pull request or discussion,
 starts the agent you chose in it, sends your message, and opens the new
 workspace in the app.
 
+The conversation opens with the card itself — repository and number, title,
+author and labels — as the first thing under your message. Click it to open the
+original on GitHub. It is saved with the conversation, so it is still there
+after a restart and on your other devices, and it does not depend on your
+prompt template having mentioned the issue.
+
 Your choices are remembered, so the next card opens on the same agent. A model
 or provider that has since disappeared quietly falls back to what the host
 actually offers.
@@ -236,7 +242,7 @@ hit.
 paseo plugin add gpambrozio/paseo-plugins --path github-board
 ```
 
-This repository holds two plugins, hence `--path`. The daemon clones it under `$PASEO_HOME/plugins`
+This repository holds three plugins, hence `--path`. The daemon clones it under `$PASEO_HOME/plugins`
 and runs no package manager — the plugin is source only, and everything it imports at runtime the
 host provides. Pin a release with `--ref <tag>`; later, `paseo plugin status` and
 `paseo plugin update github-board` follow the branch.

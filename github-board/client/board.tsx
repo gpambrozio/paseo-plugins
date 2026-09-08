@@ -2247,6 +2247,10 @@ function SendDialog({
       number: item.number,
       title: item.title,
       url: item.url,
+      // Not read by the launch — these ride along for the timeline row the
+      // handler appends to the new agent.
+      author: item.author,
+      labels: item.labels,
       prompt: text,
       isolation,
       provider: configuration.provider,

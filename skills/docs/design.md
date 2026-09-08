@@ -322,7 +322,16 @@ lives in a single place.
 await paseo.agents.ref(agentId).send(args ? `/${name} ${args}` : `/${name}`);
 ```
 
-Then it returns to the list. Both providers resolve a leading slash in an ordinary prompt into a real
+Then it clears the selection and navigates to the agent's own tab with
+`navigation.openAgent({ agentId })`. The send starts a turn on the user's live agent, and the result
+of that turn appears in the agent's transcript — leaving the user on the Skills tab would hide the
+thing they just asked for. Clearing the selection first means returning to this tab lands on the
+list, not on the detail of a skill already run. `navigation` is typed optional for hosts before
+0.7.0-beta.3; the manifest requires Paseo >=0.8.0 and each app checks that against its own version
+before evaluating the bundle, so the `undefined` branch is only the old behaviour — back to the
+list, still on this tab.
+
+Both providers resolve a leading slash in an ordinary prompt into a real
 command invocation — Codex's `startTurn` turns it into a `{ type: "skill", path }` block
 (`codex-app-server-agent.ts:3891`) — so this is a genuine invocation, not literal text in the
 transcript.

@@ -1,12 +1,23 @@
 # Changelog
 
-Notable changes to `github-board`. The other plugin in this repository, `skills`, versions
-separately.
+Notable changes to `github-board`. The other plugins in this repository version separately.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the version numbers
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here is published to a
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
+
+## [0.5.0] — 2026-09-08
+
+### Added
+
+- **An agent you start from a card now opens with the issue or pull request at the top of its
+  conversation** — the repository and number, the title, who opened it, and its labels, as a card
+  you can click to open the original on GitHub. Before this, the only trace of where the work came
+  from was whatever your prompt template happened to mention, so a template that did not name the
+  issue left the conversation with no way back to it. The card is saved with the conversation, so
+  it is still there tomorrow, on your other devices, and after a restart. Agents you started before
+  this release are unchanged.
 
 ## [0.4.0] — 2026-09-08
 

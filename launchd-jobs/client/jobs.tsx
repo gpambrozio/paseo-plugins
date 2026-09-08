@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 
 import { describeCron, describeInterval, entryCount, parseCron } from "../shared/cron";
 import type { Job, JobSpec, RunRecord } from "../shared/jobs";
 import { createJob, deleteJob, listJobs, readJobLog, runJob, setJobEnabled, updateJob } from "../shared/jobs";
+import { useLogFollow } from "./log-follow";
 
 /**
  * The surface: a list of the plugin's LaunchAgents on the left, and on the
@@ -358,6 +359,7 @@ function JobDetail({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [log, setLog] = useState<{ text: string; truncated: boolean; path: string } | null>(null);
   const [logBusy, setLogBusy] = useState(false);
+  const follow = useLogFollow(job);
   const status = statusOf(job);
 
   const loadLog = useCallback(
@@ -375,10 +377,20 @@ function JobDetail({
   );
 
   // A fresh job, or a run that just finished, is the moment to look again.
+  // Not while following: the tail is already ahead of anything a re-read would
+  // find, and repainting the pane from the file would fight it.
   const lastFinished = job.recentRuns[0]?.finishedAt ?? null;
   useEffect(() => {
+    if (follow.following) return;
     void loadLog();
-  }, [loadLog, lastFinished]);
+  }, [follow.following, loadLog, lastFinished]);
+
+  // The follow's own failures are events, so they go to the same toast the
+  // rest of this pane reports through rather than into the log box.
+  const followError = follow.error;
+  useEffect(() => {
+    if (followError !== null) onNotice({ tone: "danger", text: `Could not follow the log: ${followError}` });
+  }, [followError, onNotice]);
 
   useEffect(() => setConfirmDelete(false), [job.id]);
 
@@ -505,12 +517,36 @@ function JobDetail({
 
       <Section styles={styles} title="Log">
         <View style={styles.actions}>
-          <Button styles={styles} kind="ghost" label={logBusy ? "Loading…" : "Refresh log"} disabled={logBusy} onPress={() => void loadLog()} />
-          {log?.truncated ? <Text style={[styles.textBody, styles.textMuted]}>Showing the last 64 KB.</Text> : null}
+          <Button
+            styles={styles}
+            kind="ghost"
+            label={follow.following ? "Stop following" : "Follow"}
+            onPress={follow.following ? follow.stop : follow.start}
+          />
+          {/* Hidden while following: the box is showing the tail, so a button
+              that repaints it from the file would only look broken. */}
+          {follow.following ? null : (
+            <Button styles={styles} kind="ghost" label={logBusy ? "Loading…" : "Refresh log"} disabled={logBusy} onPress={() => void loadLog()} />
+          )}
+          {follow.following ? (
+            <Text style={[styles.textBody, styles.textMuted]}>
+              {follow.lines === null ? "Starting the tail…" : "Following live."}
+            </Text>
+          ) : log?.truncated ? (
+            <Text style={[styles.textBody, styles.textMuted]}>Showing the last 64 KB.</Text>
+          ) : null}
         </View>
         <ScrollView style={styles.logBox} nestedScrollEnabled>
           <Text style={styles.logText} selectable>
-            {log === null ? "" : log.text === "" ? "No output yet." : log.text}
+            {follow.following
+              ? follow.lines === null
+                ? ""
+                : follow.lines.join("\n")
+              : log === null
+                ? ""
+                : log.text === ""
+                  ? "No output yet."
+                  : log.text}
           </Text>
         </ScrollView>
         <Text style={[styles.rowLine, styles.textMuted]} selectable>

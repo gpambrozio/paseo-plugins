@@ -1,7 +1,7 @@
 {
   "name": "paseo-skills",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "MIT",
   "scripts": {
     "typecheck": "tsc --noEmit",

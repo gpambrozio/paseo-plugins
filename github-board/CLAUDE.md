@@ -12,16 +12,18 @@ compile time. This file covers only what is specific to `github-board`.
 
 | File                       | What it owns                                                                |
 | -------------------------- | --------------------------------------------------------------------------- |
-| `index.client.tsx`         | Client wiring — the surface, the sidebar item, the settings screen, two Command Center items. |
+| `index.client.tsx`         | Client wiring — the surface, the sidebar item, the settings screen, two Command Center items, the timeline renderer. |
 | `index.server.ts`          | Server wiring — the nine RPC contracts and the two settings documents.      |
 | `shared/board.ts`          | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `shared/settings.ts`       | The two host-stored settings documents, the default prompts, and `normalizePrompts`. |
 | `shared/image-host.ts`     | Which image hosts the daemon fetches for the app; used by both halves.      |
+| `shared/timeline.ts`       | The `kind`/`version` keying the timeline row; a *runtime* import on both sides. |
 | `server/board.ts`          | Every `gh` subprocess, the daemon's own settings file, and the server-side board cache. |
 | `client/board.tsx`         | The surface: columns, cards, the detail panel, the repository filter, the send dialog, and the client cache. |
 | `client/settings-screen.tsx` | The Settings → Plugins frame around the same editor the gear button opens. |
 | `client/markdown.tsx`      | The renderer for an item's Markdown body; only the detail panel uses it.    |
 | `client/html.tsx`          | Rewrites the HTML in a body into Markdown before the renderer parses it.    |
+| `client/timeline.tsx`      | The card rendering the row a send appends to the new agent's transcript.    |
 | `client/web.ts`            | Every browser global this plugin touches: the desktop URL opener and the drag's document listeners. |
 | `README.md`                | What the board shows a user, and which query backs each column.             |
 
@@ -34,14 +36,15 @@ The server half is checkable on its own, though: everything it imports from `sha
 `import type`, so it transpiles to a module with no runtime dependency beyond Node built-ins.
 
 ```bash
-npx tsc server/board.ts shared/image-host.ts --module esnext --target es2022 \
+npx tsc server/board.ts shared/image-host.ts shared/timeline.ts --module esnext --target es2022 \
   --moduleResolution bundler --outDir /tmp/gbcheck --skipLibCheck --types node --ignoreConfig
 # then call loadBoardHandler from a throwaway .mjs in that directory, and delete it after
 ```
 
-`server/board.ts` imports `../shared/image-host` at runtime, which is why that file is passed to
-`tsc` too; add the `.js` extension to that one import in the emitted `server/board.js` before
-running it — the bundler resolves extensionless imports, plain Node does not.
+`server/board.ts` imports `../shared/image-host` and `../shared/timeline` at runtime, which is why
+both files are passed to `tsc` too; add the `.js` extension to those two imports in the emitted
+`server/board.js` before running it — the bundler resolves extensionless imports, plain Node does
+not.
 
 Run it with `PASEO_HOME` pointed at a scratch directory so a throwaway never writes the real
 `settings.json`.
@@ -468,6 +471,33 @@ worked.
 
 If the agent fails to start, the workspace still exists; the error says so by name rather than
 pretending nothing happened.
+
+### The timeline row
+
+`agent.timeline.append` then writes a persisted `type: "plugin"` row carrying the card — repository,
+number, title, URL, author, labels — and `client/timeline.tsx` renders it. The daemon owns the row,
+so it survives a reload, a reconnect and a different client, which is the whole point: without it
+the GitHub item exists in the transcript only as whatever the *rendered template* interpolated, and
+a template mentioning neither the number nor the URL leaves the agent no way back to its card.
+
+Three things about it are deliberate:
+
+- **It lands after the opening prompt, not above it.** The prompt rides along with `agents.create`,
+  so there is no agent to append to until that resolves. Appending first would mean creating a
+  silent agent, which the section above rejects for a better reason than this one.
+- **A failed append is swallowed, with a `console.warn`.** By that point the workspace exists, the
+  agent exists and the prompt is delivered — the send worked. Throwing would report a failure for a
+  launch that succeeded and invite a second send, which would cut a second worktree. A missing row
+  costs the transcript its header and nothing else.
+- **`kind` and `version` live in `shared/timeline.ts`, not `shared/board.ts`.** The daemon has to
+  hold them at runtime, and `shared/board.ts` is `import type`-only to the server so the standalone
+  transpile above keeps working. Same split, same reason, as `shared/image-host.ts` — and pass the
+  new file to `tsc` alongside it. The schema stays in `shared/board.ts`, because only the client
+  parses a row.
+
+`author` and `labels` are on the `board.send-to-chat` input for this and nothing else; they are the
+only fields there the launch itself never reads. A row already written carries the version it was
+written with, so a shape change is a **version bump plus a second renderer**, not an edit.
 
 ### Selecting the new workspace
 

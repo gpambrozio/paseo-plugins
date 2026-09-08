@@ -7,6 +7,19 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.3.0] — 2026-09-08
+
+### Added
+
+- **A Follow button on a job's log**, which shows output as the job writes it instead of only when
+  you press Refresh. Useful for watching a job you have just started, or one that takes a while.
+  Press it again to stop. Following ends on its own when you leave the job or close the surface, so
+  nothing keeps running in the background.
+
+  Following borrows one of your open workspaces to run in, and appears in that workspace's terminal
+  list as `launchd: <job name>` while it lasts. It needs at least one workspace open; with none, the
+  button reports that there is nothing to run in and the Refresh button still works as before.
+
 ## [0.2.0] — 2026-09-08
 
 ### Changed

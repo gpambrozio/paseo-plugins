@@ -256,6 +256,14 @@ export const sendToChat = defineRpc({
     title: z.string(),
     /** The card's URL, and the source of the forge host. */
     url: z.string(),
+    /**
+     * Carried for the timeline row alone, which is why they are the only two
+     * `BoardItem` fields here that the launch itself never reads. The prompt is
+     * a rendered template and may mention none of this; the row has to identify
+     * the card whatever the template said.
+     */
+    author: z.string().nullable(),
+    labels: z.array(z.string()),
     /** The first message, as the dialog left it — already rendered from the template. */
     prompt: z.string().min(1),
     isolation: IsolationSchema,
@@ -274,6 +282,37 @@ export const sendToChat = defineRpc({
     agentId: z.string(),
   }),
 });
+
+/**
+ * The card that opens the transcript of an agent this board launched.
+ *
+ * Without it the GitHub item survives only as prose inside the rendered prompt,
+ * where it is whatever the template happened to interpolate — a template that
+ * mentions neither the number nor the URL leaves the agent's own transcript with
+ * no way back to the card it came from. This row is a persisted timeline entry
+ * appended by `sendToChatHandler`, so it is part of the agent's history rather
+ * than app state, and it survives a reload, a reconnect, and a different client.
+ *
+ * The `kind` and `version` that key it are in `shared/timeline.ts` rather than
+ * here, because the daemon writes them and this file has to stay `import
+ * type`-only to the server — the same split, and the same reason, as
+ * `shared/image-host.ts`. Only the client parses a row, so the schema stays.
+ *
+ * A row already written carries the version it was written with, so **bump the
+ * version rather than change this shape**, and leave the old renderer
+ * registered for as long as agents launched by an older build are readable.
+ */
+export const BoardTimelineItemSchema = z.object({
+  /** `owner/name`, as the card displayed it. */
+  repository: z.string(),
+  number: z.number().int(),
+  title: z.string(),
+  url: z.string(),
+  author: z.string().nullable(),
+  labels: z.array(z.string()),
+});
+
+export type BoardTimelineItem = z.infer<typeof BoardTimelineItemSchema>;
 
 /**
  * Every label the repository defines, for the menu a card opens on right-click.

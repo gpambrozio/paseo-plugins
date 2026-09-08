@@ -15,6 +15,7 @@ compile time. This file covers only what is specific to `launchd-jobs`.
 | `shared/jobs.ts`  | The zod contracts, and the `Job` shape both halves agree on.                     |
 | `server/jobs.ts`  | Every `launchctl` and `plutil` call, the plist writer, the runner, logs, history. |
 | `client/jobs.tsx` | The surface: the list, the detail pane, and the create/edit form.                |
+| `client/log-follow.ts` | Follow mode: the `tail -f` terminal behind the log pane's live view.        |
 | `shared/cron.ts`         | Unsuffixed, in both bundles: cron ⇄ `StartCalendarInterval`, and the sentences.  |
 | `shared/cron.test.ts`    | The only tests. `npm test`.                                                      |
 | `README.md`       | What a job is to a user, and what launchd does and does not promise.             |
@@ -101,6 +102,35 @@ Weekday `7` is folded to `0` on the way in, and `formatField` writes weekday as 
 round-trip of `* * * * 7` prints `0`. `describeCron` deliberately appends "(both must match)" when
 day and weekday are both restricted: cron ORs them, launchd ANDs them, and that is the one place
 the two disagree. The README says the same.
+
+## Follow mode borrows a workspace
+
+`readJobLog` answers a byte-tail of the file when asked, which is all the Refresh button needs and
+useless while a job is running. Follow mode (`client/log-follow.ts`) runs `tail -f` in a daemon pty
+through the 0.8 terminal SDK and repaints the pane from that terminal's scrollback every second.
+The capture is a screen read on the daemon, not a file read, so the poll is cheap; the *latency* is
+`tail`'s, not the poll's.
+
+**`terminals.create` requires a `workspaceId` and this surface is global.** Terminals are
+workspace-scoped in Paseo's model and a sidebar surface belongs to no workspace, so there is no
+correct answer here — only a chosen one. It takes the first workspace the daemon lists that is not
+archiving, names the terminal `launchd: <label>` so it is obvious in that workspace's terminal list
+what put it there, and kills it when following stops. **This is user-visible in a workspace the user
+did not associate with this plugin**; if a future Paseo grows workspace-less terminals, this is the
+first thing to move. With no workspace at all, follow reports itself unavailable rather than
+failing on press.
+
+Two lifetime hazards, both handled with a `generation` counter rather than state:
+
+- **A stop or an unmount landing while `create` is in flight** would otherwise leave a `tail -f`
+  running with nothing holding its handle. The follow checks its generation after the await and
+  kills the terminal it just made.
+- **A cleanup runs after the component stops re-rendering**, so the handle lives in a ref; a state
+  read there would be a stale closure.
+
+Switching jobs and leaving the surface both tear down. While following, the log pane stops
+re-reading the file on `lastFinished` and hides the Refresh button — the tail is already ahead of
+anything a re-read would find, and two writers to one box only ever look broken.
 
 ## Checking the server half against reality
 
