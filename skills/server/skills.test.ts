@@ -9,7 +9,7 @@ import {
   createReadSkillHandler,
   defaultSkillRoots,
   type SkillRoots,
-} from "./skills.server";
+} from "./skills";
 
 let root: string;
 let roots: SkillRoots;

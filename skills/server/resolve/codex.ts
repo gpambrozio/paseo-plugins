@@ -1,7 +1,7 @@
 import path from "node:path";
 
-import { dirsUpToRepoRoot } from "./repo-root.server";
-import { readSkillCandidates, type SkillDirectoryCandidate } from "./skill-directory.server";
+import { dirsUpToRepoRoot } from "./repo-root";
+import { readSkillCandidates, type SkillDirectoryCandidate } from "./skill-directory";
 import type { SkillEntry } from "./skill-entry";
 
 export interface CodexResolveOptions {

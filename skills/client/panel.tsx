@@ -1,4 +1,5 @@
-import { type PluginAgentPanelProps, useAgent, usePaseo, useRpc } from "@getpaseo/plugin";
+import { type PluginAgentPanelProps, useAgent, usePaseo, useRpc } from "@getpaseo/plugin/client";
+import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
@@ -12,8 +13,8 @@ import {
 } from "react-native";
 import type { z } from "zod";
 
-import { useSkillsQuery } from "./skills-query.client";
-import { readSkill, ReportedSkillSchema, SkillEntrySchema } from "./skills.shared";
+import { useSkillsQuery } from "./skills-query";
+import { readSkill, ReportedSkillSchema, SkillEntrySchema } from "../shared/skills";
 
 type Skill = z.infer<typeof SkillEntrySchema>;
 type ReportedSkill = z.infer<typeof ReportedSkillSchema>;
@@ -47,21 +48,6 @@ function groupBySource(skills: Skill[]): Array<{ label: string; skills: Skill[] 
       return rank !== 0 ? rank : labelA.localeCompare(labelB);
     })
     .map(([label, group]) => ({ label, skills: group.skills }));
-}
-
-async function copyToClipboard(value: string): Promise<boolean> {
-  // React Native dropped Clipboard from core and no clipboard package is
-  // available to plugins, so web and desktop copy via the DOM and native falls
-  // back to selectable text.
-  if (typeof navigator !== "undefined" && navigator.clipboard) {
-    try {
-      await navigator.clipboard.writeText(value);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  return false;
 }
 
 function detailStyles(theme: PluginAgentPanelProps["theme"], padding: number) {
@@ -176,7 +162,7 @@ function SkillDetail({
   onBack: () => void;
 }) {
   const callReadSkill = useRpc(readSkill);
-  const [copied, setCopied] = useState(false);
+  const toast = useToast();
   const controls = useInvoke(agentId, onBack);
 
   const query = useQuery({
@@ -206,10 +192,16 @@ function SkillDetail({
           </Text>
           <Pressable
             onPress={() => {
-              void copyToClipboard(query.data.path).then(setCopied);
+              // The path is `selectable` above, so a platform that denies
+              // programmatic copying still leaves long-press and OS Copy.
+              const path = query.data.path;
+              void copyText(path).then(
+                () => toast.show("Path copied", { variant: "success" }),
+                () => toast.error("Could not copy. Select the path and use Copy."),
+              );
             }}
           >
-            <Text style={styles.copy}>{copied ? "Copied" : "Copy path"}</Text>
+            <Text style={styles.copy}>Copy path</Text>
           </Pressable>
           {userInvocable ? (
             <InvokeControls

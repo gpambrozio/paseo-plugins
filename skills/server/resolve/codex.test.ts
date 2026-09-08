@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, test } from "vitest";
 
-import { resolveCodexSkills } from "./codex.server";
+import { resolveCodexSkills } from "./codex";
 
 let root: string;
 
