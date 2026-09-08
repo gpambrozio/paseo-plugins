@@ -7,6 +7,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.2.0] — 2026-09-08
+
+### Changed
+
+- **Now requires Paseo 0.8.0 or newer**, on the computer running the daemon *and* on whatever you
+  are viewing the surface on. Paseo 0.8 changed how plugins are built, and this is the version that
+  follows it. On an older Paseo the plugin reports itself as incompatible rather than half working.
+- **Confirmations appear as brief messages rather than a banner in the list.** Creating, saving,
+  deleting or starting a job no longer pushes the list down to tell you it worked. Errors that need
+  your attention — launchd not answering, a log that would not read — still stay on screen.
+
 ## [0.1.0] — 2026-09-04
 
 ### Added

@@ -8,6 +8,36 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.4.0] — 2026-09-08
+
+### Changed
+
+- **Now requires Paseo 0.8.0 or newer**, on the computer running the daemon *and* on whatever you
+  are looking at the board on. Paseo 0.8 changed how plugins are built, and this is the version
+  that follows it. On an older Paseo the board reports itself as incompatible rather than half
+  working.
+- **Your prompt templates, your repository filter and the width of the detail panel are now kept by
+  Paseo itself.** They were already saved; what is new is that a change on one device shows up on
+  your others without a reload, and that the board no longer has to fetch them before it can draw.
+  Existing settings do not carry over — the templates start from the defaults again, and the filter
+  starts with everything showing.
+- **The prompt and login settings also live under Settings → Plugins → GitHub board**, alongside
+  everything else you configure in Paseo. The gear button on the board still opens the same
+  editor; this is a second way in, not a replacement, and both show the same values.
+- **The send dialog is now a proper sheet on a phone and a proper dialog on a desktop**, and the
+  keyboard raises the message field instead of covering it. That last part never worked on Android
+  before.
+  - Tapping outside the dialog now closes it — but only if you have not edited the message. If you
+    have, it stays put and points you at **Cancel**, so a stray tap cannot lose what you wrote.
+- **Confirmations appear as brief messages rather than boxes you have to dismiss.** Creating a
+  workspace no longer pops up a dialog while it is taking you to the new agent. Errors that need
+  your attention — a board that would not load — still stay on screen.
+
+### Removed
+
+- **The fallback that opened a new chat by reloading the app.** Every Paseo that can run this
+  version can be asked to navigate directly, so the reload is gone.
+
 ## [0.3.1] — 2026-09-03
 
 ### Fixed

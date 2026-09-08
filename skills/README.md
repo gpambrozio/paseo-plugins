@@ -9,7 +9,8 @@ its running session reports.
 
 ## Install
 
-Requires the [Paseo](https://paseo.sh) CLI and a running daemon.
+Requires the [Paseo](https://paseo.sh) CLI and a running daemon, both **0.8.0 or newer** — as well
+as the app you view the panel in, which checks the version itself.
 
 ```bash
 paseo plugin add gpambrozio/paseo-plugins --path skills
