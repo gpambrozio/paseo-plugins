@@ -1,9 +1,10 @@
-import { Icon, type PluginSurfaceProps, useRpc } from "@getpaseo/plugin";
+import { type PluginSurfaceProps, useRpc } from "@getpaseo/plugin/client";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { describeCron, describeInterval, entryCount, parseCron } from "./cron";
-import type { Job, JobSpec, RunRecord } from "./jobs.shared";
-import { createJob, deleteJob, listJobs, readJobLog, runJob, setJobEnabled, updateJob } from "./jobs.shared";
+import { describeCron, describeInterval, entryCount, parseCron } from "../shared/cron";
+import type { Job, JobSpec, RunRecord } from "../shared/jobs";
+import { createJob, deleteJob, listJobs, readJobLog, runJob, setJobEnabled, updateJob } from "../shared/jobs";
 
 /**
  * The surface: a list of the plugin's LaunchAgents on the left, and on the

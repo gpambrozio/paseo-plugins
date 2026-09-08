@@ -1,9 +1,9 @@
 /**
  * Cron expressions to and from launchd's `StartCalendarInterval`.
  *
- * Unsuffixed on purpose: this file lands in both bundles and must stay free of
- * Node imports. The surface uses it to preview a schedule while it is typed;
- * the server uses it to build the plist and to read one back.
+ * Shared on purpose: this file lands in both bundles and must stay free of Node
+ * imports. The surface uses it to preview a schedule while it is typed; the
+ * server uses it to build the plist and to read one back.
  *
  * launchd has no expression language. A calendar interval is a dictionary of
  * `Minute`, `Hour`, `Day`, `Month`, `Weekday`, each a single number, and a
