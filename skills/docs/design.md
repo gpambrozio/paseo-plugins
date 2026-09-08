@@ -107,9 +107,12 @@ paseo-skills/
   panel.client.tsx                     the panel
 ```
 
-The `*.client.tsx` / `*.server.ts` / `*.shared.ts` suffixes are load-bearing: the compiler strips
-client registrations from the server bundle and server registrations from the client bundle, and
-importing across the boundary fails compilation.
+**Layout as of Paseo 0.8.** The tree above is the original one; the runtime directories replaced it
+— `client/panel.tsx`, `server/skills.ts`, `server/resolve/*`, `shared/skills.ts`, with
+`index.client.tsx` and `index.server.ts` as the two entries. The boundary is unchanged in substance:
+the compiler strips client registrations from the server bundle and server registrations from the
+client bundle, and importing across it fails compilation. Only the spelling moved, from filename
+suffixes to directories.
 
 ```bash
 paseo plugin init ~/Development/paseo-skills
