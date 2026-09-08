@@ -1,5 +1,11 @@
 import { type PluginSurfaceProps, useRpc, usePaseo, useSettings } from "@getpaseo/plugin/client";
-import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
+import {
+  Icon,
+  Modal,
+  ScrollView as SheetScrollView,
+  TextInput as SheetTextInput,
+  useToast,
+} from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -326,59 +332,18 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
        * its own view and nothing else. The layer clears the header's `zIndex`
        * of 30 and the repository filter's backdrop of 20.
        */
-      modalLayer: {
-        position: "absolute" as const,
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        alignItems: "center" as const,
-        justifyContent: "center" as const,
-        padding: 20,
-        zIndex: 40,
-      },
-      /**
-       * The theme has no scrim token, and dimming with `foreground` would wash
-       * light on a dark theme. Washing towards `surface0` instead reads as
-       * de-emphasis in both, and leaves the card — same fill, but bordered —
-       * as the only thing with an edge.
-       */
-      modalBackdrop: {
-        position: "absolute" as const,
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: withAlpha(colors.surface0, "e6"),
-      },
-      modalTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" as const },
       modalBody: { color: colors.foregroundMuted, fontSize: 13, lineHeight: 19 },
       centered: { flex: 1, alignItems: "center" as const, justifyContent: "center" as const },
 
       // --- New workspace dialog ---
       /**
-       * Wider than the message modal because it holds a prompt the user is
-       * expected to edit, not a sentence they are expected to read.
+       * The host's sheet owns the frame, the backdrop, the header and the
+       * safe-area clearance, so this is only the body's own rhythm. The default
+       * `Modal.Content` padding is 24 and gap 16; 16 and 12 keep the dialog as
+       * tight as it was, which matters most on a phone where the prompt field
+       * is competing with the keyboard.
        */
-      dialogCard: {
-        width: "100%" as const,
-        maxWidth: 560,
-        /**
-         * Yoga does not shrink flex children by default, so without this the
-         * card keeps its full height and overflows a layer the keyboard has
-         * shortened — clipped on Android, and off the top on both. The prompt
-         * is the child that gives the height back; everything else keeps its
-         * size.
-         */
-        flexShrink: 1,
-        gap: 12,
-        backgroundColor: colors.surface0,
-        borderWidth: 1,
-        borderColor: separator,
-        borderRadius: 12,
-        padding: 16,
-      },
-      dialogHeader: { gap: 2 },
+      dialogBody: { padding: 16, gap: 12 },
       /**
        * A row of chips, and the anchor its popover hangs off. `zIndex` puts both
        * rows above the scrim that closes an open popover, so the chips stay
@@ -1380,7 +1345,7 @@ function LabelMenu({
           {labels.length === 0 ? "This repository defines no labels." : "No label matches."}
         </Text>
       ) : (
-        <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
+        <SheetScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
           {shown.map((label) => {
             const on = applied.has(label.name);
             return (
@@ -1404,7 +1369,7 @@ function LabelMenu({
               </Pressable>
             );
           })}
-        </ScrollView>
+        </SheetScrollView>
       )}
       {error !== null ? <Text style={styles.labelMenuError}>{error}</Text> : null}
       <Pressable
@@ -1915,7 +1880,7 @@ function ChoicePopover({
 }) {
   return (
     <Popover styles={styles} direction={direction}>
-      <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
+      <SheetScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
         {options.map((option) => (
           <PopoverRow
             key={option.id}
@@ -1926,7 +1891,7 @@ function ChoicePopover({
             onPress={() => onSelect(option.id)}
           />
         ))}
-      </ScrollView>
+      </SheetScrollView>
     </Popover>
   );
 }
@@ -2018,7 +1983,7 @@ function ModelPopover({
         placeholderTextColor={styles.subtle.color}
         autoCorrect={false}
       />
-      <ScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
+      <SheetScrollView style={styles.popoverScroll} contentContainerStyle={styles.popoverList}>
         {browsing ? (
           <>
             <Text style={styles.popoverSection}>Providers</Text>
@@ -2054,7 +2019,7 @@ function ModelPopover({
             />
           ))
         )}
-      </ScrollView>
+      </SheetScrollView>
     </Popover>
   );
 }
@@ -2071,38 +2036,6 @@ interface LaunchResult {
   workspaceName: string;
   projectName: string;
   agentId: string;
-}
-
-/**
- * How much of the surface the software keyboard is covering, so a modal centred
- * over it can centre in what is left rather than under it.
- *
- * **iOS only, deliberately.** Android resizes the window itself when the
- * keyboard opens, so the layout has already shrunk by the time the event
- * arrives and padding by the same amount again would push the dialog off the
- * top. Web reports nothing and gets 0.
- *
- * `keyboardWillShow` rather than `keyboardDidShow`: it fires with the opening
- * animation, so the dialog travels with the keyboard instead of jumping once it
- * has arrived. Android has no `will` event, which is the other reason this is
- * not shared.
- */
-function useKeyboardInset(): number {
-  const [inset, setInset] = useState(0);
-
-  useEffect(() => {
-    if (Platform.OS !== "ios") return;
-    const shown = Keyboard.addListener("keyboardWillShow", (event) => {
-      setInset(event.endCoordinates.height);
-    });
-    const hidden = Keyboard.addListener("keyboardWillHide", () => setInset(0));
-    return () => {
-      shown.remove();
-      hidden.remove();
-    };
-  }, []);
-
-  return inset;
 }
 
 /**
@@ -2136,6 +2069,7 @@ function SendDialog({
   const paseo = usePaseo();
   const loadOptions = useRpc(sendOptions);
   const launch = useRpc(sendToChat);
+  const toast = useToast();
 
   const [prompt, setPrompt] = useState(initialPrompt);
   const [project, setProject] = useState<SendProject | null>(null);
@@ -2149,8 +2083,6 @@ function SendDialog({
 
   const closePicker = useCallback(() => setPicker(null), []);
 
-  const keyboardInset = useKeyboardInset();
-
   /**
    * Opening a menu puts the keyboard away first. The popovers are sized to the
    * card, and the card is sized to what the keyboard leaves — so a menu opened
@@ -2162,6 +2094,38 @@ function SendDialog({
     Keyboard.dismiss();
     setPicker((current) => (current === id ? null : id));
   }, []);
+
+  /**
+   * What the host's own dismissals — backdrop, Escape, the platform back
+   * action, the compact sheet's swipe — are allowed to do.
+   *
+   * An open popover swallows the press the way every menu does. A send in
+   * flight is not interruptible. And an *edited* prompt is not thrown away on
+   * a gesture: the dialog opens with a message the user is expected to rewrite,
+   * and on a phone the backdrop is most of the screen, so losing that edit to a
+   * stray thumb is a matter of time rather than of luck. Cancel is still the
+   * way out and still says so — the toast points at it, because a modal that
+   * silently refuses to close reads as broken.
+   *
+   * An untouched prompt has nothing to lose, so those gestures close it
+   * normally, which is what makes this a modal rather than a trap.
+   */
+  const requestClose = useCallback(
+    (next: boolean) => {
+      if (next) return;
+      if (picker !== null) {
+        setPicker(null);
+        return;
+      }
+      if (busy) return;
+      if (prompt !== initialPrompt) {
+        toast.show("Press Cancel to discard your message.", { variant: "info" });
+        return;
+      }
+      onCancel();
+    },
+    [busy, initialPrompt, onCancel, picker, prompt, toast],
+  );
 
   // Which project this card belongs to, and what the last send was set to.
   useEffect(() => {
@@ -2286,37 +2250,12 @@ function SendDialog({
   const modes = provider?.modes ?? [];
 
   return (
-    // The inset is padding rather than a translation: the card is centred in the
-    // layer, so shortening the layer recentres it in the space above the
-    // keyboard and lets it shrink there too, which moving it would not.
-    <View style={[styles.modalLayer, keyboardInset > 0 ? { paddingBottom: keyboardInset } : null]}>
-      {/* The backdrop is not a way out. This dialog opens with a prompt the
-          user is expected to edit, and dismissing on any press outside it puts
-          that edit one stray thumb away from being lost — on a phone, where the
-          card is small and the backdrop is most of the screen, that is a matter
-          of time rather than of luck. Cancel is the way out, and it says so.
-
-          It still catches the press, so nothing lands on the board underneath:
-          an open popover swallows it the way every menu does, and otherwise it
-          puts the keyboard away, which is what a press outside a field means on
-          a touch platform. Inert to a screen reader unless it has a menu to
-          close, since a button that does nothing is worse than no button. */}
-      <Pressable
-        accessibilityRole={picker === null ? undefined : "button"}
-        accessibilityLabel={picker === null ? undefined : "Close menu"}
-        accessibilityElementsHidden={picker === null}
-        importantForAccessibility={picker === null ? "no-hide-descendants" : "auto"}
-        style={styles.modalBackdrop}
-        onPress={picker !== null ? closePicker : Keyboard.dismiss}
-      />
-      <View accessibilityViewIsModal style={styles.dialogCard}>
-        <View style={styles.dialogHeader}>
-          <Text style={styles.modalTitle}>New workspace</Text>
-          <Text style={styles.subtle} numberOfLines={1}>
-            {hostLabel}
-            {project === null ? "" : ` · ${project.name}`}
-          </Text>
-        </View>
+    <Modal title="New workspace" open onOpenChange={requestClose}>
+      <Modal.Content contentContainerStyle={styles.dialogBody}>
+        <Text style={styles.subtle} numberOfLines={1}>
+          {hostLabel}
+          {project === null ? "" : ` · ${project.name}`}
+        </Text>
         <Text style={styles.modalBody} numberOfLines={2}>
           {item.repository} #{item.number} — {item.title}
         </Text>
@@ -2347,7 +2286,10 @@ function SendDialog({
           ) : null}
         </View>
 
-        <TextInput
+        {/* The host's input, not React Native's: it registers focus with the
+            sheet, so the keyboard raises the form instead of covering it. That
+            is what retired `useKeyboardInset`, which only ever ran on iOS. */}
+        <SheetTextInput
           accessibilityLabel="First message"
           style={styles.promptInput}
           value={prompt}
@@ -2463,8 +2405,8 @@ function SendDialog({
             />
           ) : null}
         </View>
-      </View>
-    </View>
+      </Modal.Content>
+    </Modal>
   );
 }
 
