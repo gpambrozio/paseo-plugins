@@ -10,12 +10,15 @@ work waiting on you — in four columns:
 | Open PRs | the same search, filtered to non-draft |
 | Discussions | `gh api graphql`, `search(type: DISCUSSION)` |
 
-Every column runs its search **twice**: once for `author:<login>`, and once for
-`user:<login>` — everything in the repositories that login owns, whoever opened
-it. That second half is why an issue somebody else filed on your own repository
-shows up here, and the card names its author when it is not you. GitHub search
-ANDs its qualifiers, so the two cannot be folded into one query; they are two
-aliased searches inside one `gh api graphql` request instead.
+Every column runs its search **more than once** and unions the results: once for
+`author:<login>`, once for `user:<login>` — everything in the repositories that
+login owns, whoever opened it — and, for issues and pull requests, once for
+`assignee:<login>`. Those last two are why work somebody else opened shows up
+here: an issue filed on your own repository, or one handed to you anywhere on
+GitHub. The card names its author when it is not you. Discussions get the first
+two only, since a discussion has no assignee. GitHub search ANDs its qualifiers,
+so they cannot be folded into one query; they are aliased searches sharing one
+`gh api graphql` request instead.
 
 Both pull request columns come from one search, so the four columns cost three
 `gh` calls per refresh, not four or six — plus one more for the check runs on
@@ -292,17 +295,22 @@ header tells you nothing about which account you are looking at.
 ## Known limits
 
 - **Nothing you merely participated in appears.** Every column is what you
-  authored plus what is open on repositories you own; a thread you only
-  commented on elsewhere is neither. GitHub's discussion search silently returns
-  nothing for `involves:` and `commenter:`, so a "discussions I participated in"
-  column cannot be built at all; for issues and pull requests it would mean a
-  third aliased `involves:<login>` search in `server/board.ts`.
+  authored, what is open on repositories you own, and — for issues and pull
+  requests — what is assigned to you; a thread you only commented on elsewhere is
+  none of those. GitHub's discussion search silently returns nothing for
+  `involves:` and `commenter:`, so a "discussions I participated in" column
+  cannot be built at all; for issues and pull requests it would mean one more
+  aliased `involves:<login>` search in `server/board.ts`.
+- **Assigned means `assignee:`, not review-requested.** A pull request somebody
+  asked you to review, without assigning it to you, is not on the board unless
+  you own the repository. That would be another aliased
+  `review-requested:<login>` search.
 - **"Repositories you own" means `user:<login>`.** An organisation whose
   repositories you maintain but do not own contributes only what you authored
   yourself. Widening that means an `org:` search per organisation, and a list of
   organisations to keep somewhere.
-- Each column caps at `limit` (default 30, max 100) items — both halves of the
-  search are allowed that many rows, and the merged column is cut back to one
+- Each column caps at `limit` (default 30, max 100) items — every half of the
+  search is allowed that many rows, and the merged column is cut back to one
   budget's worth of the most recently updated. An issue whose pull request falls
   past that cap keeps its own card, since nothing on the board claims it.
 - A column that fails renders its own error; the other three still load.

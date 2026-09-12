@@ -328,21 +328,42 @@ function toItem(node: GhSearchNode, detail: string | null): BoardItem {
 const UNARCHIVED_ONLY = "archived:false";
 
 /**
- * Every column is two searches: what this login authored, anywhere, and
- * everything in the repositories this login owns, whoever opened it. The second
- * is what puts other people's work on the board — an issue someone files on
- * your own repository is yours to answer even though you did not write it.
+ * A built search document together with the aliases it declares variables for,
+ * so `multiSearch` can only be handed a query set that matches the document it
+ * is about to run.
+ */
+interface SearchDocument<Alias extends string> {
+  text: string;
+  aliases: readonly Alias[];
+}
+
+/**
+ * Every column is the union of several searches, one per alias: `mine` is what
+ * this login authored, anywhere; `owned` is everything in the repositories this
+ * login owns, whoever opened it; and `assigned` is what somebody else opened
+ * anywhere and put on this login's plate. The last two are what put other
+ * people's work on the board — an issue filed on your own repository, or handed
+ * to you on someone else's, is yours to answer even though you did not write
+ * it.
  *
  * They cannot be one query. GitHub search ANDs its qualifiers, so
  * `author:x user:x` is "authored by x, in x's repositories" — narrower than
- * either half, not their union. Two aliased searches are still one request,
- * which is what keeps a refresh at three subprocesses rather than six.
+ * either half, not their union. Aliased searches still share one request,
+ * which is what keeps a refresh at three subprocesses rather than eight.
  */
-function dualSearchQuery(type: "ISSUE" | "DISCUSSION", selection: string): string {
-  return `query($mine: String!, $owned: String!, $limit: Int!) {
-  mine: search(query: $mine, type: ${type}, first: $limit) { nodes { ${selection} } }
-  owned: search(query: $owned, type: ${type}, first: $limit) { nodes { ${selection} } }
-}`;
+function multiSearchQuery<Alias extends string>(
+  type: "ISSUE" | "DISCUSSION",
+  selection: string,
+  aliases: readonly Alias[],
+): SearchDocument<Alias> {
+  const variables = [...aliases.map((alias) => `$${alias}: String!`), "$limit: Int!"].join(", ");
+  const searches = aliases
+    .map(
+      (alias) =>
+        `  ${alias}: search(query: $${alias}, type: ${type}, first: $limit) { nodes { ${selection} } }`,
+    )
+    .join("\n");
+  return { text: `query(${variables}) {\n${searches}\n}`, aliases };
 }
 
 function nodesOf(result: unknown): unknown[] {
@@ -351,38 +372,30 @@ function nodesOf(result: unknown): unknown[] {
 }
 
 /**
- * Runs both halves in one request and returns their nodes back to back. They
- * overlap wherever the login authored something on a repository it owns, which
- * is what `mergeItems` deduplicates.
+ * Runs every alias in one request and returns their nodes back to back. The
+ * searches overlap — anything the login wrote on its own repository matches
+ * two of them, and anything also assigned to the login matches all three —
+ * which is what `mergeItems` deduplicates.
  */
-async function dualSearch(
-  query: string,
-  mine: string,
-  owned: string,
+async function multiSearch<Alias extends string>(
+  document: SearchDocument<Alias>,
+  queries: Record<Alias, string>,
   limit: number,
 ): Promise<unknown[]> {
-  const raw = await gh([
-    "api",
-    "graphql",
-    "-f",
-    `query=${query}`,
-    "-f",
-    `mine=${mine}`,
-    "-f",
-    `owned=${owned}`,
-    "-F",
-    `limit=${limit}`,
-  ]);
+  const args = ["api", "graphql", "-f", `query=${document.text}`];
+  for (const alias of document.aliases) args.push("-f", `${alias}=${queries[alias]}`);
+  args.push("-F", `limit=${limit}`);
+  const raw = await gh(args);
   const parsed: unknown = JSON.parse(raw);
   const data = (parsed as { data?: Record<string, unknown> }).data;
-  return [...nodesOf(data?.mine), ...nodesOf(data?.owned)];
+  return document.aliases.flatMap((alias) => nodesOf(data?.[alias]));
 }
 
 /**
- * The two searches overlap on everything the login authored in its own
- * repositories, so the union is deduplicated by node id. Each half is sorted
- * only within itself, hence the re-sort; and each half was allowed `limit`
- * rows, so the merged column is cut back to the one budget it was asked for.
+ * Anything matching more than one search comes back more than once, so the
+ * union is deduplicated by node id. Each search is sorted only within itself,
+ * hence the re-sort; and each was allowed `limit` rows, so the merged column is
+ * cut back to the one budget it was asked for.
  */
 function mergeItems(items: readonly BoardItem[], limit: number): BoardItem[] {
   const byId = new Map<string, BoardItem>();
@@ -411,14 +424,21 @@ const ISSUE_SELECTION = `... on Issue {
  * to say `is:issue` — the inline fragment alone would leave every pull request
  * in the response as an empty node.
  */
-const ISSUE_QUERY = dualSearchQuery("ISSUE", ISSUE_SELECTION);
+const ISSUE_QUERY = multiSearchQuery("ISSUE", ISSUE_SELECTION, [
+  "mine",
+  "owned",
+  "assigned",
+] as const);
 
 async function fetchIssues(login: string, limit: number): Promise<BoardItem[]> {
   const scope = `is:issue state:open ${UNARCHIVED_ONLY} sort:updated-desc`;
-  const nodes = await dualSearch(
+  const nodes = await multiSearch(
     ISSUE_QUERY,
-    `${scope} author:${login}`,
-    `${scope} user:${login}`,
+    {
+      mine: `${scope} author:${login}`,
+      owned: `${scope} user:${login}`,
+      assigned: `${scope} assignee:${login}`,
+    },
     limit,
   );
   const items = nodes
@@ -450,7 +470,11 @@ const PULL_REQUEST_SELECTION = `... on PullRequest {
   }
 }`;
 
-const PULL_REQUEST_QUERY = dualSearchQuery("ISSUE", PULL_REQUEST_SELECTION);
+const PULL_REQUEST_QUERY = multiSearchQuery("ISSUE", PULL_REQUEST_SELECTION, [
+  "mine",
+  "owned",
+  "assigned",
+] as const);
 
 interface GhPullRequestNode extends GhSearchNode {
   isDraft?: unknown;
@@ -709,10 +733,13 @@ async function fetchPullRequests(
   limit: number,
 ): Promise<{ draft: BoardItem[]; open: BoardItem[] }> {
   const scope = `is:pr state:open ${UNARCHIVED_ONLY} sort:updated-desc`;
-  const nodes = await dualSearch(
+  const nodes = await multiSearch(
     PULL_REQUEST_QUERY,
-    `${scope} author:${login}`,
-    `${scope} user:${login}`,
+    {
+      mine: `${scope} author:${login}`,
+      owned: `${scope} user:${login}`,
+      assigned: `${scope} assignee:${login}`,
+    },
     limit,
   );
 
@@ -750,7 +777,10 @@ const DISCUSSION_SELECTION = `... on Discussion {
   repository { nameWithOwner isArchived }
 }`;
 
-const DISCUSSION_QUERY = dualSearchQuery("DISCUSSION", DISCUSSION_SELECTION);
+const DISCUSSION_QUERY = multiSearchQuery("DISCUSSION", DISCUSSION_SELECTION, [
+  "mine",
+  "owned",
+] as const);
 
 interface GhDiscussionNode extends GhSearchNode {
   category?: { name?: unknown };
@@ -760,13 +790,16 @@ interface GhDiscussionNode extends GhSearchNode {
  * GitHub's discussion search accepts `author:` and `user:` but ignores
  * `involves:` and `commenter:`, so this column is what the login wrote plus
  * whatever is being discussed on its own repositories — never a thread it only
- * replied to elsewhere.
+ * replied to elsewhere. A discussion has no assignee either, so this column
+ * gets two searches where the others get three.
  */
 async function fetchDiscussions(login: string, limit: number): Promise<BoardItem[]> {
-  const nodes = await dualSearch(
+  const nodes = await multiSearch(
     DISCUSSION_QUERY,
-    `author:${login} sort:updated-desc`,
-    `user:${login} sort:updated-desc`,
+    {
+      mine: `author:${login} sort:updated-desc`,
+      owned: `user:${login} sort:updated-desc`,
+    },
     limit,
   );
   const items = nodes

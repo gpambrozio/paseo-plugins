@@ -7,6 +7,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.6.0] — 2026-09-12
+
+### Added
+
+- **Issues and pull requests assigned to you now appear on the board, whoever opened them and
+  wherever they live.** Until now a card reached the board only if you wrote it or it was open on
+  one of your own repositories, so an issue a colleague filed on their repository and put on your
+  plate was invisible here — the one place meant to show the work waiting on you. Assigned cards
+  name the person who opened them, the same way cards on your own repositories already do, and
+  everything else about them works as before: filtering, labels, and starting an agent from the
+  card. Discussions are unchanged, because GitHub discussions cannot be assigned to anyone.
+
 ## [0.5.0] — 2026-09-08
 
 ### Added
