@@ -2,7 +2,7 @@
 
 A Paseo plugin that adds a **GitHub** sidebar surface: open issues, draft pull requests, open pull
 requests, and discussions, in four columns — what the signed-in user wrote, plus what is open on the
-repositories they own.
+repositories they own, plus what is assigned to them anywhere.
 
 The repo root `CLAUDE.md` covers what every plugin here shares: the per-folder npm layout, the
 typecheck/reload loop, the client/server bundle split, and the constraints nothing catches at
@@ -67,19 +67,26 @@ rather than denied for the rest of the cache window.
 Shells out to `gh` via `execFile` on the **daemon machine**, not the device running the app, so `gh`
 must be installed and authenticated there.
 
-Three search calls per refresh, not four: both PR columns split one search result by `isDraft`.
-Every search is `gh api graphql` rather than `gh search`, because `closingIssuesReferences` — the
-link from a pull request to the issues it closes — has no `gh search` field, and because two
-searches can share one request as aliases (below). A fourth call fetches the check runs on the open
-pull requests, and only when there are any; it is separate for a reason, below.
+Three search calls per refresh, not eight: both PR columns split one search result by `isDraft`,
+and each column's several searches share one request. Every search is `gh api graphql` rather than
+`gh search`, because `closingIssuesReferences` — the link from a pull request to the issues it
+closes — has no `gh search` field, and because searches can only share a request as GraphQL aliases
+(below). A fourth call fetches the check runs on the open pull requests, and only when there are
+any; it is separate for a reason, below.
 
-**Each column is two searches, `author:<login>` and `user:<login>`.** The second is what puts other
-people's work on the board: an issue filed on a repository you own is yours to answer whether or not
-you wrote it. They cannot be one query — GitHub search ANDs qualifiers, so `author:x user:x` is the
-*intersection*, narrower than either half. `dualSearchQuery` aliases them into one request instead,
-which is what keeps the count at three; `mergeItems` then dedupes the overlap by node id, re-sorts
-(each half is sorted only within itself) and cuts back to `limit`, because both halves were allowed
-`limit` rows and the column was asked for one budget.
+**Each column is several searches: `author:<login>`, `user:<login>`, and — for issues and pull
+requests — `assignee:<login>`.** The last two are what put other people's work on the board: an
+issue filed on a repository you own, or one somebody assigned to you on a repository you have never
+touched, is yours to answer whether or not you wrote it. Discussions get the first two only, because
+a discussion has no assignee. They cannot be one query — GitHub search ANDs qualifiers, so
+`author:x user:x` is the *intersection*, narrower than either half. `multiSearchQuery` aliases them
+into one request instead, which is what keeps the count at three; `mergeItems` then dedupes the
+overlap by node id, re-sorts (each search is sorted only within itself) and cuts back to `limit`,
+because every search was allowed `limit` rows and the column was asked for one budget.
+
+`multiSearchQuery` builds the document from the alias list and hands back both, so `multiSearch`
+takes a `Record<Alias, string>` the compiler checks against the document being run — adding an alias
+to one and forgetting the other is a type error rather than a GraphQL variable error at runtime.
 
 `toItem` carries the author, and the card renders it only when it differs from the board's login —
 most of the board is still the viewer's own work, so a byline everywhere would hide the one thing it
