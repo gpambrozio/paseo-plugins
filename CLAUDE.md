@@ -192,6 +192,45 @@ plugin folder is the fix.
 Every `tsconfig.json` now includes `**/*.ts` and `**/*.tsx`; a `client/`, `server/` or `shared/`
 subdirectory invisible to `tsc` is the failure mode that made that necessary.
 
+## Releases
+
+Each plugin versions on its own: a `version` in its `package.json`, a matching `## [x.y.z]` heading
+in its `CHANGELOG.md`, and a tag. Nothing is published to a registry — `paseo plugin add` follows a
+branch unless the user pins `--ref <tag>` — so a release is exactly two things to a user, a tag to
+pin and an entry to read before they move.
+
+**Tags are namespaced per plugin**: `skills/v0.1.0`, `github-board/v0.6.0`, `launchd-jobs/v0.3.0`.
+A tag names a repo-wide commit, so `github-board/v0.6.0` points at a tree where the other two
+plugins sit at whatever in-between state they were in. That is harmless, because an install is
+`(repo, ref, path)` and `--path` decides which folder the daemon loads — the other two are never
+read. It is also why a bare `v0.6.0` would be a lie about the other two. Never cut one.
+
+**When a version bump merges to `main`, cut that plugin's release** — only the one whose `version`
+changed. Nothing in CI does this, and nothing in CI checked the merge either: this repo has no
+workflows, so run `npm run typecheck` in the plugin folder first, and `npm test` where there is
+one.
+
+```bash
+gh release create "<plugin>/v<version>" --target <merge-commit> \
+  --title "<plugin> <version>" --notes-file <notes>
+```
+
+The notes are the plugin's install line followed by its top changelog section verbatim:
+
+```bash
+paseo plugin add gpambrozio/paseo-plugins --path <plugin> --ref <plugin>/v<version>
+```
+
+**What earns a version** is what a user of the plugin can observe, which is the same bar the
+changelog entry has to clear. A dev-dependency bump earns neither: `vitest` and `@types/node` are
+devDependencies in all three plugins and reach no bundle, so there is no line worth reading and
+nothing changes for someone who re-pins. The only dependency that ships is `@getpaseo/plugin`.
+
+**The "Latest" badge is repo-wide and arbitrary.** GitHub designates exactly one non-draft,
+non-prerelease release as latest across the whole repository, and passing `--latest=false` to every
+release does not clear it — it leaves the flag wherever GitHub put it, currently `skills/v0.1.0`.
+There is no per-directory latest. Ignore the badge rather than trying to manage it.
+
 ## skills
 
 Discovers skills by scanning the filesystem — `~/.claude`, `~/.agents`, `~/.codex`, `/etc/codex`,
