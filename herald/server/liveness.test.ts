@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PaseoApi } from "@getpaseo/client";
 
 import type { AttentionEntry } from "../shared/herald";
-import { LIVENESS_TTL_MS, Liveness, SEEN_GRACE_MS } from "./liveness";
+import { LIVENESS_TTL_MS, Liveness, RUNNING_TTL_MS, SEEN_GRACE_MS } from "./liveness";
 import { AttentionStore } from "./store";
 
 const CREATED_AT = Date.parse("2026-09-15T10:00:00.000Z");
@@ -30,6 +30,7 @@ interface Snapshot {
   archivedAt?: string | null;
   requiresAttention?: boolean;
   pendingPermissions?: Array<{ id: string }>;
+  activeTurn?: { turnId: string } | null;
 }
 
 function fakePaseo(snapshots: Record<string, Snapshot | null | Error>) {
@@ -68,7 +69,10 @@ describe("Liveness.visible", () => {
   it("removes an entry once Paseo no longer flags the agent, unless a permission is pending", async () => {
     const store = new AttentionStore(null);
     store.upsert(entry("seen"));
-    store.upsert(entry("asking"));
+    // A pending question, which is what an agent with a permission up really
+    // holds: the store keeps one entry per agent, so it cannot also be a
+    // finish, and a finish is judged on whether the agent is working.
+    store.upsert({ ...entry("asking"), reason: "question", requestId: "p1" });
     store.upsert(entry("fresh", LATER - 1_000));
     const { paseo } = fakePaseo({
       seen: { status: "idle", requiresAttention: false },
@@ -126,6 +130,41 @@ describe("Liveness.visible", () => {
     expect(now - recordedAt).toBeLessThan(LIVENESS_TTL_MS);
     const visible = await liveness.visible(store, paseo);
     expect(visible.map((item) => item.eventId)).toEqual(["a1:turn:t1"]);
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("withholds a finish from an agent that is working again, but not a question", async () => {
+    const store = new AttentionStore(null);
+    store.upsert({ ...entry("finished"), reason: "finished" });
+    store.upsert({ ...entry("asking"), reason: "question", requestId: "p1" });
+    const { paseo } = fakePaseo({
+      // The turn was reported as finished and the agent carried on.
+      finished: { status: "running", requiresAttention: true },
+      // Every unanswered question looks exactly like this, and must be shown.
+      asking: { status: "running", requiresAttention: true, pendingPermissions: [{ id: "p1" }] },
+    });
+    const visible = await new Liveness(() => LATER).visible(store, paseo);
+    expect(visible.map((item) => item.agentId)).toEqual(["asking"]);
+    // Hidden, not removed: the hooks take it back when the summary lands.
+    expect(store.list().map((item) => item.agentId).sort()).toEqual(["asking", "finished"]);
+  });
+
+  it("re-reads a finish rather than trusting a snapshot seconds old", async () => {
+    const store = new AttentionStore(null);
+    store.upsert({ ...entry("a1", LATER), reason: "finished" });
+    let now = LATER;
+    const { paseo, refresh } = fakePaseo({ a1: { status: "idle", requiresAttention: true } });
+    const liveness = new Liveness(() => now);
+    expect((await liveness.visible(store, paseo)).map((item) => item.agentId)).toEqual(["a1"]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    // Well inside the 30 s cache, but past the window a finish is judged on.
+    now += RUNNING_TTL_MS + 1;
+    refresh.mockImplementation(async () => ({
+      agent: { status: "running", requiresAttention: true },
+      project: null,
+    }));
+    expect(await liveness.visible(store, paseo)).toEqual([]);
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 

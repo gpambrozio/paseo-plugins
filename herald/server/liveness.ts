@@ -12,6 +12,9 @@
  * - **seen** agents — no attention flag, no pending permission, and the entry
  *   old enough that Paseo has had time to set the flag — are removed; the
  *   user has been there;
+ * - a **finish** on an agent that is working again is hidden but kept: some
+ *   providers report a turn as finished and carry on, and the hooks take the
+ *   entry back for good when its summary lands;
  * - **archived** or **missing** agents are removed, because they never come back.
  *
  * Answers are cached for a short while so the clients' polling does not turn
@@ -30,12 +33,19 @@ export const LIVENESS_TTL_MS = 30_000;
  */
 export const SEEN_GRACE_MS = 15_000;
 
+/**
+ * How stale a snapshot may be when the question is "is it working right now?".
+ * Short, because that is the one fact here that turns over in seconds: a
+ * provider can report a turn as finished and carry on.
+ */
+export const RUNNING_TTL_MS = 5_000;
+
 type Facts =
   | { kind: "gone" }
   | { kind: "closed" }
-  | { kind: "open"; requiresAttention: boolean; pendingPermissions: number };
+  | { kind: "open"; requiresAttention: boolean; pendingPermissions: number; running: boolean };
 
-type Verdict = "live" | "closed" | "gone" | "seen";
+type Verdict = "live" | "closed" | "gone" | "seen" | "working";
 
 /**
  * Whether a turn is in flight right now. Uncached and deliberately so: it
@@ -75,6 +85,7 @@ export class Liveness {
           result.push(entry);
           break;
         case "closed":
+        case "working":
           break;
         case "gone":
         case "seen":
@@ -97,8 +108,14 @@ export class Liveness {
      */
     const judgeableFrom = (Number.isFinite(createdAt) ? createdAt : 0) + SEEN_GRACE_MS;
 
-    const cached = await this.factsFor(entry.agentId, paseo, 0);
+    // A finish is judged on a snapshot no older than `RUNNING_TTL_MS`: whether
+    // the agent is working is the one fact here that turns over in seconds.
+    // Every other reason keeps the long cache — an agent waiting on a question
+    // or a permission is *running* too, and that is the row worth showing.
+    const finished = entry.reason === "finished";
+    const cached = await this.factsFor(entry.agentId, paseo, finished ? this.now() - RUNNING_TTL_MS : 0);
     if (cached.kind !== "open") return cached.kind;
+    if (finished && cached.running) return "working";
     if (cached.requiresAttention || cached.pendingPermissions > 0) return "live";
     if (this.now() < judgeableFrom) return "live";
 
@@ -127,13 +144,14 @@ export class Liveness {
           kind: "open",
           requiresAttention: result.agent.requiresAttention === true,
           pendingPermissions: result.agent.pendingPermissions?.length ?? 0,
+          running: result.agent.status === "running" || (result.agent.activeTurn ?? null) !== null,
         };
       }
     } catch (error) {
       // Cannot tell right now — a transport hiccup, most likely. Showing an
       // entry that may be stale beats losing one that is not.
       console.warn(`[herald] could not check agent ${agentId}:`, error instanceof Error ? error.message : error);
-      facts = { kind: "open", requiresAttention: true, pendingPermissions: 0 };
+      facts = { kind: "open", requiresAttention: true, pendingPermissions: 0, running: false };
     }
     this.checked.set(agentId, { at, facts });
     return facts;

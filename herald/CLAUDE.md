@@ -124,10 +124,17 @@ same id *replaces* — so the replacement carries `superseded: true` and the ren
 it. It still has to be a complete, valid card: the client validates every row against
 `HeraldCardSchema` and would draw a placeholder for one missing its summary.
 
-The panel drops the same case on its own side, and for both kinds of row: it lists the running agents
-alongside the flagged ones, and `joinRows` skips a `finished` row — a Herald entry or a Paseo-flagged
-agent — whose agent is among them. Without that, a Herald entry short-circuits the flagged pass
-entirely and sits at "Writing the summary…" until the daemon takes it back.
+**The same case is withheld while the summary is still being written**, or the panel would sit at
+"Writing the summary…" for a finish that was not one. `Liveness` does it, because it already reads
+each entry's agent and so never has to enumerate the running ones — a list the panel would have had
+to page through, and would silently truncate. A `finished` entry is judged on a snapshot no older
+than `RUNNING_TTL_MS`, since that is the one fact here that turns over in seconds, and a running
+agent yields `working`: hidden but kept, because the hooks take the entry back for good when its
+summary lands. Every other reason keeps the long cache, an agent waiting on a question being
+*running* too.
+
+The panel still drops a **Paseo-flagged** row of its own, in `isCurrent`, where the status arrives
+with the row and no cross-reference is needed.
 
 ## The work is named by its workspace
 

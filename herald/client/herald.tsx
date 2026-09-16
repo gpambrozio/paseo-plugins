@@ -130,17 +130,14 @@ function lookOf(reason: RowReason): ReasonLook {
 }
 
 /**
- * `running` is every agent with a turn in flight. A *finished* row on one of
- * those was not the end of anything, and that holds for a Herald entry as much
- * as for a Paseo-flagged agent: the daemon takes such an entry back when its
- * summary lands, and this keeps "Writing the summary…" off the panel until it
- * does. Only `finished` is filtered — an agent waiting on a question, a plan or
- * a permission is running too, and that is the thing worth showing.
+ * Herald's entries win over Paseo's flags for the same agent, since they carry
+ * the reason and the sentence. A *finished* entry on an agent that is working
+ * again is already withheld by the daemon, which knows each entry's agent
+ * without having to enumerate every running one — see `Liveness`.
  */
-function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[], running: ReadonlySet<string>): Row[] {
+function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[]): Row[] {
   const byAgent = new Map<string, Row>();
   entries.forEach((entry) => {
-    if (entry.reason === "finished" && running.has(entry.agentId)) return;
     byAgent.set(entry.agentId, {
       agentId: entry.agentId,
       title: entry.agentTitle,
@@ -406,13 +403,11 @@ export function HeraldSurface(props: PluginSurfaceProps) {
       if (busyRef.current) return;
       busyRef.current = true;
       try {
-        const [attention, flagged, workspaces, working] = await Promise.all([
+        const [attention, flagged, workspaces] = await Promise.all([
           list({}),
           paseo.agents.list({ filter: { requiresAttention: true }, page: { limit: 100 } }),
           paseo.workspaces.list({ page: { limit: 200 } }),
-          paseo.agents.list({ filter: { statuses: ["running"] }, page: { limit: 200 } }),
         ]);
-        const running = new Set(working.entries.map((item) => item.agent.id));
         const names: Record<string, string> = {};
         workspaces.entries.forEach((workspace) => {
           names[workspace.id] = workspace.title ?? workspace.name;
@@ -428,7 +423,7 @@ export function HeraldSurface(props: PluginSurfaceProps) {
           attentionReason: item.agent.attentionReason ?? null,
           at: item.agent.attentionTimestamp ?? item.agent.updatedAt,
         }));
-        const next = joinRows(attention.entries, agents, running);
+        const next = joinRows(attention.entries, agents);
         cachedRows = next;
         setRows(next);
         setError(null);
