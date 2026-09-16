@@ -9,6 +9,7 @@ function entry(agentId: string): AttentionEntry {
   return {
     agentId,
     workspaceId: "w1",
+    workspaceTitle: null,
     agentTitle: agentId,
     cwd: "/repo",
     reason: "finished",

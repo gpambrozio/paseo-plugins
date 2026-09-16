@@ -85,7 +85,13 @@ function setup(
       model: "claude/claude-haiku-4-5",
     }));
   const { server, emit } = fakeServer();
-  const cleanup = registerHooks(server, { store, readConfig: async () => config, ...overrides, summarize });
+  const cleanup = registerHooks(server, {
+    store,
+    readConfig: async () => config,
+    workspaceTitle: async (workspaceId) => (workspaceId === "w1" ? "Shop" : null),
+    ...overrides,
+    summarize,
+  });
   return { store, summarize, emit, cleanup };
 }
 
@@ -104,6 +110,7 @@ describe("registerHooks", () => {
     expect(store.get("a1")).toMatchObject({
       reason: "question",
       requestId: "p1",
+      workspaceTitle: "Shop",
       headline: "Which DB?",
       detail: "Postgres / SQLite",
       summary: { status: "pending" },
@@ -116,7 +123,11 @@ describe("registerHooks", () => {
       model: "claude/claude-haiku-4-5",
     });
     const [request, deps] = summarize.mock.calls[0] ?? [];
-    expect(request).toMatchObject({ reason: "question", agent: { id: "a1", workspaceId: "w1" }, output: "" });
+    expect(request).toMatchObject({
+      reason: "question",
+      agent: { id: "a1", workspaceId: "w1", workspaceTitle: "Shop" },
+      output: "",
+    });
     expect(deps).toMatchObject({ provider: "claude/claude-haiku-4-5", timeoutMs: 90_000 });
   });
 

@@ -30,6 +30,7 @@ import {
 } from "../shared/herald";
 import type { AttentionStore } from "./store";
 import { HELPER_TITLE, type Summary, type SummaryRequest, type SummarizerDeps } from "./summarize";
+import { createWorkspaceTitleLookup, type WorkspaceTitleLookup } from "./workspaces";
 import {
   describePermission,
   fallbackSpeech,
@@ -42,6 +43,8 @@ export interface HookDeps {
   store: AttentionStore;
   readConfig: () => Promise<HeraldConfig>;
   summarize: (request: SummaryRequest, deps: SummarizerDeps) => Promise<Summary>;
+  /** The workspace's title, for naming the work; agents are usually untitled. */
+  workspaceTitle?: WorkspaceTitleLookup;
   now?: () => Date;
   /** How many helpers may be writing at once; more agents than this wait their turn. */
   maxConcurrent?: number;
@@ -60,6 +63,7 @@ export const INTERRUPT_GRACE_MS = 10_000;
 export function registerHooks(server: PluginLifecycleRegistration, deps: HookDeps): () => void {
   const now = deps.now ?? (() => new Date());
   const maxConcurrent = deps.maxConcurrent ?? 2;
+  const workspaceTitle = deps.workspaceTitle ?? createWorkspaceTitleLookup();
   const helpers = new Set<string>();
   const recentTurns = new Map<string, number>();
   const interruptedAt = new Map<string, number>();
@@ -97,6 +101,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
 
   function record(
     agent: PluginHookAgent,
+    title: string | null,
     reason: AttentionReason,
     eventId: string,
     requestId: string | null,
@@ -109,6 +114,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     const base: Omit<AttentionEntry, "summary"> = {
       agentId: agent.id,
       workspaceId: agent.workspaceId,
+      workspaceTitle: title,
       agentTitle: agent.title,
       cwd: agent.cwd,
       reason,
@@ -130,7 +136,13 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       try {
         const summary = await deps.summarize(
           {
-            agent: { id: agent.id, workspaceId: agent.workspaceId, cwd: agent.cwd, title: agent.title },
+            agent: {
+              id: agent.id,
+              workspaceId: agent.workspaceId,
+              workspaceTitle: title,
+              cwd: agent.cwd,
+              title: agent.title,
+            },
             reason,
             headline,
             detail,
@@ -165,9 +177,13 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     server.on("agent.permission_requested", async (event, context) => {
       if (isHelper(event.agent)) return;
       const described = describePermission(event.request);
-      const config = await deps.readConfig();
+      const [config, title] = await Promise.all([
+        deps.readConfig(),
+        workspaceTitle(event.agent.workspaceId, context.paseo),
+      ]);
       record(
         event.agent,
+        title,
         described.reason,
         `${event.agent.id}:permission:${event.request.id}`,
         event.request.id,
@@ -219,9 +235,13 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
           headline = event.outcome.reason.trim() || "The turn was canceled";
           break;
       }
-      const config = await deps.readConfig();
+      const [config, title] = await Promise.all([
+        deps.readConfig(),
+        workspaceTitle(event.agent.workspaceId, context.paseo),
+      ]);
       record(
         event.agent,
+        title,
         reason,
         `${event.agent.id}:turn:${event.turnId ?? now().getTime()}`,
         null,

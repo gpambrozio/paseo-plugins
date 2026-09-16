@@ -11,7 +11,7 @@
  */
 import type { PaseoApi } from "@getpaseo/client";
 import type { AttentionReason } from "../shared/herald";
-import { firstWords, plainText } from "./timeline";
+import { displayName, firstWords, plainText } from "./timeline";
 
 export const HELPER_TITLE = "Herald summary";
 
@@ -20,7 +20,7 @@ const MAX_OUTPUT_CHARS = 6000;
 const MAX_USER_CHARS = 600;
 
 export interface SummaryRequest {
-  agent: { id: string; workspaceId: string | null; cwd: string; title: string | null };
+  agent: { id: string; workspaceId: string | null; workspaceTitle: string | null; cwd: string; title: string | null };
   reason: AttentionReason;
   headline: string;
   detail: string | null;
@@ -103,12 +103,13 @@ function basename(path: string): string {
 }
 
 export function buildPrompt(request: SummaryRequest): string {
-  const name = request.agent.title?.trim() || "an agent";
+  const name = displayName({ workspaceTitle: request.agent.workspaceTitle, agentTitle: request.agent.title }) ?? "an agent";
+  const workspace = request.agent.workspaceTitle?.trim() || basename(request.agent.cwd);
   const lines = [
     "You are Herald. You tell a developer, out loud, what one of their coding agents needs.",
     "Answer with the JSON object only. Do not run tools, read files, or ask anything back.",
     "",
-    `Agent: "${name}", working in ${basename(request.agent.cwd)}.`,
+    `Agent: "${name}", working in the workspace "${workspace}" (folder ${basename(request.agent.cwd)}).`,
     `Event: ${describeReason(request.reason)}`,
     `Headline: ${request.headline}`,
   ];
@@ -124,7 +125,8 @@ export function buildPrompt(request: SummaryRequest): string {
   lines.push(
     "",
     "Write what should be spoken: one or two sentences, under 35 words, plain text with no markdown,",
-    "no code, and no file paths unless nothing else identifies the work. Start with the agent's name.",
+    "no code, and no file paths unless nothing else identifies the work. Start with the agent's name",
+    "as given above, so the listener knows which piece of work this is about.",
     "For a question, say what is being asked and the choices. For finished work, say what was done",
     "and whether anything is left for the user. For a permission, say what the agent wants to do.",
     "",

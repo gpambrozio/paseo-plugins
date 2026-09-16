@@ -150,10 +150,16 @@ export function firstWords(text: string, maxWords: number): string {
 }
 
 export interface SpeechSource {
+  workspaceTitle: string | null;
   agentTitle: string | null;
   reason: AttentionReason;
   headline: string;
   detail: string | null;
+}
+
+/** What to call the work: the agent's title if it has one, else the workspace's. */
+export function displayName(source: { workspaceTitle: string | null; agentTitle: string | null }): string | null {
+  return source.agentTitle?.trim() || source.workspaceTitle?.trim() || null;
 }
 
 /**
@@ -162,7 +168,7 @@ export interface SpeechSource {
  * to be right without having read anything.
  */
 export function fallbackSpeech(source: SpeechSource): string {
-  const name = source.agentTitle?.trim() || "An agent";
+  const name = displayName(source) ?? "An agent";
   const headline = plainText(source.headline);
   const detail = source.detail === null ? "" : plainText(source.detail);
   switch (source.reason) {

@@ -4,7 +4,7 @@ import type { PaseoAgentHandle, PaseoApi } from "@getpaseo/client";
 import { HELPER_TITLE, buildPrompt, parseSummaryText, summarize, type SummaryRequest } from "./summarize";
 
 const request: SummaryRequest = {
-  agent: { id: "a1", workspaceId: "w1", cwd: "/Users/me/repo", title: "Login fix" },
+  agent: { id: "a1", workspaceId: "w1", workspaceTitle: "Shop", cwd: "/Users/me/repo", title: "Login fix" },
   reason: "finished",
   headline: "Finished",
   detail: "I fixed it.",
@@ -15,20 +15,28 @@ const request: SummaryRequest = {
 describe("buildPrompt", () => {
   it("names the agent, the event, and what was said", () => {
     const prompt = buildPrompt(request);
-    expect(prompt).toContain('Agent: "Login fix", working in repo.');
+    expect(prompt).toContain('Agent: "Login fix", working in the workspace "Shop" (folder repo).');
     expect(prompt).toContain("Event: The agent finished its turn");
     expect(prompt).toContain("Detail: I fixed it.");
     expect(prompt).toContain("What the user last asked for:\nFix the login bug");
     expect(prompt).toContain("What the agent said:\nI fixed **auth.ts**.");
-    expect(prompt).toContain("Start with the agent's name.");
+    expect(prompt).toContain("Start with the agent's name");
   });
 
   it("clips a long final message and skips empty sections", () => {
-    const prompt = buildPrompt({ ...request, output: "x".repeat(7000), lastUser: null, detail: null, agent: { ...request.agent, title: null } });
+    const prompt = buildPrompt({
+      ...request,
+      output: "x".repeat(7000),
+      lastUser: null,
+      detail: null,
+      agent: { ...request.agent, title: null, workspaceTitle: null },
+    });
     expect(prompt).toContain("[…truncated]");
     expect(prompt).not.toContain("What the user last asked for");
     expect(prompt).not.toContain("Detail:");
-    expect(prompt).toContain('Agent: "an agent"');
+    expect(prompt).toContain('Agent: "an agent", working in the workspace "repo"');
+    // An untitled agent takes the workspace's title as its name.
+    expect(buildPrompt({ ...request, agent: { ...request.agent, title: null } })).toContain('Agent: "Shop"');
   });
 });
 

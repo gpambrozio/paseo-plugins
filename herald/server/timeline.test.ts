@@ -143,22 +143,28 @@ describe("plainText and firstWords", () => {
 
 describe("fallbackSpeech", () => {
   it("states each event kind plainly", () => {
-    expect(fallbackSpeech({ agentTitle: "Login fix", reason: "question", headline: "Which DB?", detail: "A / B" })).toBe(
+    const named = { workspaceTitle: "Shop", agentTitle: "Login fix" };
+    expect(fallbackSpeech({ ...named, reason: "question", headline: "Which DB?", detail: "A / B" })).toBe(
       "Login fix has a question: Which DB? Options: A / B.",
     );
-    expect(fallbackSpeech({ agentTitle: null, reason: "finished", headline: "Finished", detail: null })).toBe(
-      "An agent finished.",
-    );
     expect(
-      fallbackSpeech({ agentTitle: "Bot", reason: "permission", headline: "Run command", detail: "npm test" }),
-    ).toBe("Bot is asking for permission. Run command Command: npm test.");
-    expect(fallbackSpeech({ agentTitle: "Bot", reason: "error", headline: "Out of credits", detail: null })).toBe(
+      fallbackSpeech({ workspaceTitle: null, agentTitle: null, reason: "finished", headline: "Finished", detail: null }),
+    ).toBe("An agent finished.");
+    // Agents are usually untitled; the workspace names the work.
+    expect(
+      fallbackSpeech({ workspaceTitle: "Shop", agentTitle: null, reason: "finished", headline: "Finished", detail: "Done." }),
+    ).toBe("Shop finished. Done.");
+    const bot = { workspaceTitle: null, agentTitle: "Bot" };
+    expect(fallbackSpeech({ ...bot, reason: "permission", headline: "Run command", detail: "npm test" })).toBe(
+      "Bot is asking for permission. Run command Command: npm test.",
+    );
+    expect(fallbackSpeech({ ...bot, reason: "error", headline: "Out of credits", detail: null })).toBe(
       "Bot stopped with an error. Out of credits",
     );
-    expect(fallbackSpeech({ agentTitle: "Bot", reason: "canceled", headline: "User stopped", detail: null })).toBe(
+    expect(fallbackSpeech({ ...bot, reason: "canceled", headline: "User stopped", detail: null })).toBe(
       "Bot was interrupted. User stopped",
     );
-    expect(fallbackSpeech({ agentTitle: "Bot", reason: "plan", headline: "Plan ready", detail: null })).toBe(
+    expect(fallbackSpeech({ ...bot, reason: "plan", headline: "Plan ready", detail: null })).toBe(
       "Bot has a plan ready for your approval. Plan ready",
     );
   });

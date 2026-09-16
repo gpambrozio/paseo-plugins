@@ -300,7 +300,10 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
   const color = toneColor(props.theme, look.tone);
   const muted = props.theme.colors.foregroundMuted;
   const entry = row.entry;
-  const title = row.title?.trim() || "Untitled agent";
+  // Agents are usually untitled; the workspace names the work. The agent's
+  // own title, when it has one, is the second line.
+  const title = workspaceName ?? entry?.workspaceTitle ?? basename(row.cwd);
+  const subtitle = row.title?.trim() || null;
   const spoken = entry === null ? null : speechText(entry);
 
   let summaryNode: ReactElement | null;
@@ -339,7 +342,11 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
         <View style={styles.spacer} />
         <Text style={styles.cardMeta}>{relativeTime(row.at)}</Text>
       </View>
-      <Text style={styles.cardMeta}>{workspaceName ?? basename(row.cwd)}</Text>
+      {subtitle === null ? null : (
+        <Text style={styles.cardMeta} numberOfLines={1}>
+          {subtitle}
+        </Text>
+      )}
       {entry === null ? (
         <View style={{ gap: 2 }}>
           <Text style={styles.headline}>{look.label === "Needs you" ? "Waiting for you." : `${look.label}.`}</Text>
@@ -468,7 +475,7 @@ export function HeraldSurface(props: PluginSurfaceProps) {
       if (announcer === null) return;
       try {
         if (row.entry !== null) await announcer.speakEntry(row.entry);
-        else await announcer.speakText(`${row.title ?? "An agent"} is waiting for you.`);
+        else await announcer.speakText(`${row.title?.trim() || workspaceNames[row.workspaceId ?? ""] || "An agent"} is waiting for you.`);
       } catch (caught) {
         toast.error(errorText(caught));
       }

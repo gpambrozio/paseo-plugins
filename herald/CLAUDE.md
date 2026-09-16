@@ -20,6 +20,7 @@ compile time. This file covers only what is specific to `herald`.
 | `server/summarize.ts`        | One helper agent per summary: prompt, structured output, cleanup on failure.           |
 | `server/store.ts`            | One entry per agent, mirrored to `attention.json`.                                     |
 | `server/liveness.ts`         | Asks the daemon whether each entry's agent is still open before the list goes out.     |
+| `server/workspaces.ts`       | The workspace title an entry is named by, cached; agents are usually untitled.         |
 | `server/timeline.ts`         | Pure text: what an agent said, what a permission asks, the no-model fallback sentence. |
 | `server/config.ts`           | `$PASEO_HOME/plugins/herald/config.json`, read on every event.                          |
 | `server/say.ts`              | `say` on the daemon Mac, driven for its voices: text in on stdin, a WAV out, bytes back. |
@@ -80,6 +81,14 @@ anywhere, including inside a word, with the whitespace inside the chunks. `lates
 concatenates them as they are — the first version added a space at every seam and produced "c utoff".
 The one exception is a sentence end followed by a capital letter, which is two messages from one turn
 (text before and after a tool call) and gets a space.
+
+## The work is named by its workspace
+
+Agents are almost always untitled, so "Untitled agent" is what an agent title would show. The hooks
+look up the workspace's title (`server/workspaces.ts`, cached five minutes) and store it on the entry;
+the fallback sentence, the helper's prompt, and the panel's card title all use `displayName`: the
+agent's own title when it has one, else the workspace's. The card shows the agent title, if any, as
+the line under the workspace title.
 
 ## What the store means
 

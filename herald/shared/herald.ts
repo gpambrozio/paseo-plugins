@@ -46,6 +46,13 @@ export type SummaryState = z.infer<typeof SummaryStateSchema>;
 export const AttentionEntrySchema = z.object({
   agentId: z.string(),
   workspaceId: z.string().nullable(),
+  /**
+   * The name the user knows the work by. Agents are usually untitled, so the
+   * workspace's title (or name) is the headline and the agent's own title,
+   * when it has one, is the second line. Defaulted so entries written before
+   * the field existed still load.
+   */
+  workspaceTitle: z.string().nullable().default(null),
   agentTitle: z.string().nullable(),
   cwd: z.string(),
   reason: AttentionReasonSchema,

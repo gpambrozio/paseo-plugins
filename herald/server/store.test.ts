@@ -10,6 +10,7 @@ function entry(overrides: Partial<AttentionEntry> = {}): AttentionEntry {
   return {
     agentId: "a1",
     workspaceId: "w1",
+    workspaceTitle: "Shop",
     agentTitle: "Login fix",
     cwd: "/repo",
     reason: "question",
