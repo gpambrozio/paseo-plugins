@@ -42,13 +42,7 @@ describe("latestOutputText", () => {
     expect(
       latestOutputText([
         { type: "assistant_message", text: "Looking into it." },
-        {
-          type: "tool_call",
-          toolCallId: "t1",
-          name: "Read",
-          status: "completed",
-          detail: { type: "unknown", input: null, output: null },
-        },
+        { type: "reasoning", text: "reading the file" },
         { type: "assistant_message", text: "Done. I fixed it." },
       ]),
     ).toBe("Looking into it. Done. I fixed it.");
