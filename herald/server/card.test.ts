@@ -25,7 +25,7 @@ function entry(eventId: string, summary: AttentionEntry["summary"]): AttentionEn
 
 interface AppendedItem {
   id?: string;
-  data: { summary: { status: string } };
+  data: { summary: { status: string }; superseded: boolean };
 }
 
 function fakePaseo(append: (item: AppendedItem) => Promise<unknown>) {
@@ -46,11 +46,19 @@ describe("cardFor", () => {
       headline: "Finished",
       detail: null,
       summary: { status: "ready", text: "Done.", model: "m" },
+      superseded: false,
     });
   });
 });
 
 describe("publishCard", () => {
+  it("marks a superseded row, so its renderer can draw nothing", async () => {
+    const append = vi.fn(async (_item: AppendedItem) => ({ seq: 1, epoch: "epoch" }));
+    await publishCard(fakePaseo(append), entry("e5", { status: "off", fallback: "x" }), { superseded: true });
+    expect(append.mock.calls[0]?.[0]).toMatchObject({ id: "summary:e5", data: { superseded: true } });
+  });
+
+
   it("serialises the appends that share one row, whatever order they are asked in", async () => {
     const started: string[] = [];
     let releaseFirst = () => {};

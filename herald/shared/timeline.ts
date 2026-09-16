@@ -22,5 +22,11 @@ export const HeraldCardSchema = z.object({
   headline: z.string(),
   detail: z.string().nullable(),
   summary: SummaryStateSchema,
+  /**
+   * The agent carried on after the turn this describes, so the completion was
+   * not one. The row cannot be deleted — the host has append only, where the
+   * same id replaces — so it is replaced by this and drawn as nothing.
+   */
+  superseded: z.boolean().default(false),
 });
 export type HeraldCard = z.infer<typeof HeraldCardSchema>;

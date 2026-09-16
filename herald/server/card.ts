@@ -11,7 +11,7 @@ import type { AttentionEntry } from "../shared/herald";
 import { HERALD_CARD_KIND, HERALD_CARD_VERSION, type HeraldCard } from "../shared/timeline";
 import { displayName } from "./timeline";
 
-export function cardFor(entry: AttentionEntry): HeraldCard {
+export function cardFor(entry: AttentionEntry, superseded = false): HeraldCard {
   return {
     eventId: entry.eventId,
     reason: entry.reason,
@@ -19,6 +19,7 @@ export function cardFor(entry: AttentionEntry): HeraldCard {
     headline: entry.headline,
     detail: entry.detail,
     summary: entry.summary,
+    superseded,
   };
 }
 
@@ -33,9 +34,14 @@ const reported = new Set<string>();
  */
 const chains = new Map<string, Promise<void>>();
 
-export async function publishCard(paseo: PaseoApi, entry: AttentionEntry): Promise<void> {
+export async function publishCard(
+  paseo: PaseoApi,
+  entry: AttentionEntry,
+  options?: { superseded?: boolean },
+): Promise<void> {
   const rowId = `summary:${entry.eventId}`;
-  const next = (chains.get(rowId) ?? Promise.resolve()).then(() => append(paseo, entry, rowId));
+  const superseded = options?.superseded === true;
+  const next = (chains.get(rowId) ?? Promise.resolve()).then(() => append(paseo, entry, rowId, superseded));
   chains.set(rowId, next);
   try {
     await next;
@@ -46,14 +52,19 @@ export async function publishCard(paseo: PaseoApi, entry: AttentionEntry): Promi
 }
 
 /** Never rejects: a card is a nicety, and the chain behind it has to keep moving. */
-async function append(paseo: PaseoApi, entry: AttentionEntry, rowId: string): Promise<void> {
+async function append(
+  paseo: PaseoApi,
+  entry: AttentionEntry,
+  rowId: string,
+  superseded: boolean,
+): Promise<void> {
   try {
     await paseo.agents.ref(entry.agentId).timeline.append({
       type: "plugin",
       id: rowId,
       kind: HERALD_CARD_KIND,
       version: HERALD_CARD_VERSION,
-      data: cardFor(entry),
+      data: cardFor(entry, superseded),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

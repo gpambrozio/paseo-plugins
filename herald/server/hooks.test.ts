@@ -72,9 +72,13 @@ async function settle(): Promise<void> {
 }
 
 type SummarizeMock = Mock<(request: SummaryRequest, deps: SummarizerDeps) => Promise<Summary>>;
+type RunningMock = Mock<(paseo: PaseoApi, agentId: string) => Promise<boolean>>;
 
 function setup(
-  overrides: Partial<Omit<HookDeps, "summarize">> & { summarize?: SummarizeMock } = {},
+  overrides: Partial<Omit<HookDeps, "summarize" | "isRunning">> & {
+    summarize?: SummarizeMock;
+    isRunning?: RunningMock;
+  } = {},
   config: HeraldConfig = DEFAULT_CONFIG,
 ) {
   const store = new AttentionStore(null);
@@ -84,12 +88,16 @@ function setup(
       text: "Login fix asks which database to use: Postgres or SQLite.",
       model: "claude/claude-haiku-4-5",
     }));
-  const publish = vi.fn(async (_paseo: PaseoApi, _entry: AttentionEntry) => {});
+  const publish = vi.fn(
+    async (_paseo: PaseoApi, _entry: AttentionEntry, _options?: { superseded?: boolean }) => {},
+  );
   const { server, emit } = fakeServer();
   const cleanup = registerHooks(server, {
     store,
     readConfig: async () => config,
     workspaceTitle: async (workspaceId) => (workspaceId === "w1" ? "Shop" : null),
+    // Not running unless a test says so, so the existing ones are unaffected.
+    isRunning: async () => false,
     publish,
     ...overrides,
     summarize,
@@ -273,6 +281,41 @@ describe("registerHooks", () => {
     await asked;
     await settle();
     expect(other.store.get("a1")).toMatchObject({ requestId: "p1" });
+  });
+
+  it("says nothing and takes the card back when the agent outran the summary", async () => {
+    // A turn reported as finished, and the agent is working again by the time
+    // the summary comes back.
+    const running = setup({ isRunning: vi.fn(async () => true) });
+    await running.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await settle();
+    expect(running.store.get("a1")).toBeNull();
+    const cards = running.publish.mock.calls.map((call) => [call[1].summary.status, call[2]?.superseded]);
+    expect(cards).toEqual([
+      ["pending", undefined],
+      ["off", true],
+    ]);
+
+    // The same when a new turn started, which needs no daemon round trip.
+    const restarted = setup({
+      isRunning: vi.fn(async () => false),
+      summarize: vi.fn(async (_request: SummaryRequest, _deps: SummarizerDeps) => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return { text: "Never said.", model: "m" };
+      }),
+    });
+    await restarted.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await restarted.emit("agent.turn_started", { agent, turnId: "t2" });
+    await settle();
+    expect(restarted.store.get("a1")).toBeNull();
+    expect(restarted.publish.mock.calls.at(-1)?.[2]?.superseded).toBe(true);
+
+    // An agent that really did stop keeps its summary.
+    const stopped = setup({ isRunning: vi.fn(async () => false) });
+    await stopped.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await settle();
+    expect(stopped.store.get("a1")?.summary.status).toBe("ready");
+    expect(stopped.publish.mock.calls.at(-1)?.[2]?.superseded).toBeUndefined();
   });
 
   it("completes the transcript card when a queued summary is superseded", async () => {

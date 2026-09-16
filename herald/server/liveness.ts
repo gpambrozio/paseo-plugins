@@ -37,6 +37,28 @@ type Facts =
 
 type Verdict = "live" | "closed" | "gone" | "seen";
 
+/**
+ * Whether a turn is in flight right now. Uncached and deliberately so: it
+ * decides whether a summary just written is still worth saying, and a cached
+ * answer from half a minute ago cannot.
+ *
+ * An agent that cannot be read is reported as not running, so a transport
+ * hiccup loses no summary.
+ */
+export async function isAgentRunning(paseo: PaseoApi, agentId: string): Promise<boolean> {
+  try {
+    const result = await paseo.agents.ref(agentId).refresh();
+    if (result === null) return false;
+    return result.agent.status === "running" || (result.agent.activeTurn ?? null) !== null;
+  } catch (error) {
+    console.warn(
+      `[herald] could not check whether agent ${agentId} is running:`,
+      error instanceof Error ? error.message : error,
+    );
+    return false;
+  }
+}
+
 export class Liveness {
   private readonly checked = new Map<string, { at: number; facts: Facts }>();
 

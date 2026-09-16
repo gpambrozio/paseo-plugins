@@ -54,6 +54,9 @@ function spokenText(card: HeraldCard): string | null {
 
 export function HeraldTimelineCard({ theme, layout, item }: PluginTimelineItemProps<HeraldCard>) {
   const card = item.data;
+  // The agent carried on, so this completion was not one. The row cannot be
+  // taken back, only replaced, so the replacement draws nothing at all.
+  const superseded = card.superseded;
   const text = spokenText(card);
   const toast = useToast();
   const [speaking, setSpeaking] = useState(false);
@@ -104,6 +107,8 @@ export function HeraldTimelineCard({ theme, layout, item }: PluginTimelineItemPr
     },
     [text, toast],
   );
+
+  if (superseded) return null;
 
   return (
     <View style={styles.card}>

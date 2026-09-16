@@ -52,10 +52,14 @@ interface FlaggedAgent {
  * keeps an agent flagged until the user's next message, however long ago the
  * turn ended, and that is right — a question asked a week ago is still
  * unanswered. A *closed* session is not waiting on anyone until it is opened
- * again, which is the one case dropped here.
+ * again, and a turn reported as finished on an agent that is *running* was
+ * not the end of anything — some providers say a turn is done and carry on.
+ * Those two are the cases dropped here.
  */
 function isCurrent(agent: FlaggedAgent): boolean {
-  return agent.status !== "closed";
+  if (agent.status === "closed") return false;
+  if (agent.attentionReason === "finished" && agent.status === "running") return false;
+  return true;
 }
 
 /**

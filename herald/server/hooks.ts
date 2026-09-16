@@ -29,6 +29,7 @@ import {
   type HeraldConfig,
 } from "../shared/herald";
 import { publishCard } from "./card";
+import { isAgentRunning } from "./liveness";
 import type { AttentionStore } from "./store";
 import { HELPER_TITLE, type Summary, type SummaryRequest, type SummarizerDeps } from "./summarize";
 import { createWorkspaceTitleLookup, type WorkspaceTitleLookup } from "./workspaces";
@@ -48,7 +49,9 @@ export interface HookDeps {
   /** The workspace's title, for naming the work; agents are usually untitled. */
   workspaceTitle?: WorkspaceTitleLookup;
   /** Puts the summary card in the agent's transcript; once pending, again when the summary lands. */
-  publish?: (paseo: PaseoApi, entry: AttentionEntry) => Promise<void>;
+  publish?: (paseo: PaseoApi, entry: AttentionEntry, options?: { superseded?: boolean }) => Promise<void>;
+  /** Whether a turn is in flight right now; a summary the agent outran is dropped. */
+  isRunning?: (paseo: PaseoApi, agentId: string) => Promise<boolean>;
   now?: () => Date;
   /** How many helpers may be writing at once; more agents than this wait their turn. */
   maxConcurrent?: number;
@@ -69,6 +72,18 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
   const maxConcurrent = deps.maxConcurrent ?? 2;
   const workspaceTitle = deps.workspaceTitle ?? createWorkspaceTitleLookup();
   const publish = deps.publish ?? publishCard;
+  const isRunning = deps.isRunning ?? isAgentRunning;
+
+  /**
+   * Whether the agent has carried on since the summary was commissioned, in
+   * which case there is nothing to announce. Two ways to tell: a turn we saw
+   * start, and — because some providers report a turn as finished and keep
+   * working without starting another — whether one is in flight right now.
+   */
+  async function outran(agentId: string, generation: number, paseo: PaseoApi): Promise<boolean> {
+    if (generationOf(agentId) !== generation) return true;
+    return isRunning(paseo, agentId);
+  }
   const helpers = new Set<string>();
   const recentTurns = new Map<string, number>();
   const interruptedAt = new Map<string, number>();
@@ -174,8 +189,11 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
         void publish(paseo, { ...base, summary: { status: "off", fallback: fallbackSpeech(base) } });
         return;
       }
+      const generation = generationOf(agent.id);
+      let summary: Summary | null = null;
+      let failure: string | null = null;
       try {
-        const summary = await deps.summarize(
+        summary = await deps.summarize(
           {
             agent: {
               id: agent.id,
@@ -197,21 +215,40 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
             onHelperCreated: (helperId) => helpers.add(helperId),
           },
         );
-        const ready: AttentionEntry = { ...base, summary: { status: "ready", ...summary } };
-        deps.store.updateSummary(agent.id, eventId, ready.summary);
-        // The card is history and belongs to this event, so it is completed
-        // even when the user has already moved on and the store refused.
-        void publish(paseo, ready);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`[herald] summary for agent ${agent.id} failed: ${message}`);
-        const failed: AttentionEntry = {
-          ...base,
-          summary: { status: "failed", error: message, fallback: fallbackSpeech(base) },
-        };
-        deps.store.updateSummary(agent.id, eventId, failed.summary);
-        void publish(paseo, failed);
+        failure = error instanceof Error ? error.message : String(error);
+        console.error(`[herald] summary for agent ${agent.id} failed: ${failure}`);
       }
+
+      // Checked after the summary rather than before it: writing one takes
+      // seconds, and that is the window in which a completion turns out not to
+      // have been one. Nothing is said and the card is taken back.
+      if (await outran(agent.id, generation, paseo)) {
+        deps.store.removeIf(agent.id, (entry) => entry.eventId === eventId);
+        // A complete entry even though it draws nothing: the client validates
+        // every card against its schema and would show a placeholder for one
+        // missing a summary.
+        void publish(paseo, { ...base, summary: { status: "off", fallback: fallbackSpeech(base) } }, {
+          superseded: true,
+        });
+        return;
+      }
+
+      const settled: AttentionEntry =
+        summary !== null
+          ? { ...base, summary: { status: "ready", ...summary } }
+          : {
+              ...base,
+              summary: {
+                status: "failed",
+                error: failure ?? "The summary agent returned nothing.",
+                fallback: fallbackSpeech(base),
+              },
+            };
+      deps.store.updateSummary(agent.id, eventId, settled.summary);
+      // The card is history and belongs to this event, so it is completed even
+      // when the user has already moved on and the store refused.
+      void publish(paseo, settled);
     });
   }
 

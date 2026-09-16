@@ -105,6 +105,22 @@ engine and voice settings. Rows live in the daemon's memory — they survive scr
 a daemon restart — and a host that predates plugin timeline rows rejects the append, which
 `server/card.ts` reports once per distinct cause.
 
+## A completion that was not one
+
+Some providers report a turn as finished and keep working. Writing a summary takes seconds, and that
+is exactly the window in which it happens, so the check is made *after* the summary comes back rather
+than before it: `outran()` asks whether a turn we saw start has started since (the generation) or
+whether one is in flight right now (`isAgentRunning`, deliberately uncached). If either says so the
+entry is removed, nothing is announced, and the card is taken back.
+
+"Taken back" is as close as the host allows. A plugin timeline row cannot be deleted — appending the
+same id *replaces* — so the replacement carries `superseded: true` and the renderer returns `null` for
+it. It still has to be a complete, valid card: the client validates every row against
+`HeraldCardSchema` and would draw a placeholder for one missing its summary.
+
+The panel drops the same case on its own side: a Paseo-flagged row whose reason is `finished` while
+the agent is `running` (`isCurrent` in `client/herald.tsx`).
+
 ## The work is named by its workspace
 
 Agents are almost always untitled, so "Untitled agent" is what an agent title would show. The hooks
