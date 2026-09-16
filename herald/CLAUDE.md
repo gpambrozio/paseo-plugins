@@ -113,13 +113,21 @@ than before it: `outran()` asks whether a turn we saw start has started since (t
 whether one is in flight right now (`isAgentRunning`, deliberately uncached). If either says so the
 entry is removed, nothing is announced, and the card is taken back.
 
+**The daemon half of that question is for a `finished` event only.** An agent waiting on a question,
+a plan or a permission reports `status: "running"` with the request pending, so asking whether it is
+running would suppress every one of them — the whole point of the plugin. The generation half applies
+to every reason, and is re-read *after* the round trip, since a turn can start while it is in flight
+and the snapshot it answers with may predate it.
+
 "Taken back" is as close as the host allows. A plugin timeline row cannot be deleted — appending the
 same id *replaces* — so the replacement carries `superseded: true` and the renderer returns `null` for
 it. It still has to be a complete, valid card: the client validates every row against
 `HeraldCardSchema` and would draw a placeholder for one missing its summary.
 
-The panel drops the same case on its own side: a Paseo-flagged row whose reason is `finished` while
-the agent is `running` (`isCurrent` in `client/herald.tsx`).
+The panel drops the same case on its own side, and for both kinds of row: it lists the running agents
+alongside the flagged ones, and `joinRows` skips a `finished` row — a Herald entry or a Paseo-flagged
+agent — whose agent is among them. Without that, a Herald entry short-circuits the flagged pass
+entirely and sits at "Writing the summary…" until the daemon takes it back.
 
 ## The work is named by its workspace
 

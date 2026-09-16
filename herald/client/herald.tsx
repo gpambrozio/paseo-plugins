@@ -129,9 +129,18 @@ function lookOf(reason: RowReason): ReasonLook {
   }
 }
 
-function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[]): Row[] {
+/**
+ * `running` is every agent with a turn in flight. A *finished* row on one of
+ * those was not the end of anything, and that holds for a Herald entry as much
+ * as for a Paseo-flagged agent: the daemon takes such an entry back when its
+ * summary lands, and this keeps "Writing the summary…" off the panel until it
+ * does. Only `finished` is filtered — an agent waiting on a question, a plan or
+ * a permission is running too, and that is the thing worth showing.
+ */
+function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[], running: ReadonlySet<string>): Row[] {
   const byAgent = new Map<string, Row>();
   entries.forEach((entry) => {
+    if (entry.reason === "finished" && running.has(entry.agentId)) return;
     byAgent.set(entry.agentId, {
       agentId: entry.agentId,
       title: entry.agentTitle,
@@ -397,11 +406,13 @@ export function HeraldSurface(props: PluginSurfaceProps) {
       if (busyRef.current) return;
       busyRef.current = true;
       try {
-        const [attention, flagged, workspaces] = await Promise.all([
+        const [attention, flagged, workspaces, working] = await Promise.all([
           list({}),
           paseo.agents.list({ filter: { requiresAttention: true }, page: { limit: 100 } }),
           paseo.workspaces.list({ page: { limit: 200 } }),
+          paseo.agents.list({ filter: { statuses: ["running"] }, page: { limit: 200 } }),
         ]);
+        const running = new Set(working.entries.map((item) => item.agent.id));
         const names: Record<string, string> = {};
         workspaces.entries.forEach((workspace) => {
           names[workspace.id] = workspace.title ?? workspace.name;
@@ -417,7 +428,7 @@ export function HeraldSurface(props: PluginSurfaceProps) {
           attentionReason: item.agent.attentionReason ?? null,
           at: item.agent.attentionTimestamp ?? item.agent.updatedAt,
         }));
-        const next = joinRows(attention.entries, agents);
+        const next = joinRows(attention.entries, agents, running);
         cachedRows = next;
         setRows(next);
         setError(null);

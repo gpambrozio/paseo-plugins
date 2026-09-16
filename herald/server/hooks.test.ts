@@ -318,6 +318,34 @@ describe("registerHooks", () => {
     expect(stopped.publish.mock.calls.at(-1)?.[2]?.superseded).toBeUndefined();
   });
 
+  it("asks the daemon only about a finish, and re-reads the turn after asking", async () => {
+    // Every unanswered question is a *running* agent — Paseo reports
+    // `status: "running"` with the request pending — so asking the daemon
+    // about one would suppress the very thing the plugin is for.
+    const isRunning = vi.fn(async () => true);
+    const asking = setup({ isRunning });
+    await asking.emit("agent.permission_requested", { agent, request: question });
+    await settle();
+    expect(isRunning).not.toHaveBeenCalled();
+    expect(asking.store.get("a1")?.summary.status).toBe("ready");
+    expect(asking.publish.mock.calls.at(-1)?.[2]?.superseded).toBeUndefined();
+
+    // A turn that starts while the running check is in flight, answered by a
+    // snapshot that predates it.
+    let startTurn: (() => Promise<void>) | null = null;
+    const raced = setup({
+      isRunning: vi.fn(async () => {
+        await startTurn?.();
+        return false;
+      }),
+    });
+    startTurn = () => raced.emit("agent.turn_started", { agent, turnId: "t2" });
+    await raced.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await settle();
+    expect(raced.store.get("a1")).toBeNull();
+    expect(raced.publish.mock.calls.at(-1)?.[2]?.superseded).toBe(true);
+  });
+
   it("completes the transcript card when a queued summary is superseded", async () => {
     const releases: Array<(summary: Summary) => void> = [];
     const { store, publish, emit } = setup({

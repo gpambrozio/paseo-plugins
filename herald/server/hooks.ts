@@ -76,13 +76,26 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
 
   /**
    * Whether the agent has carried on since the summary was commissioned, in
-   * which case there is nothing to announce. Two ways to tell: a turn we saw
-   * start, and — because some providers report a turn as finished and keep
-   * working without starting another — whether one is in flight right now.
+   * which case there is nothing to announce.
+   *
+   * The generation — a turn we saw start — applies to every event. Asking the
+   * daemon whether a turn is in flight applies to a *finish* only: an agent
+   * waiting on a question, a plan or a permission reports `status: "running"`
+   * with the request pending, so asking it here would suppress every one of
+   * them, which is the whole point of the plugin.
    */
-  async function outran(agentId: string, generation: number, paseo: PaseoApi): Promise<boolean> {
+  async function outran(
+    agentId: string,
+    generation: number,
+    paseo: PaseoApi,
+    askDaemon: boolean,
+  ): Promise<boolean> {
     if (generationOf(agentId) !== generation) return true;
-    return isRunning(paseo, agentId);
+    if (!askDaemon) return false;
+    const running = await isRunning(paseo, agentId);
+    // A turn can start while that round trip is in flight, and the snapshot it
+    // answers with may predate it.
+    return generationOf(agentId) !== generation ? true : running;
   }
   const helpers = new Set<string>();
   const recentTurns = new Map<string, number>();
@@ -223,7 +236,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       // Checked after the summary rather than before it: writing one takes
       // seconds, and that is the window in which a completion turns out not to
       // have been one. Nothing is said and the card is taken back.
-      if (await outran(agent.id, generation, paseo)) {
+      if (await outran(agent.id, generation, paseo, reason === "finished")) {
         deps.store.removeIf(agent.id, (entry) => entry.eventId === eventId);
         // A complete entry even though it draws nothing: the client validates
         // every card against its schema and would show a placeholder for one
