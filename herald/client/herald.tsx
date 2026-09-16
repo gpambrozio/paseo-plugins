@@ -47,11 +47,15 @@ interface FlaggedAgent {
   at: string;
 }
 
-/** A Paseo-flagged agent worth a row: a live session, flagged within the day. */
-function isCurrent(agent: FlaggedAgent, now: number): boolean {
-  if (agent.status === "closed") return false;
-  const flaggedAt = new Date(agent.at).getTime();
-  return Number.isFinite(flaggedAt) && now - flaggedAt < FLAGGED_MAX_AGE_MS;
+/**
+ * A Paseo-flagged agent worth a row: one whose session is still open. Paseo
+ * keeps an agent flagged until the user's next message, however long ago the
+ * turn ended, and that is right — a question asked a week ago is still
+ * unanswered. A *closed* session is not waiting on anyone until it is opened
+ * again, which is the one case dropped here.
+ */
+function isCurrent(agent: FlaggedAgent): boolean {
+  return agent.status !== "closed";
 }
 
 /**
@@ -69,13 +73,6 @@ let cachedWorkspaceNames: Record<string, string> = {};
 const IDLE_REFRESH_MS = 10_000;
 const BUSY_REFRESH_MS = 2_500;
 
-/**
- * How long Paseo's own attention flag counts here. Paseo keeps an agent
- * flagged until the user sends it another message, so an idle agent from a
- * week ago is still "finished" to it; Herald's entries expire after a day and
- * Paseo's flag is held to the same rule, else the panel fills with history.
- */
-const FLAGGED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const TEST_SENTENCE = "This is Herald. Your agents will be announced like this.";
 
 function withAlpha(color: string, alpha: string): string {
@@ -128,7 +125,7 @@ function lookOf(reason: RowReason): ReasonLook {
   }
 }
 
-function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[], now: number): Row[] {
+function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[]): Row[] {
   const byAgent = new Map<string, Row>();
   entries.forEach((entry) => {
     byAgent.set(entry.agentId, {
@@ -142,7 +139,7 @@ function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[], now: numbe
     });
   });
   flagged.forEach((agent) => {
-    if (byAgent.has(agent.id) || !isCurrent(agent, now)) return;
+    if (byAgent.has(agent.id) || !isCurrent(agent)) return;
     byAgent.set(agent.id, {
       agentId: agent.id,
       title: agent.title,
@@ -428,7 +425,7 @@ export function HeraldSurface(props: PluginSurfaceProps) {
           attentionReason: item.agent.attentionReason ?? null,
           at: item.agent.attentionTimestamp ?? item.agent.updatedAt,
         }));
-        const next = joinRows(attention.entries, agents, Date.now());
+        const next = joinRows(attention.entries, agents);
         cachedRows = next;
         setRows(next);
         setError(null);

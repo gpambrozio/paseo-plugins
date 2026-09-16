@@ -4,6 +4,7 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 
 import { pluginDir, readHeraldConfig, writeHeraldConfig } from "./server/config";
 import { registerHooks } from "./server/hooks";
+import { Liveness } from "./server/liveness";
 import { listSayVoices, renderWithSay, sayAvailable } from "./server/say";
 import { AttentionStore } from "./server/store";
 import { summarize } from "./server/summarize";
@@ -16,7 +17,10 @@ export default function contribute(server: PluginServerContext) {
     console.error("[herald] could not load saved entries:", error);
   });
 
-  server.handle(listAttention, () => ({ entries: store.list() }));
+  // Hooks hear an agent move on; they do not hear a session close. The list
+  // asks the daemon about each entry's agent before handing it out.
+  const liveness = new Liveness();
+  server.handle(listAttention, async (_input, { paseo }) => ({ entries: await liveness.visible(store, paseo) }));
   server.handle(readConfig, () => readHeraldConfig());
   server.handle(writeConfig, (config) => writeHeraldConfig(config));
 

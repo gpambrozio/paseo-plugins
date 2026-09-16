@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AttentionEntry } from "../shared/herald";
-import { AttentionStore, MAX_AGE_MS } from "./store";
+import { AttentionStore } from "./store";
 
 function entry(overrides: Partial<AttentionEntry> = {}): AttentionEntry {
   return {
@@ -30,7 +30,7 @@ afterEach(async () => {
 
 describe("AttentionStore", () => {
   it("keeps one entry per agent, newest first", () => {
-    const store = new AttentionStore(null, () => Date.parse("2026-09-15T12:00:00.000Z"));
+    const store = new AttentionStore(null);
     store.upsert(entry({ agentId: "a1", createdAt: "2026-09-15T10:00:00.000Z" }));
     store.upsert(entry({ agentId: "a2", createdAt: "2026-09-15T11:00:00.000Z" }));
     store.upsert(entry({ agentId: "a1", eventId: "a1:turn:t1", createdAt: "2026-09-15T11:30:00.000Z" }));
@@ -59,15 +59,6 @@ describe("AttentionStore", () => {
     expect(store.remove("a1")).toBeNull();
     store.upsert(entry());
     expect(store.remove("a1")?.agentId).toBe("a1");
-  });
-
-  it("drops entries older than a day when listing", () => {
-    let now = Date.parse("2026-09-15T10:30:00.000Z");
-    const store = new AttentionStore(null, () => now);
-    store.upsert(entry());
-    expect(store.list()).toHaveLength(1);
-    now += MAX_AGE_MS + 60_000;
-    expect(store.list()).toHaveLength(0);
   });
 
   it("survives a reload, marking an unfinished summary as failed", async () => {

@@ -19,6 +19,7 @@ compile time. This file covers only what is specific to `herald`.
 | `server/hooks.ts`            | Lifecycle events → store entries; helper recognition; turn dedupe; the summary queue.  |
 | `server/summarize.ts`        | One helper agent per summary: prompt, structured output, cleanup on failure.           |
 | `server/store.ts`            | One entry per agent, mirrored to `attention.json`.                                     |
+| `server/liveness.ts`         | Asks the daemon whether each entry's agent is still open before the list goes out.     |
 | `server/timeline.ts`         | Pure text: what an agent said, what a permission asks, the no-model fallback sentence. |
 | `server/config.ts`           | `$PASEO_HOME/plugins/herald/config.json`, read on every event.                          |
 | `server/say.ts`              | `say` on the daemon Mac, driven for its voices: text in on stdin, a WAV out, bytes back. |
@@ -86,10 +87,14 @@ agent move on: `turn_started` (the user replied), `permission_resolved` for the 
 `requiresAttention` flag handles that, and the panel lists the union of Paseo's flagged agents and
 Herald's entries, joined by agent id. Herald explains; Paseo decides who is listed.
 
-Paseo's flag is not cleared by looking, either — only by the next message to that agent — so an idle
-agent from a week ago is still "finished" to it. The panel holds Paseo-only rows to the same day-long
-window the store uses and drops `closed` sessions (`isCurrent` in `client/herald.tsx`); a row with no
-Herald entry says so, because the event predates the plugin watching that agent.
+**There is no age limit, on purpose.** Paseo's flag is cleared only by the next message to the agent,
+and that is right: a question asked a week ago is still unanswered. What the hooks cannot hear is a
+session *closing* — the daemon restarted, the provider went away — so `server/liveness.ts` asks the
+daemon about each entry's agent before the list goes out (cached 30 s): a closed session is hidden but
+kept, since opening the agent resumes it and the summary is still the thing to show; an archived or
+missing agent is removed for good. The panel applies the same one rule to Paseo-only rows
+(`isCurrent` in `client/herald.tsx`): not `closed`. A row with no Herald entry says so, because the
+event predates the plugin watching that agent.
 
 `attention.json` mirrors the map so a plugin reload keeps the sentences already written. A summary
 still `pending` at load is marked `failed` with the fallback, because its helper died with the old

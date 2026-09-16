@@ -5,8 +5,10 @@
  *
  * Paseo's own `requiresAttention` flag stays the authority on *who* is waiting;
  * this store only explains *why*. Entries are removed when the hooks see the
- * agent move on (a new turn, a resolved permission, an archive), and anything
- * older than a day is dropped on read in case an event was missed.
+ * agent move on (a new turn, a resolved permission, an archive), and by
+ * `Liveness` when the agent turns out to be archived or gone. There is no age
+ * limit: an agent that asked a question a week ago is still waiting for the
+ * answer.
  *
  * Mirrored to a JSON file so a plugin reload does not lose the summaries
  * already written; a summary still pending at load time is marked failed,
@@ -18,17 +20,12 @@ import { dirname } from "node:path";
 import { AttentionEntrySchema, type AttentionEntry, type SummaryState } from "../shared/herald";
 import { fallbackSpeech } from "./timeline";
 
-export const MAX_AGE_MS = 24 * 60 * 60 * 1000;
-
 export class AttentionStore {
   private readonly entries = new Map<string, AttentionEntry>();
   private writes: Promise<void> = Promise.resolve();
 
   /** `path === null` keeps everything in memory, which is what the tests want. */
-  constructor(
-    private readonly path: string | null,
-    private readonly now: () => number = Date.now,
-  ) {}
+  constructor(private readonly path: string | null) {}
 
   async load(): Promise<void> {
     if (this.path === null) return;
@@ -65,7 +62,6 @@ export class AttentionStore {
   }
 
   list(): AttentionEntry[] {
-    this.prune();
     return [...this.entries.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
@@ -111,18 +107,6 @@ export class AttentionStore {
   /** Resolves once every write issued so far has landed; for tests and cleanup. */
   flush(): Promise<void> {
     return this.writes;
-  }
-
-  private prune(): void {
-    const cutoff = this.now() - MAX_AGE_MS;
-    let changed = false;
-    for (const [agentId, entry] of this.entries) {
-      if (new Date(entry.createdAt).getTime() < cutoff) {
-        this.entries.delete(agentId);
-        changed = true;
-      }
-    }
-    if (changed) this.persist();
   }
 
   /**
