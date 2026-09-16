@@ -75,9 +75,11 @@ is dropped as well. Claude reports that stop as a failed turn whose message is a
 (`[ede_diagnostic] … stop_reason=tool_use`); the user caused it and does not need to hear about it. A
 plain deny lets the agent carry on, so a failure after one is real and is announced.
 
-A streamed reply reaches the `turn_ended` snapshot as several `assistant_message` items, often split
-mid-sentence. `latestOutputText` joins them at the seam — nothing when one side already has
-whitespace there, one space otherwise — rather than as paragraphs.
+A streamed reply reaches the `turn_ended` snapshot as several `assistant_message` items that can split
+anywhere, including inside a word, with the whitespace inside the chunks. `latestOutputText`
+concatenates them as they are — the first version added a space at every seam and produced "c utoff".
+The one exception is a sentence end followed by a capital letter, which is two messages from one turn
+(text before and after a tool call) and gets a space.
 
 ## What the store means
 

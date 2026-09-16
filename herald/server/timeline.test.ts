@@ -27,15 +27,31 @@ describe("latestOutputText", () => {
     expect(latestOutputText(timeline)).toBe("Done. I fixed **auth.ts** and added a test. Anything else?");
   });
 
-  it("joins streamed chunks at the seam they were split on", () => {
+  it("concatenates streamed chunks, including ones split inside a word", () => {
     expect(
       latestOutputText([
-        { type: "assistant_message", text: "I reviewed the" },
-        { type: "assistant_message", text: "herald plugin folder." },
-        { type: "assistant_message", text: " Nothing to change.\n" },
-        { type: "assistant_message", text: "Done." },
+        { type: "assistant_message", text: "Understood: no age c" },
+        { type: "assistant_message", text: "utoff, just drop clos" },
+        { type: "assistant_message", text: "ed sessions. " },
+        { type: "assistant_message", text: "Nothing else.\n" },
       ]),
-    ).toBe("I reviewed the herald plugin folder. Nothing to change.\nDone.");
+    ).toBe("Understood: no age cutoff, just drop closed sessions. Nothing else.");
+  });
+
+  it("separates two messages from one turn that arrive without a space", () => {
+    expect(
+      latestOutputText([
+        { type: "assistant_message", text: "Looking into it." },
+        {
+          type: "tool_call",
+          toolCallId: "t1",
+          name: "Read",
+          status: "completed",
+          detail: { type: "unknown", input: null, output: null },
+        },
+        { type: "assistant_message", text: "Done. I fixed it." },
+      ]),
+    ).toBe("Looking into it. Done. I fixed it.");
   });
 
   it("includes errors and is empty when the agent said nothing", () => {

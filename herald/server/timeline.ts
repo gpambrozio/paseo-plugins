@@ -28,15 +28,18 @@ export function latestOutputText(timeline: readonly AgentTimelineItem[]): string
 }
 
 /**
- * A streamed reply reaches the snapshot as several `assistant_message` items,
- * often split mid-sentence, so two chunks are joined with nothing when either
- * side already has whitespace at the seam and with one space otherwise.
+ * A streamed reply reaches the snapshot as several `assistant_message` items
+ * that can split anywhere — between words, or in the middle of one — and the
+ * whitespace is inside the chunks. So chunks are concatenated as they are,
+ * which is what Paseo's own helper does. The one exception is two separate
+ * messages in one turn, text before and after a tool call, which arrive
+ * without a space between them: a sentence end followed by a capital letter
+ * gets one. A mid-word split never looks like that.
  */
 function joinText(left: string, right: string): string {
   if (left === "") return right;
-  if (right === "") return left;
-  if (/\s$/.test(left) || /^\s/.test(right)) return left + right;
-  return `${left} ${right}`;
+  if (/[.!?]$/.test(left) && /^[A-Z]/.test(right)) return `${left} ${right}`;
+  return left + right;
 }
 
 /** The user's most recent message, so the summary knows what was asked for. */
