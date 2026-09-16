@@ -109,8 +109,10 @@ agent's own title when it has one, else the workspace's. The card shows the agen
 the line under the workspace title — or, for an untitled agent, the start of what it was last asked
 (`lastRequest`), because two untitled agents in one workspace would otherwise read as one.
 
-The whole panel card opens the session (`navigation.openAgent`); the speaker icon at the right of the
-title speaks the sentence again. They nest, and the inner pressable takes the touch.
+The whole panel card opens the session (`navigation.openAgent`); the speaker icon right after the
+title speaks the sentence again — beside the title rather than at the card's edge, where it went
+unseen. They nest, and the inner pressable takes the touch. The transcript card's play icon sits the
+same way, right after its label.
 
 ## What the store means
 

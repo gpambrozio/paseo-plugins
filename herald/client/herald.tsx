@@ -240,7 +240,7 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       pending: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
       pendingText: { color: colors.foregroundMuted, fontSize: 13 },
       cardPressed: { backgroundColor: colors.surface2 },
-      speaker: { padding: 4, marginLeft: 2 },
+      speaker: { padding: 4 },
     };
   }, [theme, layout.compact]);
 }
@@ -276,8 +276,8 @@ interface RowCardProps {
 }
 
 /**
- * The whole card opens the session; the speaker at the right of the title
- * says the sentence again. Nested pressables: the speaker takes the touch
+ * The whole card opens the session; the speaker right after the title says
+ * the sentence again — beside the title, not at the card's edge, so it is seen. Nested pressables: the speaker takes the touch
  * and the card does not also open.
  */
 function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCardProps) {
@@ -332,8 +332,6 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
         <Text style={styles.cardTitle} numberOfLines={1}>
           {title}
         </Text>
-        <View style={styles.spacer} />
-        <Text style={styles.cardMeta}>{relativeTime(row.at)}</Text>
         {canSpeakRow ? (
           <Pressable
             accessibilityRole="button"
@@ -345,6 +343,8 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
             <Icon name="Volume2" size={16} color={props.theme.colors.foreground} />
           </Pressable>
         ) : null}
+        <View style={styles.spacer} />
+        <Text style={styles.cardMeta}>{relativeTime(row.at)}</Text>
       </View>
       {subtitle === null ? null : (
         <Text style={styles.cardMeta} numberOfLines={1}>

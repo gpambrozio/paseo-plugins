@@ -1,7 +1,7 @@
 /**
  * Herald's card in an agent's transcript: the sentence written about the
- * turn or question just above it, and a play icon at the right of the
- * header that says it again.
+ * turn or question just above it, and a play icon right after the header's
+ * label that says it again.
  *
  * The row is written by the daemon (`server/card.ts`); this only draws it.
  * The host re-validates `data` against `HeraldCardSchema` before calling this,
@@ -105,7 +105,6 @@ export function HeraldTimelineCard({ theme, layout, item }: PluginTimelineItemPr
         <Icon name="Megaphone" size={14} color={theme.colors.foregroundMuted} />
         <Text style={styles.brand}>Herald</Text>
         <Text style={styles.reason}>· {reasonLabel(card.reason)}</Text>
-        <View style={styles.spacer} />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={speaking ? "Speaking" : "Play the summary"}
@@ -116,6 +115,7 @@ export function HeraldTimelineCard({ theme, layout, item }: PluginTimelineItemPr
         >
           <Icon name={speaking ? "Volume2" : "Play"} size={14} color={theme.colors.foreground} />
         </Pressable>
+        <View style={styles.spacer} />
       </View>
       {card.summary.status === "pending" ? (
         <View style={styles.pending}>
