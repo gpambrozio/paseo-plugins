@@ -25,6 +25,7 @@ compile time. This file covers only what is specific to `herald`.
 | `client/announcer.ts`        | The poll-and-speak loop that runs while the app is open, panel or no panel.            |
 | `client/herald.tsx`          | The surface: Paseo's attention list joined with Herald's entries.                      |
 | `client/settings-screen.tsx` | Settings › Plugins › Herald: speech (host document) and summaries (daemon RPCs).       |
+| `client/option-picker.tsx`   | A settings row opening a searchable, scrolling list, for choices too long for a select. |
 | `client/web.ts`              | Every browser global: audio playback, the Web Speech API, the desktop-shell check.      |
 | `server/*.test.ts`           | The tests. `npm test`.                                                                 |
 
@@ -137,6 +138,16 @@ to the values a mounted screen last mirrored, or to the defaults.
 
 The daemon config (`shared/herald.ts`) is what the hooks act on — which events to summarise, which
 model — so it is the daemon's file behind `herald.config.read` / `herald.config.write`.
+
+## Long lists do not fit a `SettingsSelect`
+
+The host's `SettingsSelect` popover does not scroll. It is fine for the four speeds and the two
+voice sources and useless for a Mac's `say` voices — 185 of them in 51 languages on the daemon this
+was built against — or a browser's voices or every provider's models. Those three use
+`client/option-picker.tsx`: a `SettingsRow` whose control opens a host `Modal` with scrolling turned
+off, so the host `FlatList` inside it is what scrolls, above a host `TextInput` that filters by label,
+detail, or value. Keep `SettingsSelect` for anything under about ten options and reach for the picker
+past that.
 
 ## The SDK's state hooks do not work in a surface
 

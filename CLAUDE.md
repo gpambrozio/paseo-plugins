@@ -151,6 +151,10 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   they throw "Plugin state hooks must run inside a workspace panel" on mount, and the surface renders
   that error instead of itself. A surface reads workspaces and agents through `usePaseo()` — see
   `herald/client/herald.tsx`, which maps workspace ids to titles from `workspaces.list()`.
+- **`SettingsSelect`'s popover does not scroll.** It works for a handful of options and cannot be
+  used for a long list — a Mac lists 185 `say` voices. Past about ten options, open a host `Modal`
+  with `scrollable={false}` and put the host `FlatList` and a search `TextInput` inside it — see
+  `herald/client/option-picker.tsx`.
 - **A surface cannot open its own settings screen.** `PluginSurfaceProps` carries no
   `openSettings`; only `PluginClientContext` and a Command Center or slash-command callback have it.
   A surface that needs to reach one has to keep its own in-surface editor or route the user through

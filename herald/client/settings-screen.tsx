@@ -39,6 +39,7 @@ import {
   type SpeechSettings,
 } from "../shared/settings";
 import { getAnnouncer, mirrorSettings } from "./announcer";
+import { OptionPicker, type PickerOption } from "./option-picker";
 import { canSpeak, listVoices, onVoicesChanged, speechPlatform, type Voice } from "./web";
 
 const RATE_LABELS: Record<RateOption, string> = {
@@ -55,11 +56,6 @@ const ANNOUNCE_LABELS: Record<AnnounceKey, { label: string; hint: string }> = {
   finished: { label: "Finished turns", hint: "The agent stopped and is waiting for your next message." },
   error: { label: "Errors and interruptions", hint: "The turn failed or was cancelled." },
 };
-
-interface ModelOption {
-  label: string;
-  value: string;
-}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -92,11 +88,11 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
   // ---- voices -------------------------------------------------------------
   const [voices, setVoices] = useState<Voice[]>(() => listVoices());
   useEffect(() => onVoicesChanged(() => setVoices(listVoices())), []);
-  const voiceOptions = useMemo(() => {
-    const options = voices.map((voice) => ({ label: `${voice.name} (${voice.lang})`, value: voice.name }));
+  const voiceOptions = useMemo((): PickerOption[] => {
+    const options: PickerOption[] = voices.map((voice) => ({ label: voice.name, value: voice.name, detail: voice.lang }));
     const current = settings.status === "ready" ? settings.values.voice : "";
     if (current !== "" && !options.some((option) => option.value === current)) {
-      options.unshift({ label: `${current} (not on this device)`, value: current });
+      options.unshift({ label: current, value: current, detail: "not on this device" });
     }
     return [{ label: "System default", value: "" }, ...options];
   }, [voices, settings]);
@@ -118,14 +114,15 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
       cancelled = true;
     };
   }, [fetchSayVoices]);
-  const sayVoiceOptions = useMemo(() => {
-    const options = (sayVoices?.voices ?? []).map((voice) => ({
-      label: `${voice.name} (${voice.lang})`,
+  const sayVoiceOptions = useMemo((): PickerOption[] => {
+    const options: PickerOption[] = (sayVoices?.voices ?? []).map((voice) => ({
+      label: voice.name,
       value: voice.name,
+      detail: voice.lang,
     }));
     const current = settings.status === "ready" ? settings.values.sayVoice : "";
     if (current !== "" && !options.some((option) => option.value === current)) {
-      options.unshift({ label: `${current} (not installed on the daemon)`, value: current });
+      options.unshift({ label: current, value: current, detail: "not installed on the daemon" });
     }
     return [{ label: "The Mac's default voice", value: "" }, ...options];
   }, [sayVoices, settings]);
@@ -178,7 +175,7 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
     [write, toast],
   );
 
-  const [models, setModels] = useState<ModelOption[]>([]);
+  const [models, setModels] = useState<PickerOption[]>([]);
   useEffect(() => {
     let cancelled = false;
     async function loadModels() {
@@ -189,13 +186,13 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
           return paseo.providers.listModels(provider).catch(() => null);
         }),
       );
-      const options: ModelOption[] = [];
+      const options: PickerOption[] = [];
       lists.forEach((result, index) => {
         const provider = providers[index];
         if (result === null || provider === undefined) return;
         (result.models ?? [])
           .filter((model) => model.isSelectable !== false)
-          .forEach((model) => options.push({ label: `${provider} · ${model.label}`, value: `${provider}/${model.id}` }));
+          .forEach((model) => options.push({ label: model.label, value: `${provider}/${model.id}`, detail: provider }));
       });
       if (!cancelled) setModels(options);
     }
@@ -207,10 +204,10 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
     };
   }, [paseo]);
 
-  const modelOptions = useMemo(() => {
+  const modelOptions = useMemo((): PickerOption[] => {
     const current = config?.summarizer.provider ?? "";
     if (current === "" || models.some((option) => option.value === current)) return models;
-    return [{ label: current, value: current }, ...models];
+    return [{ label: current, value: current, detail: "typed in" }, ...models];
   }, [models, config]);
 
   const [customModel, setCustomModel] = useState("");
@@ -293,22 +290,30 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
               onValueChange={(value) => void saveSpeech({ engine: value })}
             />
             {speech?.engine === "say" ? (
-              <SettingsSelect
+              <OptionPicker
                 label="Mac voice"
                 hint="Installed on the daemon Mac. Add more under System Settings › Accessibility › Spoken Content there."
+                title="Mac voice"
+                searchPlaceholder="Search voices or languages"
                 value={speech.sayVoice}
                 options={sayVoiceOptions}
                 disabled={sayVoices === null || !sayVoices.available}
-                onValueChange={(value) => void saveSpeech({ sayVoice: value })}
+                onSelect={(value) => void saveSpeech({ sayVoice: value })}
+                theme={theme}
+                compact={layout.compact}
               />
             ) : canSpeak() ? (
-              <SettingsSelect
+              <OptionPicker
                 label="Browser voice"
                 hint="A system voice on this device. Other devices keep their own default."
+                title="Browser voice"
+                searchPlaceholder="Search voices or languages"
                 value={speech?.voice ?? ""}
                 options={voiceOptions}
                 disabled={speech === null}
-                onValueChange={(value) => void saveSpeech({ voice: value })}
+                onSelect={(value) => void saveSpeech({ voice: value })}
+                theme={theme}
+                compact={layout.compact}
               />
             ) : null}
             <SettingsSelect<RateOption>
@@ -340,14 +345,18 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
           }
         >
           {configError === null ? null : <Text style={styles.error}>{configError}</Text>}
-          <SettingsSelect
+          <OptionPicker
             label="Summary model"
+            title="Summary model"
+            searchPlaceholder="Search models or providers"
             value={config?.summarizer.provider ?? ""}
-            options={modelOptions.length > 0 ? modelOptions : [{ label: config?.summarizer.provider ?? "Loading…", value: config?.summarizer.provider ?? "" }]}
+            options={modelOptions}
             disabled={config === null}
-            onValueChange={(value) => {
+            onSelect={(value) => {
               if (config !== null && value !== "") void saveConfig({ ...config, summarizer: { ...config.summarizer, provider: value } });
             }}
+            theme={theme}
+            compact={layout.compact}
           />
           <SettingsInput
             label="Or type one"
