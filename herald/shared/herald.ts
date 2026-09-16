@@ -31,9 +31,10 @@ export const AttentionReasonSchema = z.enum(ATTENTION_REASONS);
 /**
  * The summary's lifecycle. `pending` while the helper agent is writing;
  * `ready` with its sentence; `failed` with the reason and a deterministic
- * fallback built from the raw event; `off` when the event kind is switched
- * off in the daemon config — recorded so the panel can still show the
- * headline, but never spoken.
+ * fallback built from the raw event; `off` when no summary was written at all
+ * — the event kind is switched off in the daemon config, or the user moved on
+ * before the queued summary reached the front — recorded so the panel and the
+ * transcript card can still say something, but never spoken by the announcer.
  */
 export const SummaryStateSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("pending") }),

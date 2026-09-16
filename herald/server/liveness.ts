@@ -56,7 +56,9 @@ export class Liveness {
           break;
         case "gone":
         case "seen":
-          store.remove(entry.agentId);
+          // By event, not by agent: the entries were snapshotted before the
+          // daemon checks, and a newer one may have been recorded since.
+          store.removeIf(entry.agentId, (current) => current.eventId === entry.eventId);
           break;
         case undefined:
           break;
@@ -66,17 +68,33 @@ export class Liveness {
   }
 
   private async verdictFor(entry: AttentionEntry, paseo: PaseoApi): Promise<Verdict> {
-    const facts = await this.factsFor(entry.agentId, paseo);
+    const createdAt = new Date(entry.createdAt).getTime();
+    /**
+     * A snapshot older than this — the event, plus the grace Paseo needs to
+     * raise its flag — cannot speak for this entry however fresh the cache is.
+     */
+    const judgeableFrom = (Number.isFinite(createdAt) ? createdAt : 0) + SEEN_GRACE_MS;
+
+    const cached = await this.factsFor(entry.agentId, paseo, 0);
+    if (cached.kind !== "open") return cached.kind;
+    if (cached.requiresAttention || cached.pendingPermissions > 0) return "live";
+    if (this.now() < judgeableFrom) return "live";
+
+    // About to delete on the strength of a flag that is *absent*, so the
+    // snapshot has to be new enough to have carried it. Re-reads only when the
+    // cached one predates the event; usually this is the same answer again.
+    const facts = await this.factsFor(entry.agentId, paseo, judgeableFrom);
     if (facts.kind !== "open") return facts.kind;
     if (facts.requiresAttention || facts.pendingPermissions > 0) return "live";
-    const age = this.now() - new Date(entry.createdAt).getTime();
-    return age >= SEEN_GRACE_MS ? "seen" : "live";
+    return "seen";
   }
 
-  private async factsFor(agentId: string, paseo: PaseoApi): Promise<Facts> {
+  private async factsFor(agentId: string, paseo: PaseoApi, notBefore: number): Promise<Facts> {
     const at = this.now();
     const cached = this.checked.get(agentId);
-    if (cached !== undefined && at - cached.at < LIVENESS_TTL_MS) return cached.facts;
+    if (cached !== undefined && at - cached.at < LIVENESS_TTL_MS && cached.at >= notBefore) {
+      return cached.facts;
+    }
     let facts: Facts;
     try {
       const result = await paseo.agents.ref(agentId).refresh();

@@ -151,8 +151,12 @@ export function canPlayAudio(): boolean {
   return typeof web()?.Audio === "function";
 }
 
-/** Elements are held until they end for the same reason utterances are. */
-const playing = new Set<WebAudioElement>();
+/**
+ * Elements are held until they end for the same reason utterances are, each
+ * with the callback that settles its promise so `stopAudio` can end a
+ * playback early instead of leaving its caller waiting on the guard timer.
+ */
+const playing = new Map<WebAudioElement, () => void>();
 
 /**
  * Plays audio the daemon rendered, handed over as a data URL. Resolves when it
@@ -174,9 +178,18 @@ export function playAudio(dataUrl: string): Promise<void> {
     };
     element.onended = () => finish(null);
     element.onerror = (event) => finish(event);
-    playing.add(element);
+    playing.set(element, () => finish(null));
     element.play().catch((error: unknown) => finish(error));
   });
+}
+
+/** Ends every playback started here, settling each caller rather than stranding it. */
+export function stopAudio(): void {
+  for (const [element, finish] of [...playing]) {
+    element.pause();
+    playing.delete(element);
+    finish();
+  }
 }
 
 /**

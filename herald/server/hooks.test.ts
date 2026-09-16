@@ -236,6 +236,85 @@ describe("registerHooks", () => {
     expect(store.get("a1")).toMatchObject({ reason: "error", headline: "Out of credits" });
   });
 
+  it("drops what it learned when the agent moved on while it was loading", async () => {
+    let releaseConfig: (config: HeraldConfig) => void = () => {};
+    function heldConfig(): Promise<HeraldConfig> {
+      return new Promise<HeraldConfig>((resolve) => {
+        releaseConfig = resolve;
+      });
+    }
+
+    // A question answered while the config and workspace title were loading.
+    const answered = setup({ readConfig: heldConfig });
+    const askedThenAnswered = answered.emit("agent.permission_requested", { agent, request: question });
+    await answered.emit("agent.permission_resolved", { agent, requestId: "p1", resolution: { behavior: "allow" } });
+    releaseConfig(DEFAULT_CONFIG);
+    await askedThenAnswered;
+    await settle();
+    expect(answered.store.get("a1")).toBeNull();
+    expect(answered.summarize).not.toHaveBeenCalled();
+    expect(answered.publish).not.toHaveBeenCalled();
+
+    // A turn the user replied to while the same loading was in flight.
+    const replied = setup({ readConfig: heldConfig });
+    const ended = replied.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await replied.emit("agent.turn_started", { agent, turnId: "t2" });
+    releaseConfig(DEFAULT_CONFIG);
+    await ended;
+    await settle();
+    expect(replied.store.get("a1")).toBeNull();
+    expect(replied.summarize).not.toHaveBeenCalled();
+
+    // A different pending question is not collateral damage.
+    const other = setup({ readConfig: heldConfig });
+    const asked = other.emit("agent.permission_requested", { agent, request: question });
+    await other.emit("agent.permission_resolved", { agent, requestId: "p9", resolution: { behavior: "allow" } });
+    releaseConfig(DEFAULT_CONFIG);
+    await asked;
+    await settle();
+    expect(other.store.get("a1")).toMatchObject({ requestId: "p1" });
+  });
+
+  it("completes the transcript card when a queued summary is superseded", async () => {
+    const releases: Array<(summary: Summary) => void> = [];
+    const { store, publish, emit } = setup({
+      // One at a time, so the second agent's summary is still queued when its
+      // agent moves on — which is the only way to reach that branch.
+      maxConcurrent: 1,
+      summarize: vi.fn(
+        () =>
+          new Promise<Summary>((resolve) => {
+            releases.push(resolve);
+          }),
+      ),
+    });
+    const second: PluginHookAgent = { ...agent, id: "a2" };
+    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn_ended", { agent: second, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    // The user replies to the queued one before its summary ever starts.
+    await emit("agent.turn_started", { agent: second, turnId: "t2" });
+    releases[0]?.({ text: "Shop finished the login fix.", model: "m" });
+    await settle();
+
+    const cards = publish.mock.calls.map((call) => ({
+      agentId: call[1].agentId,
+      status: call[1].summary.status,
+    }));
+    expect(cards).toEqual([
+      { agentId: "a1", status: "pending" },
+      { agentId: "a2", status: "pending" },
+      { agentId: "a1", status: "ready" },
+      // Completed rather than left reading "Writing the summary…" for ever.
+      { agentId: "a2", status: "off" },
+    ]);
+    const superseded = publish.mock.calls[3]?.[1];
+    expect(superseded?.summary).toEqual({
+      status: "off",
+      fallback: "Login fix finished. I fixed auth.ts and added a test.",
+    });
+    expect(store.get("a2")).toBeNull();
+  });
+
   it("drops a repeated turn_ended for the same turn", async () => {
     const { summarize, emit } = setup();
     const event = { agent, turnId: "t1", outcome: { kind: "completed" as const }, timeline };

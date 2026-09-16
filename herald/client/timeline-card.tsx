@@ -42,8 +42,12 @@ function spokenText(card: HeraldCard): string | null {
       return card.summary.text;
     case "failed":
       return card.summary.fallback;
-    case "pending":
+    // In a card, `off` is a summary that was never written — the event was
+    // superseded before its turn in the queue. A kind switched off in settings
+    // never reaches a card at all, because none is published for it.
     case "off":
+      return card.summary.fallback;
+    case "pending":
       return null;
   }
 }

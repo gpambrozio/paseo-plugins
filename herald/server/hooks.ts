@@ -72,11 +72,38 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
   const helpers = new Set<string>();
   const recentTurns = new Map<string, number>();
   const interruptedAt = new Map<string, number>();
+  /**
+   * Both recording handlers await — the config file, the workspace title — and
+   * the agent can move on while they do. Whatever they learned is then about a
+   * question already answered or a turn already replied to, and recording it
+   * would put a resolved event back on the panel. So each handler takes the
+   * agent's generation before its first await and drops out if it moved.
+   */
+  const generations = new Map<string, number>();
+  /** `${agentId}:${requestId}`, for permissions answered during that window. */
+  const resolvedRequests = new Set<string>();
   let running = 0;
   const queue: Array<() => void> = [];
 
   function isHelper(agent: PluginHookAgent): boolean {
     return helpers.has(agent.id) || agent.title === HELPER_TITLE;
+  }
+
+  function generationOf(agentId: string): number {
+    return generations.get(agentId) ?? 0;
+  }
+
+  /** The agent unmistakably moved on: a new turn, or gone for good. */
+  function movedOn(agentId: string): void {
+    generations.set(agentId, generationOf(agentId) + 1);
+  }
+
+  function markResolved(key: string): void {
+    resolvedRequests.add(key);
+    if (resolvedRequests.size > 1000) {
+      const oldest = resolvedRequests.values().next();
+      if (!oldest.done) resolvedRequests.delete(oldest.value);
+    }
   }
 
   function isRepeatTurn(agentId: string, turnId: string | null): boolean {
@@ -140,8 +167,13 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     deps.store.upsert(pending);
     void publish(paseo, pending);
     schedule(async () => {
-      // The user may have answered while this waited in the queue.
-      if (deps.store.get(agent.id)?.eventId !== eventId) return;
+      // The user may have answered while this waited in the queue. The card
+      // was published as pending before queuing, so it has to be completed
+      // here or it reads "Writing the summary…" for ever.
+      if (deps.store.get(agent.id)?.eventId !== eventId) {
+        void publish(paseo, { ...base, summary: { status: "off", fallback: fallbackSpeech(base) } });
+        return;
+      }
       try {
         const summary = await deps.summarize(
           {
@@ -191,10 +223,13 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     server.on("agent.permission_requested", async (event, context) => {
       if (isHelper(event.agent)) return;
       const described = describePermission(event.request);
+      const generation = generationOf(event.agent.id);
+      const key = `${event.agent.id}:${event.request.id}`;
       const [config, title] = await Promise.all([
         deps.readConfig(),
         workspaceTitle(event.agent.workspaceId, context.paseo),
       ]);
+      if (generationOf(event.agent.id) !== generation || resolvedRequests.has(key)) return;
       record(
         event.agent,
         title,
@@ -212,6 +247,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     server.on("agent.permission_resolved", (event) => {
       if (isHelper(event.agent)) return;
       deps.store.removeIf(event.agent.id, (entry) => entry.requestId === event.requestId);
+      markResolved(`${event.agent.id}:${event.requestId}`);
       if (event.resolution.behavior === "deny" && event.resolution.interrupt === true) {
         interruptedAt.set(event.agent.id, now().getTime());
       }
@@ -219,12 +255,14 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
 
     server.on("agent.turn_started", (event) => {
       if (isHelper(event.agent)) return;
+      movedOn(event.agent.id);
       deps.store.remove(event.agent.id);
     }),
 
     server.on("agent.turn_ended", async (event, context) => {
       if (isHelper(event.agent)) return;
       if (isRepeatTurn(event.agent.id, event.turnId)) return;
+      const generation = generationOf(event.agent.id);
       const output = latestOutputText(event.timeline);
       let reason: AttentionReason;
       let headline: string;
@@ -253,6 +291,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
         deps.readConfig(),
         workspaceTitle(event.agent.workspaceId, context.paseo),
       ]);
+      if (generationOf(event.agent.id) !== generation) return;
       record(
         event.agent,
         title,
@@ -270,6 +309,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     server.on("agent.archived", (event) => {
       helpers.delete(event.agent.id);
       interruptedAt.delete(event.agent.id);
+      movedOn(event.agent.id);
       deps.store.remove(event.agent.id);
     }),
   ];

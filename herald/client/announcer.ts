@@ -17,7 +17,7 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 
 import { listAttention, renderSpeech, type AttentionEntry } from "../shared/herald";
 import { DEFAULT_SPEECH, speechSettings, type SpeechSettings } from "../shared/settings";
-import { canPlayAudio, canSpeak, playAudio, speak, speechPlatform, vibrate } from "./web";
+import { canPlayAudio, canSpeak, playAudio, speak, speechPlatform, stopAudio, stopSpeaking, vibrate } from "./web";
 
 const IDLE_POLL_MS = 10_000;
 const BUSY_POLL_MS = 2_000;
@@ -125,6 +125,9 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
    * browser voice rather than to silence, and is logged once.
    */
   async function deliverNow(text: string, settings: SpeechSettings): Promise<void> {
+    // Checked here rather than only at the call site: this runs once per
+    // queued delivery, and a reload can stop the announcer while one waits.
+    if (stopped) return;
     if (speechPlatform() === "mobile") {
       vibrate();
       return;
@@ -133,6 +136,7 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
     if (settings.engine === "say" && canPlayAudio()) {
       try {
         const audio = await client.rpc(renderSpeech, { text, voice: settings.sayVoice, rate });
+        if (stopped) return;
         await playAudio(`data:${audio.mimeType};base64,${audio.base64}`);
         return;
       } catch (error) {
@@ -181,6 +185,7 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
     let busy = false;
     try {
       const { entries } = await client.rpc(listAttention, {});
+      if (stopped) return;
       const present = new Set(entries.map((entry) => entry.eventId));
       if (!seeded) {
         // Whatever was already waiting when this client came up has been
@@ -214,6 +219,10 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
       stopped = true;
       if (timer !== null) clearTimeout(timer);
       unsubscribe();
+      // A plugin reload starts the replacement announcer at once, so whatever
+      // this one was saying has to stop or the two talk over each other.
+      stopSpeaking();
+      stopAudio();
       if (active === announcer) active = null;
     },
     poke() {
