@@ -23,6 +23,13 @@ import { fallbackSpeech } from "./timeline";
 export class AttentionStore {
   private readonly entries = new Map<string, AttentionEntry>();
   private writes: Promise<void> = Promise.resolve();
+  /**
+   * Agents changed since this store was made. `load` runs while the plugin is
+   * already answering events — a contribution registers its handlers
+   * synchronously, so the file read cannot be awaited first — and whatever
+   * arrived live is newer than anything on disk. Cleared once `load` is done.
+   */
+  private readonly touched = new Set<string>();
 
   /** `path === null` keeps everything in memory, which is what the tests want. */
   constructor(private readonly path: string | null) {}
@@ -45,6 +52,8 @@ export class AttentionStore {
         continue;
       }
       const entry = parsed.data;
+      // Never undo a live upsert or removal that landed during the read.
+      if (this.touched.has(entry.agentId)) continue;
       this.entries.set(
         entry.agentId,
         entry.summary.status === "pending"
@@ -59,6 +68,7 @@ export class AttentionStore {
           : entry,
       );
     }
+    this.touched.clear();
   }
 
   list(): AttentionEntry[] {
@@ -70,6 +80,7 @@ export class AttentionStore {
   }
 
   upsert(entry: AttentionEntry): void {
+    this.touched.add(entry.agentId);
     this.entries.set(entry.agentId, entry);
     this.persist();
   }
@@ -88,6 +99,7 @@ export class AttentionStore {
   }
 
   remove(agentId: string): AttentionEntry | null {
+    this.touched.add(agentId);
     const current = this.entries.get(agentId) ?? null;
     if (current !== null) {
       this.entries.delete(agentId);
@@ -99,6 +111,7 @@ export class AttentionStore {
   removeIf(agentId: string, predicate: (entry: AttentionEntry) => boolean): boolean {
     const current = this.entries.get(agentId);
     if (current === undefined || !predicate(current)) return false;
+    this.touched.add(agentId);
     this.entries.delete(agentId);
     this.persist();
     return true;

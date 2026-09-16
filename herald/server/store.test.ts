@@ -63,6 +63,28 @@ describe("AttentionStore", () => {
     expect(store.remove("a1")?.agentId).toBe("a1");
   });
 
+  it("does not let a slow load undo what arrived while it was reading", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "herald-store-"));
+    tempDirs.push(dir);
+    const path = join(dir, "attention.json");
+
+    const seed = new AttentionStore(path);
+    seed.upsert(entry({ agentId: "a1", eventId: "a1:turn:old", headline: "Older" }));
+    seed.upsert(entry({ agentId: "a2" }));
+    await seed.flush();
+
+    // A contribution registers its handlers synchronously, so events arrive
+    // while the file is still being read.
+    const store = new AttentionStore(path);
+    const loading = store.load();
+    store.upsert(entry({ agentId: "a1", eventId: "a1:turn:new", headline: "Newer" }));
+    store.remove("a2");
+    await loading;
+
+    expect(store.get("a1")?.eventId).toBe("a1:turn:new");
+    expect(store.get("a2")).toBeNull();
+  });
+
   it("survives a reload, marking an unfinished summary as failed", async () => {
     const dir = await mkdtemp(join(tmpdir(), "herald-store-"));
     tempDirs.push(dir);

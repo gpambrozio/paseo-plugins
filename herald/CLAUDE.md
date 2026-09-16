@@ -17,7 +17,7 @@ compile time. This file covers only what is specific to `herald`.
 | `shared/herald.ts`           | The `AttentionEntry` shape, the list RPC, and the daemon config document with defaults. |
 | `shared/settings.ts`         | The host settings document for *how* to speak; the app reads it, the daemon never does. |
 | `shared/timeline.ts`         | The summary card's `kind`/`version` and schema; a *runtime* import on both sides.        |
-| `server/card.ts`             | Appends the summary card to the agent's transcript, pending first, final under the same id. |
+| `server/card.ts`             | Appends the summary card to the agent's transcript, one chain per row.                 |
 | `client/timeline-card.tsx`   | Draws that card, with a Play button that speaks the sentence again.                     |
 | `server/hooks.ts`            | Lifecycle events → store entries; helper recognition; turn dedupe; the summary queue.  |
 | `server/summarize.ts`        | One helper agent per summary: prompt, structured output, cleanup on failure.           |
@@ -95,6 +95,11 @@ or has failed; the daemon replaces the row live and on refetch. It is written fo
 the store: a summary that lands after the user has already moved on still completes its card, even
 though `updateSummary` refuses it. A kind switched off in the config gets no card.
 
+Both appends for one event go through a chain keyed by the row id (`chains` in `server/card.ts`):
+they are started fire-and-forget and carry the same id, so a pending write held up by a slow round
+trip could otherwise land after the summary that replaced it and strand the card on "Writing the
+summary…".
+
 The Play button speaks the sentence through the same announcer as everything else, so it follows the
 engine and voice settings. Rows live in the daemon's memory — they survive scroll and reconnect, not
 a daemon restart — and a host that predates plugin timeline rows rejects the append, which
@@ -144,6 +149,12 @@ Paseo decides who is waiting; Herald explains why.
 still `pending` at load is marked `failed` with the fallback, because its helper died with the old
 process.
 
+**`load()` merges, it does not overwrite.** A contribution registers its handlers synchronously — it
+returns a cleanup, not a promise — so the file read cannot be awaited first and events arrive during
+it. Anything live is newer than anything on disk, so `load` skips every agent in `touched`, the set
+of agents upserted or removed since the store was made. Without that, an announcement that arrived
+mid-read would vanish under the older persisted entry for the same agent.
+
 ## Speech happens on the client, and only on two of three platforms
 
 Plugin client code has no audio module: not from the host's module list, not from React Native core.
@@ -170,6 +181,20 @@ Platform rules apply to both:
   **Test voice** button is the tap.
 - **iOS / Android** cannot play either. `Vibration.vibrate()` is the most plugin code can do,
   behind a switch that is off by default. Paseo's own push notifications carry the text there.
+
+**A browser grants audio to the task its gesture ran in, so every press handler calls `primeSpeech()`
+before its first `await`.** The real delivery is always too late — it awaits the settings, and on the
+`say` engine a render RPC — so `primeSpeech` starts a silent clip and an inaudible utterance inside
+the press itself, which unlocks both engines. `playAudio` then reuses that one element, because
+WebKit unlocks the element rather than the page. This is what makes "tap Test voice once" work; take
+it out and browser announcements never start.
+
+**A control the user pressed obeys no switch; an announcement obeys them all.** `allowedHere()` gates
+the poll's deliveries against the master switch, *Mute here*, and the platform switches. The panel
+speaker, the transcript Play and *Test voice* skip it, because pressing one *is* the request and a
+button that silently does nothing has no other feedback. *Test voice* must skip it in particular:
+gating it would make it useless exactly when it is needed, since its other job is to hand the browser
+the gesture above.
 
 **Every play control is hidden where `canPlaySpeech()` is false**, rather than shown and failing when
 pressed: the panel row's speaker, the transcript card's play icon, and the panel header's *Mute here*

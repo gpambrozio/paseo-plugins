@@ -22,6 +22,7 @@ interface WebVoice {
 interface WebUtterance {
   text: string;
   rate: number;
+  volume: number;
   voice: WebVoice | null;
   onend: (() => void) | null;
   onerror: ((event: { error?: string }) => void) | null;
@@ -152,11 +153,54 @@ export function canPlayAudio(): boolean {
 }
 
 /**
- * Elements are held until they end for the same reason utterances are, each
- * with the callback that settles its promise so `stopAudio` can end a
- * playback early instead of leaving its caller waiting on the guard timer.
+ * One element for every playback, made on first use. WebKit unlocks the
+ * *element* a gesture played, not the page, so reusing this one is what makes
+ * `primeSpeech()` carry to the announcements that follow.
  */
-const playing = new Map<WebAudioElement, () => void>();
+let player: WebAudioElement | null = null;
+
+/** Settles the playback in progress, so `stopAudio` need not strand its caller. */
+let settlePlayer: (() => void) | null = null;
+
+function audioPlayer(): WebAudioElement | null {
+  const Audio = web()?.Audio;
+  if (Audio === undefined) return null;
+  if (player === null) player = new Audio();
+  return player;
+}
+
+/** A 1 ms 8 kHz silence: enough to unlock playback, inaudible. */
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQgAAACAgICAgICAgA==";
+
+/**
+ * Takes the user activation a browser grants for audio, in the caller's own
+ * task.
+ *
+ * Chromium and WebKit allow audio only when a gesture asked for it, and the
+ * permission belongs to the *task the gesture runs in* — which the real
+ * delivery is never in, because it first awaits the settings and, on the `say`
+ * engine, a render RPC. So every press handler calls this synchronously before
+ * any await: it starts a silent clip on the element the announcer will reuse
+ * and speaks an inaudible utterance, unlocking both engines. That is what
+ * makes the documented "tap Test voice once" flow work.
+ */
+export function primeSpeech(): void {
+  const globals = web();
+  if (globals === null) return;
+  const element = audioPlayer();
+  if (element !== null && element.src === "") {
+    element.src = SILENT_WAV;
+    void element.play().catch(() => {});
+  }
+  const synth = globals.speechSynthesis;
+  const Utterance = globals.SpeechSynthesisUtterance;
+  if (synth !== undefined && Utterance !== undefined && !synth.speaking) {
+    const silent = new Utterance(" ");
+    silent.volume = 0;
+    synth.speak(silent);
+  }
+}
 
 /**
  * Plays audio the daemon rendered, handed over as a data URL. Resolves when it
@@ -164,32 +208,35 @@ const playing = new Map<WebAudioElement, () => void>();
  * format it cannot decode — so the caller can fall back to the browser voice.
  */
 export function playAudio(dataUrl: string): Promise<void> {
-  const Audio = web()?.Audio;
-  if (Audio === undefined) return Promise.reject(new Error("Audio playback is not available here."));
+  const element = audioPlayer();
+  if (element === null) return Promise.reject(new Error("Audio playback is not available here."));
   return new Promise<void>((resolve, reject) => {
-    const element = new Audio(dataUrl);
     let settled = false;
     const finish = (error: unknown) => {
       if (settled) return;
       settled = true;
-      playing.delete(element);
+      if (settlePlayer === settle) settlePlayer = null;
+      element.onended = null;
+      element.onerror = null;
       if (error === null) resolve();
       else reject(error instanceof Error ? error : new Error("The browser could not play the audio."));
     };
-    element.onended = () => finish(null);
+    const settle = () => finish(null);
+    settlePlayer = settle;
+    element.onended = settle;
     element.onerror = (event) => finish(event);
-    playing.set(element, () => finish(null));
+    element.src = dataUrl;
     element.play().catch((error: unknown) => finish(error));
   });
 }
 
-/** Ends every playback started here, settling each caller rather than stranding it. */
+/** Ends the playback in progress, settling its caller rather than stranding it. */
 export function stopAudio(): void {
-  for (const [element, finish] of [...playing]) {
-    element.pause();
-    playing.delete(element);
-    finish();
-  }
+  if (player === null) return;
+  player.pause();
+  const settle = settlePlayer;
+  settlePlayer = null;
+  settle?.();
 }
 
 /**

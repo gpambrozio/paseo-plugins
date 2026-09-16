@@ -17,7 +17,17 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 
 import { listAttention, renderSpeech, type AttentionEntry } from "../shared/herald";
 import { DEFAULT_SPEECH, speechSettings, type SpeechSettings } from "../shared/settings";
-import { canPlayAudio, canSpeak, playAudio, speak, speechPlatform, stopAudio, stopSpeaking, vibrate } from "./web";
+import {
+  canPlayAudio,
+  canSpeak,
+  playAudio,
+  primeSpeech,
+  speak,
+  speechPlatform,
+  stopAudio,
+  stopSpeaking,
+  vibrate,
+} from "./web";
 
 const IDLE_POLL_MS = 10_000;
 const BUSY_POLL_MS = 2_000;
@@ -229,11 +239,19 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
       schedule(0);
     },
     readSettings,
+    /**
+     * Both of these run their first statement in the press handler's own task,
+     * which is the only place a browser grants audio. Everything after the
+     * first `await` is too late, so `primeSpeech()` goes first — before the
+     * settings read, before the render.
+     */
     async speakEntry(entry) {
+      primeSpeech();
       const text = speechText(entry) ?? `${entry.agentTitle ?? "An agent"}: ${entry.headline}`;
       await deliver(text, await readSettings());
     },
     async speakText(text) {
+      primeSpeech();
       await deliver(text, await readSettings());
     },
   };

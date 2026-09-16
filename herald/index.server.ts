@@ -13,6 +13,9 @@ import { speechSettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
   const store = new AttentionStore(join(pluginDir(), "attention.json"));
+  // Not awaited, because a contribution registers its handlers synchronously —
+  // it returns a cleanup, not a promise. Events therefore arrive *during* this
+  // read, so the store merges rather than overwrites: see `touched` there.
   void store.load().catch((error: unknown) => {
     console.error("[herald] could not load saved entries:", error);
   });

@@ -25,11 +25,32 @@ export function cardFor(entry: AttentionEntry): HeraldCard {
 /** Reported once per distinct cause; a host that predates the feature would otherwise say so on every event. */
 const reported = new Set<string>();
 
+/**
+ * One chain per row. The pending append and the terminal one carry the same
+ * row id and are both started fire-and-forget, so without this a pending write
+ * held up by a slow round trip could land *after* the summary that replaced it
+ * and leave the card reading "Writing the summary…" for ever.
+ */
+const chains = new Map<string, Promise<void>>();
+
 export async function publishCard(paseo: PaseoApi, entry: AttentionEntry): Promise<void> {
+  const rowId = `summary:${entry.eventId}`;
+  const next = (chains.get(rowId) ?? Promise.resolve()).then(() => append(paseo, entry, rowId));
+  chains.set(rowId, next);
+  try {
+    await next;
+  } finally {
+    // Only the last link clears the row, or a later append would lose its queue.
+    if (chains.get(rowId) === next) chains.delete(rowId);
+  }
+}
+
+/** Never rejects: a card is a nicety, and the chain behind it has to keep moving. */
+async function append(paseo: PaseoApi, entry: AttentionEntry, rowId: string): Promise<void> {
   try {
     await paseo.agents.ref(entry.agentId).timeline.append({
       type: "plugin",
-      id: `summary:${entry.eventId}`,
+      id: rowId,
       kind: HERALD_CARD_KIND,
       version: HERALD_CARD_VERSION,
       data: cardFor(entry),
