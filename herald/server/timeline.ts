@@ -14,17 +14,29 @@ import type { AttentionReason } from "../shared/herald";
  * are how it got there, neither of which the user is being told.
  */
 export function latestOutputText(timeline: readonly AgentTimelineItem[]): string {
-  const parts: string[] = [];
+  let output = "";
   for (const item of timeline) {
     if (item.type === "user_message") {
-      parts.length = 0;
+      output = "";
     } else if (item.type === "assistant_message") {
-      if (item.text.trim() !== "") parts.push(item.text.trim());
-    } else if (item.type === "error") {
-      if (item.message.trim() !== "") parts.push(`Error: ${item.message.trim()}`);
+      output = joinText(output, item.text);
+    } else if (item.type === "error" && item.message.trim() !== "") {
+      output = `${output.trimEnd()}\nError: ${item.message.trim()}\n`;
     }
   }
-  return parts.join("\n\n");
+  return output.trim();
+}
+
+/**
+ * A streamed reply reaches the snapshot as several `assistant_message` items,
+ * often split mid-sentence, so two chunks are joined with nothing when either
+ * side already has whitespace at the seam and with one space otherwise.
+ */
+function joinText(left: string, right: string): string {
+  if (left === "") return right;
+  if (right === "") return left;
+  if (/\s$/.test(left) || /^\s/.test(right)) return left + right;
+  return `${left} ${right}`;
 }
 
 /** The user's most recent message, so the summary knows what was asked for. */

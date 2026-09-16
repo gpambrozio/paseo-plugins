@@ -159,6 +159,36 @@ describe("registerHooks", () => {
     expect(store.get("a1")).toMatchObject({ reason: "canceled", headline: "The turn was canceled" });
   });
 
+  it("does not announce the failure that follows the user's own interrupting deny", async () => {
+    const { store, summarize, emit } = setup();
+    await emit("agent.permission_requested", { agent, request: question });
+    await emit("agent.permission_resolved", {
+      agent,
+      requestId: "p1",
+      resolution: { behavior: "deny", interrupt: true, message: "stop" },
+    });
+    await emit("agent.turn_ended", {
+      agent,
+      turnId: "t1",
+      outcome: { kind: "failed", error: { message: "[ede_diagnostic] stop_reason=tool_use" } },
+      timeline: [],
+    });
+    await settle();
+    expect(store.get("a1")).toBeNull();
+    expect(summarize).toHaveBeenCalledTimes(1);
+
+    // A plain deny lets the agent carry on; a failure after that is a real one.
+    await emit("agent.permission_requested", { agent, request: { ...question, id: "p2" } });
+    await emit("agent.permission_resolved", { agent, requestId: "p2", resolution: { behavior: "deny" } });
+    await emit("agent.turn_ended", {
+      agent,
+      turnId: "t2",
+      outcome: { kind: "failed", error: { message: "Out of credits" } },
+      timeline: [],
+    });
+    expect(store.get("a1")).toMatchObject({ reason: "error", headline: "Out of credits" });
+  });
+
   it("drops a repeated turn_ended for the same turn", async () => {
     const { summarize, emit } = setup();
     const event = { agent, turnId: "t1", outcome: { kind: "completed" as const }, timeline };

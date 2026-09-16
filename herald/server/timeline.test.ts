@@ -24,14 +24,26 @@ const timeline: AgentTimelineItem[] = [
 
 describe("latestOutputText", () => {
   it("keeps only assistant text after the last user message", () => {
-    expect(latestOutputText(timeline)).toBe(
-      "Done. I fixed **auth.ts** and added a test.\n\nAnything else?",
-    );
+    expect(latestOutputText(timeline)).toBe("Done. I fixed **auth.ts** and added a test. Anything else?");
+  });
+
+  it("joins streamed chunks at the seam they were split on", () => {
+    expect(
+      latestOutputText([
+        { type: "assistant_message", text: "I reviewed the" },
+        { type: "assistant_message", text: "herald plugin folder." },
+        { type: "assistant_message", text: " Nothing to change.\n" },
+        { type: "assistant_message", text: "Done." },
+      ]),
+    ).toBe("I reviewed the herald plugin folder. Nothing to change.\nDone.");
   });
 
   it("includes errors and is empty when the agent said nothing", () => {
     expect(latestOutputText([{ type: "user_message", text: "hi" }, { type: "error", message: "boom" }])).toBe(
       "Error: boom",
+    );
+    expect(latestOutputText([{ type: "assistant_message", text: "Half" }, { type: "error", message: "boom" }])).toBe(
+      "Half\nError: boom",
     );
     expect(latestOutputText([])).toBe("");
   });

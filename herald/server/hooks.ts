@@ -50,11 +50,19 @@ export interface HookDeps {
 /** A second `turn_ended` for the same turn inside this window is a repeat, not a new turn. */
 export const TURN_REPEAT_WINDOW_MS = 15_000;
 
+/**
+ * A turn that fails this soon after the user denied a permission *with
+ * interrupt* failed because the user stopped it. Claude reports that as an
+ * error with a diagnostic for a message; it is not news to announce.
+ */
+export const INTERRUPT_GRACE_MS = 10_000;
+
 export function registerHooks(server: PluginLifecycleRegistration, deps: HookDeps): () => void {
   const now = deps.now ?? (() => new Date());
   const maxConcurrent = deps.maxConcurrent ?? 2;
   const helpers = new Set<string>();
   const recentTurns = new Map<string, number>();
+  const interruptedAt = new Map<string, number>();
   let running = 0;
   const queue: Array<() => void> = [];
 
@@ -174,6 +182,9 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     server.on("agent.permission_resolved", (event) => {
       if (isHelper(event.agent)) return;
       deps.store.removeIf(event.agent.id, (entry) => entry.requestId === event.requestId);
+      if (event.resolution.behavior === "deny" && event.resolution.interrupt === true) {
+        interruptedAt.set(event.agent.id, now().getTime());
+      }
     }),
 
     server.on("agent.turn_started", (event) => {
@@ -195,10 +206,14 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
           reason = "finished";
           headline = "Finished";
           break;
-        case "failed":
+        case "failed": {
+          const stoppedAt = interruptedAt.get(event.agent.id);
+          interruptedAt.delete(event.agent.id);
+          if (stoppedAt !== undefined && now().getTime() - stoppedAt < INTERRUPT_GRACE_MS) return;
           reason = "error";
           headline = event.outcome.error.message.trim() || "The turn failed";
           break;
+        }
         case "canceled":
           reason = "canceled";
           headline = event.outcome.reason.trim() || "The turn was canceled";
@@ -220,6 +235,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
 
     server.on("agent.archived", (event) => {
       helpers.delete(event.agent.id);
+      interruptedAt.delete(event.agent.id);
       deps.store.remove(event.agent.id);
     }),
   ];

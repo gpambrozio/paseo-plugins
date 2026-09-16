@@ -10,8 +10,6 @@
  * `onHelperCreated` is the other.
  */
 import type { PaseoApi } from "@getpaseo/client";
-import { z } from "zod";
-
 import type { AttentionReason } from "../shared/herald";
 import { firstWords, plainText } from "./timeline";
 
@@ -57,7 +55,26 @@ const SUMMARY_OUTPUT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const SummaryOutput = z.object({ speech: z.string().trim().min(1) });
+/** Everything the helper wrote in code fences, with the fences and language tags removed. */
+function stripFences(text: string): string {
+  return text.replace(/```[a-zA-Z0-9_-]*\s*([\s\S]*?)```/g, "$1").trim();
+}
+
+/**
+ * The sentence inside the helper's JSON: the `speech` property the schema
+ * asks for, or — because a model has been seen answering under `spoken` —
+ * whatever the first non-empty string property is.
+ */
+function sentenceIn(json: unknown): string | null {
+  if (typeof json !== "object" || json === null || Array.isArray(json)) return null;
+  const record = json as Record<string, unknown>;
+  const preferred = record.speech;
+  if (typeof preferred === "string" && preferred.trim() !== "") return preferred;
+  for (const value of Object.values(record)) {
+    if (typeof value === "string" && value.trim() !== "") return value;
+  }
+  return null;
+}
 
 function describeReason(reason: AttentionReason): string {
   switch (reason) {
@@ -110,30 +127,36 @@ export function buildPrompt(request: SummaryRequest): string {
     "no code, and no file paths unless nothing else identifies the work. Start with the agent's name.",
     "For a question, say what is being asked and the choices. For finished work, say what was done",
     "and whether anything is left for the user. For a permission, say what the agent wants to do.",
+    "",
+    'Reply with exactly one JSON object shaped like {"speech": "..."} — the key must be "speech",',
+    "no code fences, nothing before or after it.",
   );
   return lines.join("\n");
 }
 
 /**
- * The daemon returns structured output as a JSON string in `lastMessage`. A
- * model that ignored the schema and wrote prose is still worth hearing, so
- * that is the last resort rather than a failure.
+ * `outputSchema` is a request, not a guarantee: against a live daemon Claude
+ * has returned the object inside a ```json fence, and once under a key of its
+ * own choosing. So: fences off, then the JSON object anywhere in the text,
+ * then any string in it; and a model that wrote plain prose instead is still
+ * worth hearing, so that is the last resort rather than a failure.
  */
 export function parseSummaryText(lastMessage: string | null): string {
   const raw = lastMessage?.trim() ?? "";
   if (raw === "") throw new Error("The summary agent returned nothing.");
-  const candidates = [raw];
-  const braces = raw.match(/\{[\s\S]*\}/);
-  if (braces !== null && braces[0] !== raw) candidates.push(braces[0]);
+  const unfenced = stripFences(raw);
+  const candidates = [unfenced];
+  const braces = unfenced.match(/\{[\s\S]*\}/);
+  if (braces !== null && braces[0] !== unfenced) candidates.push(braces[0]);
   for (const candidate of candidates) {
     try {
-      const parsed = SummaryOutput.safeParse(JSON.parse(candidate));
-      if (parsed.success) return plainText(parsed.data.speech);
+      const sentence = sentenceIn(JSON.parse(candidate));
+      if (sentence !== null) return plainText(sentence);
     } catch {
       // Not JSON; try the next candidate.
     }
   }
-  return firstWords(raw, 45);
+  return firstWords(unfenced, 45);
 }
 
 export async function summarize(request: SummaryRequest, deps: SummarizerDeps): Promise<Summary> {

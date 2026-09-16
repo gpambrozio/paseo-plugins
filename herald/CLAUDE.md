@@ -53,12 +53,28 @@ the old process may still be finishing. **Do not rename the title without checki
 `autoArchive` fires only on a finished turn. A helper that timed out or asked for a permission is
 archived by hand in `summarize`, otherwise it sits in the subagent track forever.
 
+**`outputSchema` is a request, not a guarantee.** Against a live daemon, Claude Haiku returned the
+object inside a ```` ```json ```` fence, and once under a key of its own choosing (`spoken`). The
+first shipped version read that as the words "code block". `parseSummaryText` therefore strips
+fences, finds the object anywhere in the text, takes `speech` or else the first string in it, and
+only then falls back to the prose. Keep the prompt's closing line — the exact shape and "no code
+fences" — and keep the parser defensive; do not trust one to fix the other.
+
 ## `turn_ended` can repeat
 
 The reference says a turn id can repeat after a session reopens, and the community `top` plugin has
 seen the event fire twice for one turn. `isRepeatTurn` drops a second event for the same
 `agentId:turnId` inside `TURN_REPEAT_WINDOW_MS`. A completed turn with no assistant text — a
 compaction, a bare tool run — is dropped too; there is nothing to say.
+
+A turn that **fails within `INTERRUPT_GRACE_MS` of the user denying a permission with `interrupt`**
+is dropped as well. Claude reports that stop as a failed turn whose message is a diagnostic
+(`[ede_diagnostic] … stop_reason=tool_use`); the user caused it and does not need to hear about it. A
+plain deny lets the agent carry on, so a failure after one is real and is announced.
+
+A streamed reply reaches the `turn_ended` snapshot as several `assistant_message` items, often split
+mid-sentence. `latestOutputText` joins them at the seam — nothing when one side already has
+whitespace there, one space otherwise — rather than as paragraphs.
 
 ## What the store means
 

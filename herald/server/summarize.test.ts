@@ -39,6 +39,12 @@ describe("parseSummaryText", () => {
 
   it("finds JSON inside prose or fences, and falls back to the prose itself", () => {
     expect(parseSummaryText('```json\n{"speech": "Hello there."}\n```')).toBe("Hello there.");
+    // Seen from a live helper: the object fenced and under a key of the model's own choosing.
+    expect(parseSummaryText('```json\n{\n  "spoken": "Herald test finished. No changes needed."\n}\n```')).toBe(
+      "Herald test finished. No changes needed.",
+    );
+    expect(parseSummaryText('Here you go:\n{"speech": "Done.", "note": "x"}')).toBe("Done.");
+    expect(parseSummaryText("```\nJust prose in a fence.\n```")).toBe("Just prose in a fence.");
     expect(parseSummaryText("Login fix finished the work. Nothing is left.")).toBe(
       "Login fix finished the work.",
     );
