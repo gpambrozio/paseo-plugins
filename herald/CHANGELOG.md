@@ -19,5 +19,7 @@ pin and a line to read before you move.
   and the app plays, or in the browser's voice when the daemon is not a Mac. The desktop app speaks
   on its own; a browser tab speaks once you have pressed *Test voice*; phones can vibrate instead,
   since a plugin cannot yet speak there.
+- **A card in the agent's conversation.** The same sentence appears in the agent's own transcript,
+  right after the turn or question it is about, with a Play button to hear it again.
 - **Settings** for where to speak, which voice source and voice, how fast, which kinds of event to
   announce, and which model writes the summaries — Claude Haiku 4.5 unless you pick another.

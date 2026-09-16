@@ -3,6 +3,8 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 import { startAnnouncer } from "./client/announcer";
 import { HeraldSurface } from "./client/herald";
 import { HeraldSettingsScreen } from "./client/settings-screen";
+import { HeraldTimelineCard } from "./client/timeline-card";
+import { HERALD_CARD_KIND, HERALD_CARD_VERSION, HeraldCardSchema } from "./shared/timeline";
 
 export default function contribute(client: PluginClientContext) {
   // Runs for as long as this client is connected, panel open or not; it is
@@ -10,6 +12,14 @@ export default function contribute(client: PluginClientContext) {
   const announcer = startAnnouncer(client);
 
   client.addSurface("herald", HeraldSurface);
+  // Draws the rows `server/card.ts` appends. The kind/version pair has to
+  // match what the daemon wrote, which is why both sides import it.
+  client.addTimelineRenderer({
+    kind: HERALD_CARD_KIND,
+    version: HERALD_CARD_VERSION,
+    schema: HeraldCardSchema,
+    Component: HeraldTimelineCard,
+  });
   client.addSidebarItem({
     id: "herald",
     title: "Herald",

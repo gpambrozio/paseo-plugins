@@ -6,7 +6,8 @@ When an agent asks a question, pauses for permission, wants a plan approved, fin
 fails, Herald has a small helper agent write one spoken sentence about it — what is being asked and
 the choices, or what was done and whether anything is left — and the Paseo app on your desk speaks
 it. A **Herald** panel in the sidebar lists every agent waiting on you with that sentence, a button
-to open the session, and a button to hear it again.
+to open the session, and a button to hear it again. The sentence also appears as a card in the
+agent's own conversation, right after the turn or question it is about, with a Play button.
 
 ## What you need
 

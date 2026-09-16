@@ -28,6 +28,7 @@ import {
   type AttentionReason,
   type HeraldConfig,
 } from "../shared/herald";
+import { publishCard } from "./card";
 import type { AttentionStore } from "./store";
 import { HELPER_TITLE, type Summary, type SummaryRequest, type SummarizerDeps } from "./summarize";
 import { createWorkspaceTitleLookup, type WorkspaceTitleLookup } from "./workspaces";
@@ -45,6 +46,8 @@ export interface HookDeps {
   summarize: (request: SummaryRequest, deps: SummarizerDeps) => Promise<Summary>;
   /** The workspace's title, for naming the work; agents are usually untitled. */
   workspaceTitle?: WorkspaceTitleLookup;
+  /** Puts the summary card in the agent's transcript; once pending, again when the summary lands. */
+  publish?: (paseo: PaseoApi, entry: AttentionEntry) => Promise<void>;
   now?: () => Date;
   /** How many helpers may be writing at once; more agents than this wait their turn. */
   maxConcurrent?: number;
@@ -64,6 +67,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
   const now = deps.now ?? (() => new Date());
   const maxConcurrent = deps.maxConcurrent ?? 2;
   const workspaceTitle = deps.workspaceTitle ?? createWorkspaceTitleLookup();
+  const publish = deps.publish ?? publishCard;
   const helpers = new Set<string>();
   const recentTurns = new Map<string, number>();
   const interruptedAt = new Map<string, number>();
@@ -125,11 +129,14 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       detail,
     };
     if (!config.announce[announceKeyFor(reason)]) {
+      // Switched off: listed in the panel, no summary, no card in the transcript.
       deps.store.upsert({ ...base, summary: { status: "off", fallback: fallbackSpeech(base) } });
       return;
     }
-    deps.store.upsert({ ...base, summary: { status: "pending" } });
     const paseo: PaseoApi = context.paseo;
+    const pending: AttentionEntry = { ...base, summary: { status: "pending" } };
+    deps.store.upsert(pending);
+    void publish(paseo, pending);
     schedule(async () => {
       // The user may have answered while this waited in the queue.
       if (deps.store.get(agent.id)?.eventId !== eventId) return;
@@ -156,15 +163,20 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
             onHelperCreated: (helperId) => helpers.add(helperId),
           },
         );
-        deps.store.updateSummary(agent.id, eventId, { status: "ready", ...summary });
+        const ready: AttentionEntry = { ...base, summary: { status: "ready", ...summary } };
+        deps.store.updateSummary(agent.id, eventId, ready.summary);
+        // The card is history and belongs to this event, so it is completed
+        // even when the user has already moved on and the store refused.
+        void publish(paseo, ready);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[herald] summary for agent ${agent.id} failed: ${message}`);
-        deps.store.updateSummary(agent.id, eventId, {
-          status: "failed",
-          error: message,
-          fallback: fallbackSpeech(base),
-        });
+        const failed: AttentionEntry = {
+          ...base,
+          summary: { status: "failed", error: message, fallback: fallbackSpeech(base) },
+        };
+        deps.store.updateSummary(agent.id, eventId, failed.summary);
+        void publish(paseo, failed);
       }
     });
   }

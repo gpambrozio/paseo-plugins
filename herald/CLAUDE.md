@@ -16,6 +16,9 @@ compile time. This file covers only what is specific to `herald`.
 | `index.client.tsx`           | Wiring — starts the announcer, registers the surface, sidebar item, settings screen.   |
 | `shared/herald.ts`           | The `AttentionEntry` shape, the list RPC, and the daemon config document with defaults. |
 | `shared/settings.ts`         | The host settings document for *how* to speak; the app reads it, the daemon never does. |
+| `shared/timeline.ts`         | The summary card's `kind`/`version` and schema; a *runtime* import on both sides.        |
+| `server/card.ts`             | Appends the summary card to the agent's transcript, pending first, final under the same id. |
+| `client/timeline-card.tsx`   | Draws that card, with a Play button that speaks the sentence again.                     |
 | `server/hooks.ts`            | Lifecycle events → store entries; helper recognition; turn dedupe; the summary queue.  |
 | `server/summarize.ts`        | One helper agent per summary: prompt, structured output, cleanup on failure.           |
 | `server/store.ts`            | One entry per agent, mirrored to `attention.json`.                                     |
@@ -81,6 +84,21 @@ anywhere, including inside a word, with the whitespace inside the chunks. `lates
 concatenates them as they are — the first version added a space at every seam and produced "c utoff".
 The one exception is a sentence end followed by a capital letter, which is two messages from one turn
 (text before and after a tool call) and gets a space.
+
+## The summary card in the transcript
+
+Besides the panel, every announced event leaves a card in the agent's own transcript, appended by
+the daemon with `paseo.agents.ref(id).timeline.append`. It is appended as soon as the entry is
+recorded — so it lands right after the turn or the question it is about, showing "Writing the
+summary…" — and appended again under the same row id (`summary:<eventId>`) when the summary is ready
+or has failed; the daemon replaces the row live and on refetch. It is written for the event, not for
+the store: a summary that lands after the user has already moved on still completes its card, even
+though `updateSummary` refuses it. A kind switched off in the config gets no card.
+
+The Play button speaks the sentence through the same announcer as everything else, so it follows the
+engine and voice settings. Rows live in the daemon's memory — they survive scroll and reconnect, not
+a daemon restart — and a host that predates plugin timeline rows rejects the append, which
+`server/card.ts` reports once per distinct cause.
 
 ## The work is named by its workspace
 

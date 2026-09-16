@@ -8,7 +8,7 @@ import type {
 } from "@getpaseo/plugin/server";
 import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 
-import { DEFAULT_CONFIG, type HeraldConfig } from "../shared/herald";
+import { DEFAULT_CONFIG, type AttentionEntry, type HeraldConfig } from "../shared/herald";
 import { registerHooks, type HookDeps } from "./hooks";
 import { AttentionStore } from "./store";
 import { HELPER_TITLE, type Summary, type SummaryRequest, type SummarizerDeps } from "./summarize";
@@ -84,15 +84,17 @@ function setup(
       text: "Login fix asks which database to use: Postgres or SQLite.",
       model: "claude/claude-haiku-4-5",
     }));
+  const publish = vi.fn(async (_paseo: PaseoApi, _entry: AttentionEntry) => {});
   const { server, emit } = fakeServer();
   const cleanup = registerHooks(server, {
     store,
     readConfig: async () => config,
     workspaceTitle: async (workspaceId) => (workspaceId === "w1" ? "Shop" : null),
+    publish,
     ...overrides,
     summarize,
   });
-  return { store, summarize, emit, cleanup };
+  return { store, summarize, publish, emit, cleanup };
 }
 
 describe("registerHooks", () => {
@@ -129,6 +131,39 @@ describe("registerHooks", () => {
       output: "",
     });
     expect(deps).toMatchObject({ provider: "claude/claude-haiku-4-5", timeoutMs: 90_000 });
+  });
+
+  it("puts a card in the transcript when recorded and again when the summary lands", async () => {
+    let release: (summary: Summary) => void = () => {};
+    const { publish, emit } = setup({
+      summarize: vi.fn(
+        () =>
+          new Promise<Summary>((resolve) => {
+            release = resolve;
+          }),
+      ),
+    });
+    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    expect(publish.mock.calls.map((call) => call[1].summary.status)).toEqual(["pending"]);
+    release({ text: "Shop finished the login fix.", model: "m" });
+    await settle();
+    expect(publish.mock.calls.map((call) => call[1].summary.status)).toEqual(["pending", "ready"]);
+    expect(publish.mock.calls[1]?.[1]).toMatchObject({
+      eventId: "a1:turn:t1",
+      workspaceTitle: "Shop",
+      summary: { status: "ready", text: "Shop finished the login fix." },
+    });
+
+    const failing = setup({
+      summarize: vi.fn(async () => {
+        throw new Error("provider down");
+      }),
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await failing.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await settle();
+    errorSpy.mockRestore();
+    expect(failing.publish.mock.calls.map((call) => call[1].summary.status)).toEqual(["pending", "failed"]);
   });
 
   it("turns a finished turn into an entry and ignores a silent one", async () => {
@@ -230,7 +265,7 @@ describe("registerHooks", () => {
 
   it("records without summarising when the event kind is switched off", async () => {
     const config: HeraldConfig = { ...DEFAULT_CONFIG, announce: { ...DEFAULT_CONFIG.announce, finished: false } };
-    const { store, summarize, emit } = setup({}, config);
+    const { store, summarize, publish, emit } = setup({}, config);
     await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     expect(store.get("a1")?.summary).toEqual({
@@ -238,6 +273,7 @@ describe("registerHooks", () => {
       fallback: "Login fix finished. I fixed auth.ts and added a test.",
     });
     expect(summarize).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it("clears an entry when the agent moves on", async () => {
