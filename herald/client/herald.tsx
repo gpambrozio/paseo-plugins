@@ -455,8 +455,13 @@ export function HeraldSurface(props: PluginSurfaceProps) {
       const announcer = getAnnouncer();
       if (announcer === null) return;
       try {
-        if (row.entry !== null) await announcer.speakEntry(row.entry);
-        else await announcer.speakText(`${row.title?.trim() || workspaceNames[row.workspaceId ?? ""] || "An agent"} is waiting for you.`);
+        const blocked =
+          row.entry !== null
+            ? await announcer.speakEntry(row.entry)
+            : await announcer.speakText(
+                `${row.title?.trim() || workspaceNames[row.workspaceId ?? ""] || "An agent"} is waiting for you.`,
+              );
+        if (blocked !== null) toast.show(blocked, { variant: "info" });
       } catch (caught) {
         toast.error(errorText(caught));
       }
@@ -470,7 +475,7 @@ export function HeraldSurface(props: PluginSurfaceProps) {
       if (announcer === null) return;
       setTesting(true);
       try {
-        await announcer.speakText(TEST_SENTENCE);
+        await announcer.speakText(TEST_SENTENCE, { force: true });
       } catch (caught) {
         toast.error(errorText(caught));
       } finally {

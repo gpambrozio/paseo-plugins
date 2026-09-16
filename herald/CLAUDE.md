@@ -195,12 +195,14 @@ the press itself, which unlocks both engines. `playAudio` then reuses that one e
 WebKit unlocks the element rather than the page. This is what makes "tap Test voice once" work; take
 it out and browser announcements never start.
 
-**A control the user pressed obeys no switch; an announcement obeys them all.** `allowedHere()` gates
-the poll's deliveries against the master switch, *Mute here*, and the platform switches. The panel
-speaker, the transcript Play and *Test voice* skip it, because pressing one *is* the request and a
-button that silently does nothing has no other feedback. *Test voice* must skip it in particular:
-gating it would make it useless exactly when it is needed, since its other job is to hand the browser
-the gesture above.
+**The switches mean what they say, and a blocked press says so.** `blockedMessage()` is the single
+gate — *Mute here*, the master switch, then the platform switch — and it returns the reason rather
+than a boolean. The poll drops a blocked announcement silently; the panel speaker and the transcript
+Play hand the reason to a toast, because a control that merely did nothing could not explain itself.
+
+*Test voice* is the one exception, and passes `{ force: true }`. It is how the voice is checked while
+announcements are off, and on the web it is the press that hands the browser its audio permission —
+gating it would disable it exactly when someone is trying to get sound working.
 
 **Every play control is hidden where `canPlaySpeech()` is false**, rather than shown and failing when
 pressed: the panel row's speaker, the transcript card's play icon, and the panel header's *Mute here*

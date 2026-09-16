@@ -94,7 +94,8 @@ export function HeraldTimelineCard({ theme, layout, item }: PluginTimelineItemPr
       if (announcer === null || text === null) return;
       setSpeaking(true);
       try {
-        await announcer.speakText(text);
+        const blocked = await announcer.speakText(text);
+        if (blocked !== null) toast.show(blocked, { variant: "info" });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error));
       } finally {

@@ -134,7 +134,10 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
       if (announcer === null) return;
       setTesting(true);
       try {
-        await announcer.speakText("This is Herald. Your agents will be announced like this.");
+        // Forced: this is where the voice is chosen, so it has to speak even
+        // with announcements off, and on the web it is the press that hands
+        // the browser its audio permission.
+        await announcer.speakText("This is Herald. Your agents will be announced like this.", { force: true });
       } catch (caught) {
         toast.error(errorText(caught));
       } finally {

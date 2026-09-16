@@ -75,9 +75,18 @@ export interface Announcer {
   /** Poll now rather than at the next tick. */
   poke(): void;
   readSettings(): Promise<SpeechSettings>;
-  /** Speak (or vibrate for) one entry regardless of whether it was announced before. */
-  speakEntry(entry: AttentionEntry): Promise<void>;
-  speakText(text: string): Promise<void>;
+  /**
+   * Say one entry again, announced before or not. Resolves to null once it has
+   * played, or to the reason this device stayed quiet, for the caller to show.
+   */
+  speakEntry(entry: AttentionEntry): Promise<string | null>;
+  /**
+   * `force` skips the switches, for *Test voice* alone: it is how the voice is
+   * checked while announcements are off, and on the web it is the press that
+   * hands the browser its audio permission. Gating it would disable it exactly
+   * when someone is trying to get sound working.
+   */
+  speakText(text: string, options?: { force?: boolean }): Promise<string | null>;
 }
 
 let active: Announcer | null = null;
@@ -117,15 +126,22 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
     return mirroredSettings ?? DEFAULT_SPEECH;
   }
 
-  function allowedHere(settings: SpeechSettings): boolean {
-    if (!settings.enabled || mutedHere) return false;
+  /**
+   * Why this device stays quiet, or null when it may speak. One function for
+   * both callers: the poll drops a blocked announcement silently, a pressed
+   * control shows the reason. A switch the user set has to mean what it says,
+   * and a control that simply did nothing would have no way to explain itself.
+   */
+  function blockedMessage(settings: SpeechSettings): string | null {
+    if (mutedHere) return "Herald is muted on this device. Unmute it from the Herald panel.";
+    if (!settings.enabled) return "Announcements are off in Settings › Plugins › Herald.";
     switch (speechPlatform()) {
       case "desktop":
-        return settings.speakOnDesktop;
+        return settings.speakOnDesktop ? null : "Speaking on the desktop app is off in Herald settings.";
       case "browser":
-        return settings.speakInBrowser;
+        return settings.speakInBrowser ? null : "Speaking in a browser tab is off in Herald settings.";
       case "mobile":
-        return settings.vibrateOnMobile;
+        return settings.vibrateOnMobile ? null : "Vibrating on phones is off in Herald settings.";
     }
   }
 
@@ -179,7 +195,7 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
     for (const entry of ordered) {
       spoken.add(entry.eventId);
       const text = speechText(entry);
-      if (text !== null && allowedHere(settings)) await deliver(text, settings);
+      if (text !== null && blockedMessage(settings) === null) await deliver(text, settings);
     }
   }
 
@@ -247,12 +263,20 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
      */
     async speakEntry(entry) {
       primeSpeech();
+      const settings = await readSettings();
+      const blocked = blockedMessage(settings);
+      if (blocked !== null) return blocked;
       const text = speechText(entry) ?? `${entry.agentTitle ?? "An agent"}: ${entry.headline}`;
-      await deliver(text, await readSettings());
+      await deliver(text, settings);
+      return null;
     },
-    async speakText(text) {
+    async speakText(text, options) {
       primeSpeech();
-      await deliver(text, await readSettings());
+      const settings = await readSettings();
+      const blocked = options?.force === true ? null : blockedMessage(settings);
+      if (blocked !== null) return blocked;
+      await deliver(text, settings);
+      return null;
     },
   };
   active = announcer;
