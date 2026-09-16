@@ -1,0 +1,561 @@
+/**
+ * The surface: every agent waiting on the user, each with the sentence Herald
+ * wrote for it, a button to open the session, and a button to hear it again.
+ *
+ * Two sources, joined by agent id. Paseo's own attention flag decides who is
+ * listed — it is what the sidebar badges already follow — and Herald's entries
+ * explain why, in a sentence. An agent Paseo flags that Herald has no entry
+ * for (an event before the plugin loaded, say) is still listed, with what Paseo
+ * knows about the reason.
+ *
+ * Async **function expressions**, never async arrows, anywhere in this file:
+ * the app `eval`s the client bundle, and Hermes's eval compiler on iOS and
+ * Android evaluates an async arrow to `undefined`. Same reason every closure
+ * over a list element goes through `.map`, never a `for…of` body.
+ */
+import { type PluginSurfaceProps, usePaseo, useRpc, useWorkspace } from "@getpaseo/plugin/client";
+import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
+
+import { listAttention, type AttentionEntry, type AttentionReason } from "../shared/herald";
+import { getAnnouncer, isMutedHere, setMutedHere, speechText } from "./announcer";
+import { canSpeak, speechPlatform } from "./web";
+
+/** A row's reason: one of Herald's, or "attention" when only Paseo's flag is known. */
+type RowReason = AttentionReason | "attention";
+
+interface Row {
+  agentId: string;
+  title: string | null;
+  workspaceId: string | null;
+  cwd: string;
+  reason: RowReason;
+  /** ISO time the row sorts by: the event, or when Paseo flagged the agent. */
+  at: string;
+  entry: AttentionEntry | null;
+}
+
+/** The fields this surface reads off a Paseo agent snapshot. */
+interface FlaggedAgent {
+  id: string;
+  title: string | null;
+  workspaceId: string | null;
+  cwd: string;
+  attentionReason: "finished" | "error" | "permission" | null;
+  at: string;
+}
+
+/**
+ * Module-scope cache, because the surface is unmounted whenever the user
+ * navigates to an agent — which the Open button does — and mounted fresh on
+ * the way back. The list repaints before the first load answers.
+ */
+let cachedRows: Row[] | null = null;
+
+const IDLE_REFRESH_MS = 10_000;
+const BUSY_REFRESH_MS = 2_500;
+const TEST_SENTENCE = "This is Herald. Your agents will be announced like this.";
+
+function withAlpha(color: string, alpha: string): string {
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}${alpha}` : color;
+}
+
+function relativeTime(iso: string): string {
+  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (!Number.isFinite(seconds)) return "";
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+}
+
+function basename(path: string): string {
+  const parts = path.split("/").filter((part) => part !== "");
+  return parts[parts.length - 1] ?? path;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+interface ReasonLook {
+  icon: string;
+  label: string;
+  tone: "accent" | "success" | "warning" | "danger" | "muted";
+}
+
+function lookOf(reason: RowReason): ReasonLook {
+  switch (reason) {
+    case "question":
+      return { icon: "MessageCircle", label: "Question", tone: "accent" };
+    case "plan":
+      return { icon: "ClipboardList", label: "Plan to approve", tone: "accent" };
+    case "permission":
+      return { icon: "Shield", label: "Permission", tone: "warning" };
+    case "finished":
+      return { icon: "Check", label: "Finished", tone: "success" };
+    case "error":
+      return { icon: "X", label: "Error", tone: "danger" };
+    case "canceled":
+      return { icon: "Ban", label: "Interrupted", tone: "muted" };
+    case "attention":
+      return { icon: "Megaphone", label: "Needs you", tone: "accent" };
+  }
+}
+
+function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[]): Row[] {
+  const byAgent = new Map<string, Row>();
+  entries.forEach((entry) => {
+    byAgent.set(entry.agentId, {
+      agentId: entry.agentId,
+      title: entry.agentTitle,
+      workspaceId: entry.workspaceId,
+      cwd: entry.cwd,
+      reason: entry.reason,
+      at: entry.createdAt,
+      entry,
+    });
+  });
+  flagged.forEach((agent) => {
+    if (byAgent.has(agent.id)) return;
+    byAgent.set(agent.id, {
+      agentId: agent.id,
+      title: agent.title,
+      workspaceId: agent.workspaceId,
+      cwd: agent.cwd,
+      reason: agent.attentionReason ?? "attention",
+      at: agent.at,
+      entry: null,
+    });
+  });
+  return [...byAgent.values()].sort((a, b) => b.at.localeCompare(a.at));
+}
+
+// ---------------------------------------------------------------------------
+// Styles
+
+function useStyles({ theme, layout }: PluginSurfaceProps) {
+  return useMemo(() => {
+    const { colors } = theme;
+    const separator = withAlpha(colors.foregroundMuted, "33");
+    const pad = layout.compact ? 12 : 16;
+    return {
+      screen: { flex: 1, backgroundColor: colors.surface0 },
+      header: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 8,
+        paddingHorizontal: pad,
+        paddingVertical: layout.compact ? 10 : 12,
+        borderBottomWidth: 1,
+        borderBottomColor: separator,
+      },
+      title: { color: colors.foreground, fontSize: layout.compact ? 17 : 19, fontWeight: "600" as const },
+      count: {
+        color: colors.accentForeground,
+        backgroundColor: colors.accent,
+        borderRadius: 10,
+        paddingHorizontal: 7,
+        paddingVertical: 1,
+        fontSize: 12,
+        fontWeight: "600" as const,
+      },
+      spacer: { flex: 1 },
+      toolButton: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: separator,
+      },
+      toolButtonText: { color: colors.foreground, fontSize: 13 },
+      hint: {
+        color: colors.foregroundMuted,
+        fontSize: 12,
+        paddingHorizontal: pad,
+        paddingTop: 8,
+        lineHeight: 17,
+      },
+      banner: {
+        marginHorizontal: pad,
+        marginTop: 10,
+        padding: 10,
+        borderRadius: 8,
+        backgroundColor: withAlpha(colors.statusDanger, "22"),
+      },
+      bannerText: { color: colors.statusDanger, fontSize: 13 },
+      list: { padding: pad, gap: 10 },
+      empty: { padding: pad * 2, alignItems: "center" as const, gap: 8 },
+      emptyTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" as const },
+      emptyText: { color: colors.foregroundMuted, fontSize: 13, textAlign: "center" as const },
+      card: {
+        backgroundColor: colors.surface1,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: separator,
+        padding: layout.compact ? 12 : 14,
+        gap: 8,
+      },
+      cardTop: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+      cardTitle: { color: colors.foreground, fontSize: 15, fontWeight: "600" as const, flexShrink: 1 },
+      cardMeta: { color: colors.foregroundMuted, fontSize: 12 },
+      reasonPill: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 4,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 999,
+      },
+      reasonText: { fontSize: 12, fontWeight: "600" as const },
+      headline: { color: colors.foreground, fontSize: 14, lineHeight: 20 },
+      detail: { color: colors.foregroundMuted, fontSize: 13, lineHeight: 18 },
+      summary: { color: colors.foreground, fontSize: 14, lineHeight: 20, fontStyle: "italic" as const },
+      summaryMuted: { color: colors.foregroundMuted, fontSize: 14, lineHeight: 20, fontStyle: "italic" as const },
+      pending: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+      pendingText: { color: colors.foregroundMuted, fontSize: 13 },
+      actions: { flexDirection: "row" as const, gap: 8, flexWrap: "wrap" as const },
+      primaryButton: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        borderRadius: 8,
+        backgroundColor: colors.accent,
+      },
+      primaryButtonText: { color: colors.accentForeground, fontSize: 13, fontWeight: "600" as const },
+      secondaryButton: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: separator,
+      },
+      secondaryButtonText: { color: colors.foreground, fontSize: 13 },
+    };
+  }, [theme, layout.compact]);
+}
+
+type Styles = ReturnType<typeof useStyles>;
+
+function toneColor(theme: PluginSurfaceProps["theme"], tone: ReasonLook["tone"]): string {
+  const { colors } = theme;
+  switch (tone) {
+    case "accent":
+      return colors.accent;
+    case "success":
+      return colors.statusSuccess;
+    case "warning":
+      return colors.statusWarning;
+    case "danger":
+      return colors.statusDanger;
+    case "muted":
+      return colors.foregroundMuted;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rows
+
+function WorkspaceName({ workspaceId, style }: { workspaceId: string; style: Styles["cardMeta"] }) {
+  const name = useWorkspace(workspaceId, (workspace) => workspace.name);
+  if (name === null) return null;
+  return <Text style={style}>{name}</Text>;
+}
+
+interface RowCardProps {
+  row: Row;
+  props: PluginSurfaceProps;
+  styles: Styles;
+  onOpen: ((agentId: string) => void) | null;
+  onSpeak: (row: Row) => void;
+}
+
+function RowCard({ row, props, styles, onOpen, onSpeak }: RowCardProps) {
+  const look = lookOf(row.reason);
+  const color = toneColor(props.theme, look.tone);
+  const muted = props.theme.colors.foregroundMuted;
+  const entry = row.entry;
+  const title = row.title?.trim() || "Untitled agent";
+  const spoken = entry === null ? null : speechText(entry);
+
+  let summaryNode: ReactElement | null;
+  if (entry === null) {
+    summaryNode = null;
+  } else if (entry.summary.status === "pending") {
+    summaryNode = (
+      <View style={styles.pending}>
+        <ActivityIndicator size="small" color={muted} />
+        <Text style={styles.pendingText}>Writing the summary…</Text>
+      </View>
+    );
+  } else if (entry.summary.status === "ready") {
+    summaryNode = <Text style={styles.summary}>{entry.summary.text}</Text>;
+  } else if (entry.summary.status === "failed") {
+    summaryNode = (
+      <View style={{ gap: 2 }}>
+        <Text style={styles.summaryMuted}>{entry.summary.fallback}</Text>
+        <Text style={styles.cardMeta}>Summary failed: {entry.summary.error}</Text>
+      </View>
+    );
+  } else {
+    summaryNode = <Text style={styles.cardMeta}>Not announced: this kind of event is switched off in settings.</Text>;
+  }
+
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardTop}>
+        <View style={[styles.reasonPill, { backgroundColor: withAlpha(color, "22") }]}>
+          <Icon name={look.icon} size={13} color={color} />
+          <Text style={[styles.reasonText, { color }]}>{look.label}</Text>
+        </View>
+        <Text style={styles.cardTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        <View style={styles.spacer} />
+        <Text style={styles.cardMeta}>{relativeTime(row.at)}</Text>
+      </View>
+      <View style={{ flexDirection: "row", gap: 6 }}>
+        {row.workspaceId === null ? (
+          <Text style={styles.cardMeta}>{basename(row.cwd)}</Text>
+        ) : (
+          <WorkspaceName workspaceId={row.workspaceId} style={styles.cardMeta} />
+        )}
+      </View>
+      {entry === null ? (
+        <Text style={styles.headline}>{look.label === "Needs you" ? "Waiting for you." : `${look.label}.`}</Text>
+      ) : (
+        <View style={{ gap: 2 }}>
+          <Text style={styles.headline}>{entry.headline}</Text>
+          {entry.detail === null ? null : (
+            <Text style={styles.detail} numberOfLines={4}>
+              {entry.detail}
+            </Text>
+          )}
+        </View>
+      )}
+      {summaryNode}
+      <View style={styles.actions}>
+        {onOpen === null ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${title}`}
+            onPress={() => onOpen(row.agentId)}
+            style={styles.primaryButton}
+          >
+            <Icon name="ArrowUpRight" size={14} color={props.theme.colors.accentForeground} />
+            <Text style={styles.primaryButtonText}>Open</Text>
+          </Pressable>
+        )}
+        {spoken === null && entry !== null ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Speak the summary for ${title}`}
+            onPress={() => onSpeak(row)}
+            style={styles.secondaryButton}
+          >
+            <Icon name="Volume2" size={14} color={props.theme.colors.foreground} />
+            <Text style={styles.secondaryButtonText}>Speak</Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Surface
+
+export function HeraldSurface(props: PluginSurfaceProps) {
+  const styles = useStyles(props);
+  const paseo = usePaseo();
+  const list = useRpc(listAttention);
+  const toast = useToast();
+
+  const [rows, setRows] = useState<Row[] | null>(cachedRows);
+  const [error, setError] = useState<string | null>(null);
+  const [muted, setMuted] = useState(isMutedHere());
+  const [testing, setTesting] = useState(false);
+  const busyRef = useRef(false);
+
+  const refresh = useCallback(
+    async function refresh() {
+      if (busyRef.current) return;
+      busyRef.current = true;
+      try {
+        const [attention, flagged] = await Promise.all([
+          list({}),
+          paseo.agents.list({ filter: { requiresAttention: true }, page: { limit: 100 } }),
+        ]);
+        const agents: FlaggedAgent[] = flagged.entries.map((item) => ({
+          id: item.agent.id,
+          title: item.agent.title ?? null,
+          workspaceId: item.agent.workspaceId ?? null,
+          cwd: item.agent.cwd,
+          attentionReason: item.agent.attentionReason ?? null,
+          at: item.agent.attentionTimestamp ?? item.agent.updatedAt,
+        }));
+        const next = joinRows(attention.entries, agents);
+        cachedRows = next;
+        setRows(next);
+        setError(null);
+      } catch (caught) {
+        setError(errorText(caught));
+      } finally {
+        busyRef.current = false;
+      }
+    },
+    [list, paseo],
+  );
+
+  // A poll, quickened while a summary is being written, plus a nudge from
+  // Paseo's own agent stream so a new arrival shows within a moment.
+  const pending = rows?.some((row) => row.entry?.summary.status === "pending") ?? false;
+  useEffect(() => {
+    void refresh();
+    const timer = setInterval(() => void refresh(), pending ? BUSY_REFRESH_MS : IDLE_REFRESH_MS);
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = paseo.agents.subscribe(() => {
+      if (debounce !== null) clearTimeout(debounce);
+      debounce = setTimeout(() => void refresh(), 400);
+    });
+    return () => {
+      clearInterval(timer);
+      if (debounce !== null) clearTimeout(debounce);
+      unsubscribe();
+    };
+  }, [refresh, pending, paseo]);
+
+  const openAgent = props.navigation?.openAgent;
+  const onOpen = useMemo(
+    () => (openAgent === undefined ? null : (agentId: string) => openAgent({ agentId })),
+    [openAgent],
+  );
+
+  const onSpeak = useCallback(
+    async function onSpeak(row: Row) {
+      const announcer = getAnnouncer();
+      if (announcer === null) return;
+      try {
+        if (row.entry !== null) await announcer.speakEntry(row.entry);
+        else await announcer.speakText(`${row.title ?? "An agent"} is waiting for you.`);
+      } catch (caught) {
+        toast.error(errorText(caught));
+      }
+    },
+    [toast],
+  );
+
+  const onTest = useCallback(
+    async function onTest() {
+      const announcer = getAnnouncer();
+      if (announcer === null) return;
+      setTesting(true);
+      try {
+        await announcer.speakText(TEST_SENTENCE);
+      } catch (caught) {
+        toast.error(errorText(caught));
+      } finally {
+        setTesting(false);
+      }
+    },
+    [toast],
+  );
+
+  const toggleMute = useCallback(() => {
+    const next = !isMutedHere();
+    setMutedHere(next);
+    setMuted(next);
+  }, []);
+
+  const platform = speechPlatform();
+  let hint: string | null = null;
+  if (platform === "mobile") {
+    hint = "Phones cannot speak from a plugin yet. Herald vibrates instead when that is switched on in Settings › Plugins › Herald.";
+  } else if (!canSpeak()) {
+    hint = "This browser has no speech synthesis, so summaries can only be read here.";
+  } else if (platform === "browser") {
+    hint = "In a browser tab, tap Test voice once so the page is allowed to speak.";
+  }
+
+  const foreground = props.theme.colors.foreground;
+  const count = rows?.length ?? 0;
+
+  return (
+    <View style={styles.screen}>
+      <View style={styles.header}>
+        <Icon name="Megaphone" size={18} color={foreground} />
+        <Text style={styles.title}>Herald</Text>
+        {count > 0 ? <Text style={styles.count}>{count}</Text> : null}
+        <View style={styles.spacer} />
+        {platform === "mobile" ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={muted ? "Unmute on this device" : "Mute on this device"}
+            onPress={toggleMute}
+            style={styles.toolButton}
+          >
+            <Icon name={muted ? "VolumeX" : "Volume2"} size={14} color={foreground} />
+            {props.layout.compact ? null : (
+              <Text style={styles.toolButtonText}>{muted ? "Muted here" : "Mute here"}</Text>
+            )}
+          </Pressable>
+        )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Test voice"
+          onPress={() => void onTest()}
+          disabled={testing}
+          style={styles.toolButton}
+        >
+          <Icon name="Play" size={14} color={foreground} />
+          {props.layout.compact ? null : <Text style={styles.toolButtonText}>Test voice</Text>}
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Refresh"
+          onPress={() => void refresh()}
+          style={styles.toolButton}
+        >
+          <Icon name="RefreshCw" size={14} color={foreground} />
+        </Pressable>
+      </View>
+      {hint === null ? null : <Text style={styles.hint}>{hint}</Text>}
+      {error === null ? null : (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>{error}</Text>
+        </View>
+      )}
+      <ScrollView contentContainerStyle={styles.list}>
+        {rows === null ? (
+          <View style={styles.empty}>
+            <ActivityIndicator color={props.theme.colors.foregroundMuted} />
+          </View>
+        ) : rows.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>Nothing needs you right now</Text>
+            <Text style={styles.emptyText}>
+              When an agent asks a question, pauses for permission, or finishes, it shows up here with a
+              one-sentence summary.
+            </Text>
+          </View>
+        ) : (
+          rows.map((row) => (
+            <RowCard key={row.agentId} row={row} props={props} styles={styles} onOpen={onOpen} onSpeak={onSpeak} />
+          ))
+        )}
+      </ScrollView>
+    </View>
+  );
+}

@@ -1,0 +1,119 @@
+# CLAUDE.md
+
+A Paseo plugin that adds a **Herald** sidebar surface: every agent waiting on the user, each with a
+one-sentence summary written by a short-lived helper agent, and speaks that sentence on the device
+running the app when the event happens.
+
+The repo root `CLAUDE.md` covers what every plugin here shares: the per-folder npm layout, the
+typecheck/reload loop, the client/server bundle split, and the constraints nothing catches at
+compile time. This file covers only what is specific to `herald`.
+
+## Orientation
+
+| File                         | What it owns                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------- |
+| `index.server.ts`            | Wiring — three RPCs, the speech settings document, the hooks, the store's file.        |
+| `index.client.tsx`           | Wiring — starts the announcer, registers the surface, sidebar item, settings screen.   |
+| `shared/herald.ts`           | The `AttentionEntry` shape, the list RPC, and the daemon config document with defaults. |
+| `shared/settings.ts`         | The host settings document for *how* to speak; the app reads it, the daemon never does. |
+| `server/hooks.ts`            | Lifecycle events → store entries; helper recognition; turn dedupe; the summary queue.  |
+| `server/summarize.ts`        | One helper agent per summary: prompt, structured output, cleanup on failure.           |
+| `server/store.ts`            | One entry per agent, mirrored to `attention.json`.                                     |
+| `server/timeline.ts`         | Pure text: what an agent said, what a permission asks, the no-model fallback sentence. |
+| `server/config.ts`           | `$PASEO_HOME/plugins/herald/config.json`, read on every event.                          |
+| `client/announcer.ts`        | The poll-and-speak loop that runs while the app is open, panel or no panel.            |
+| `client/herald.tsx`          | The surface: Paseo's attention list joined with Herald's entries.                      |
+| `client/settings-screen.tsx` | Settings › Plugins › Herald: speech (host document) and summaries (daemon RPCs).       |
+| `client/web.ts`              | Every browser global: the Web Speech API, the desktop-shell check, the vibration no-op. |
+| `server/*.test.ts`           | The tests. `npm test`.                                                                 |
+
+## The hooks have 30 seconds and the summary does not fit
+
+Paseo aborts a hook's signal after 30 seconds and logs an error. A summary is a full agent turn and
+can take longer, so `server/hooks.ts` never awaits one: the handler writes a `pending` entry and
+returns, and the summary lands later through `AttentionStore.updateSummary`. That update is keyed by
+`eventId` and refused when the agent has moved on to a newer event, which is what keeps a slow helper
+from overwriting a fresher entry.
+
+`schedule` caps how many helpers run at once (two). A burst of agents finishing together queues
+rather than spawning a helper per agent.
+
+## The helper is visible and fires our own hooks
+
+The SDK's create-agent request has no `internal` flag, so the summariser is an ordinary agent. It is
+created with `parent` set to the agent it describes (so it shows in that agent's subagent track, not
+as a tab) and `autoArchive: true` (so the daemon archives it after its one turn). It still triggers
+`agent.created`, `agent.turn_started` and `agent.turn_ended` on this plugin.
+
+Two things identify it, and `isHelper` accepts either: the id `summarize` reports through
+`onHelperCreated`, and the title `HELPER_TITLE`. The title matters because `agent.created` can fire
+before `create()` resolves, and because the id set is lost on a plugin reload while a helper from
+the old process may still be finishing. **Do not rename the title without checking both sides.**
+
+`autoArchive` fires only on a finished turn. A helper that timed out or asked for a permission is
+archived by hand in `summarize`, otherwise it sits in the subagent track forever.
+
+## `turn_ended` can repeat
+
+The reference says a turn id can repeat after a session reopens, and the community `top` plugin has
+seen the event fire twice for one turn. `isRepeatTurn` drops a second event for the same
+`agentId:turnId` inside `TURN_REPEAT_WINDOW_MS`. A completed turn with no assistant text — a
+compaction, a bare tool run — is dropped too; there is nothing to say.
+
+## What the store means
+
+One entry per agent, the most recent reason it is waiting. Entries are removed when the hooks see the
+agent move on: `turn_started` (the user replied), `permission_resolved` for the entry's request,
+`archived`. They are *not* removed when the user merely looks at the agent — Paseo's
+`requiresAttention` flag handles that, and the panel lists the union of Paseo's flagged agents and
+Herald's entries, joined by agent id. Herald explains; Paseo decides who is listed.
+
+`attention.json` mirrors the map so a plugin reload keeps the sentences already written. A summary
+still `pending` at load is marked `failed` with the fallback, because its helper died with the old
+process.
+
+## Speech happens on the client, and only on two of three platforms
+
+Plugin client code has no audio module: not from the host's module list, not from React Native core.
+The only voice is the Web Speech API in `client/web.ts`.
+
+- **Desktop (Electron)** speaks unprompted. Electron's autoplay policy defaults to no gesture
+  required and Paseo does not override it.
+- **Browser tab** speaks only after the page has been tapped once. Chromium and WebKit drop `speak()`
+  without user activation *and fire no event*, which is why `speak` also resolves on a guard timer —
+  a queue waiting on `onend` would otherwise stall. The panel's **Test voice** button is the tap.
+- **iOS / Android** cannot speak. `Vibration.vibrate()` is the most plugin code can do, behind a
+  switch that is off by default. Paseo's own push notifications carry the text there.
+
+Paseo's daemon has a text-to-speech pipeline of its own (`TTSManager`, behind voice mode) that the
+app plays on every platform, but nothing in the 0.8 plugin API reaches it. If mobile speech is ever
+wanted, that is the upstream request.
+
+## Two settings stores, and why
+
+Speech settings (`shared/settings.ts`) are a host document: every client of the daemon reads the same
+one, and each acts only on its own platform switch. That is how "speak on the Mac, not in the browser
+on the laptop" is said without per-device storage, which the SDK does not have. "Mute here" in the
+panel is module scope for the same reason — this device, until the app restarts.
+
+The announcer reads that document outside any component through `client.rpc(settingsRpc(...).read)`,
+the same contract `useSettings` is built on. **Verify this against a live app after a host upgrade**:
+if the host stopped routing `settings.*` through `rpc`, the announcer logs one warning and falls back
+to the values a mounted screen last mirrored, or to the defaults.
+
+The daemon config (`shared/herald.ts`) is what the hooks act on — which events to summarise, which
+model — so it is the daemon's file behind `herald.config.read` / `herald.config.write`.
+
+## Checking it
+
+`npm test` covers everything that does not need a daemon: text extraction, the fallback sentences,
+the store, the summariser against a fake SDK, and the hooks against a fake server. What it cannot
+cover, check by hand after `paseo plugin reload herald`:
+
+1. Ask a running agent something that makes it call AskUserQuestion, or let one finish a turn. Within
+   a few seconds the panel shows the entry with "Writing the summary…", then the sentence, and the
+   desktop app speaks it. `paseo plugin logs herald` shows any summary failure.
+2. Open the agent from the panel; the row disappears once you reply.
+3. In a browser tab, nothing is spoken until **Test voice** has been pressed once.
+4. Switch a kind off in Settings › Plugins › Herald and trigger it: the row appears with "Not
+   announced" and no helper is created.

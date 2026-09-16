@@ -1,0 +1,132 @@
+import { describe, expect, it, vi } from "vitest";
+import type { PaseoAgentHandle, PaseoApi } from "@getpaseo/client";
+
+import { HELPER_TITLE, buildPrompt, parseSummaryText, summarize, type SummaryRequest } from "./summarize";
+
+const request: SummaryRequest = {
+  agent: { id: "a1", workspaceId: "w1", cwd: "/Users/me/repo", title: "Login fix" },
+  reason: "finished",
+  headline: "Finished",
+  detail: "I fixed it.",
+  output: "I fixed **auth.ts**. ".repeat(3),
+  lastUser: "Fix the login bug",
+};
+
+describe("buildPrompt", () => {
+  it("names the agent, the event, and what was said", () => {
+    const prompt = buildPrompt(request);
+    expect(prompt).toContain('Agent: "Login fix", working in repo.');
+    expect(prompt).toContain("Event: The agent finished its turn");
+    expect(prompt).toContain("Detail: I fixed it.");
+    expect(prompt).toContain("What the user last asked for:\nFix the login bug");
+    expect(prompt).toContain("What the agent said:\nI fixed **auth.ts**.");
+    expect(prompt).toContain("Start with the agent's name.");
+  });
+
+  it("clips a long final message and skips empty sections", () => {
+    const prompt = buildPrompt({ ...request, output: "x".repeat(7000), lastUser: null, detail: null, agent: { ...request.agent, title: null } });
+    expect(prompt).toContain("[…truncated]");
+    expect(prompt).not.toContain("What the user last asked for");
+    expect(prompt).not.toContain("Detail:");
+    expect(prompt).toContain('Agent: "an agent"');
+  });
+});
+
+describe("parseSummaryText", () => {
+  it("reads the structured output and strips markdown", () => {
+    expect(parseSummaryText('{"speech":"Login fix is **done**."}')).toBe("Login fix is done.");
+  });
+
+  it("finds JSON inside prose or fences, and falls back to the prose itself", () => {
+    expect(parseSummaryText('```json\n{"speech": "Hello there."}\n```')).toBe("Hello there.");
+    expect(parseSummaryText("Login fix finished the work. Nothing is left.")).toBe(
+      "Login fix finished the work.",
+    );
+    expect(() => parseSummaryText("   ")).toThrow("returned nothing");
+    expect(() => parseSummaryText(null)).toThrow("returned nothing");
+  });
+});
+
+interface FakeHelper {
+  handle: PaseoAgentHandle;
+  archive: ReturnType<typeof vi.fn>;
+  respondToPermission: ReturnType<typeof vi.fn>;
+}
+
+function fakePaseo(finish: unknown): { paseo: PaseoApi; create: ReturnType<typeof vi.fn>; helper: FakeHelper } {
+  const archive = vi.fn(async () => ({ archivedAt: "now" }));
+  const respondToPermission = vi.fn(async () => {});
+  const handle = {
+    id: "h1",
+    waitForFinish: vi.fn(async () => finish),
+    archive,
+    respondToPermission,
+  } as unknown as PaseoAgentHandle;
+  const create = vi.fn(async () => handle);
+  const paseo = { workspaces: { ref: () => ({ agents: { create } }) } } as unknown as PaseoApi;
+  return { paseo, create, helper: { handle, archive, respondToPermission } };
+}
+
+describe("summarize", () => {
+  it("creates a delegated, auto-archived helper and returns its sentence", async () => {
+    const { paseo, create, helper } = fakePaseo({
+      status: "idle",
+      final: null,
+      error: null,
+      lastMessage: '{"speech":"Login fix is done."}',
+    });
+    const seen: string[] = [];
+    const summary = await summarize(request, {
+      paseo,
+      provider: "claude/claude-haiku-4-5",
+      timeoutMs: 1000,
+      onHelperCreated: (id) => seen.push(id),
+    });
+    expect(summary).toEqual({ text: "Login fix is done.", model: "claude/claude-haiku-4-5" });
+    expect(seen).toEqual(["h1"]);
+    const options = create.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(options).toMatchObject({
+      config: { provider: "claude/claude-haiku-4-5" },
+      parent: "a1",
+      title: HELPER_TITLE,
+      autoArchive: true,
+      labels: { "herald.role": "summarizer" },
+    });
+    expect(options.outputSchema).toMatchObject({ required: ["speech"] });
+    expect(typeof options.prompt).toBe("string");
+    expect(helper.archive).not.toHaveBeenCalled();
+  });
+
+  it("denies a helper that asks for a tool, archives it, and fails", async () => {
+    const { paseo, helper } = fakePaseo({
+      status: "permission",
+      final: { pendingPermissions: [{ id: "p9" }] },
+      error: null,
+      lastMessage: null,
+    });
+    await expect(summarize(request, { paseo, provider: "p/m", timeoutMs: 1000 })).rejects.toThrow(
+      "tried to use a tool",
+    );
+    expect(helper.respondToPermission).toHaveBeenCalledWith({
+      requestId: "p9",
+      response: { behavior: "deny", message: "Herald summaries must not use tools.", interrupt: true },
+    });
+    expect(helper.archive).toHaveBeenCalled();
+  });
+
+  it("archives a helper that timed out or errored", async () => {
+    const { paseo, helper } = fakePaseo({ status: "timeout", final: null, error: null, lastMessage: null });
+    await expect(summarize(request, { paseo, provider: "p/m", timeoutMs: 1000 })).rejects.toThrow(
+      "status timeout",
+    );
+    expect(helper.archive).toHaveBeenCalled();
+  });
+
+  it("refuses an agent without a workspace", async () => {
+    const { paseo, create } = fakePaseo(null);
+    await expect(
+      summarize({ ...request, agent: { ...request.agent, workspaceId: null } }, { paseo, provider: "p/m", timeoutMs: 1 }),
+    ).rejects.toThrow("no workspace");
+    expect(create).not.toHaveBeenCalled();
+  });
+});
