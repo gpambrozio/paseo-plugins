@@ -30,11 +30,29 @@ export class AttentionStore {
    * arrived live is newer than anything on disk. Cleared once `load` is done.
    */
   private readonly touched = new Set<string>();
+  /**
+   * Set while `load()` is reading. Writes queued in that window wait for it:
+   * otherwise one would truncate the very file being read, and it would
+   * serialise a map that has not been merged yet.
+   */
+  private loading: Promise<void> | null = null;
 
   /** `path === null` keeps everything in memory, which is what the tests want. */
   constructor(private readonly path: string | null) {}
 
   async load(): Promise<void> {
+    if (this.path === null) return;
+    const run = this.read();
+    // Never rejects, so a failed read cannot wedge the write chain behind it.
+    this.loading = run.catch(() => {});
+    try {
+      await run;
+    } finally {
+      this.loading = null;
+    }
+  }
+
+  private async read(): Promise<void> {
     if (this.path === null) return;
     let raw: string;
     try {
@@ -130,9 +148,15 @@ export class AttentionStore {
   private persist(): void {
     if (this.path === null) return;
     const path = this.path;
-    const snapshot = JSON.stringify([...this.entries.values()], null, 2);
+    const loaded = this.loading ?? Promise.resolve();
     this.writes = this.writes
+      .then(() => loaded)
       .then(async () => {
+        // Serialised here rather than at the call, so a write that waited for
+        // `load()` puts the merged map on disk rather than the map as it stood
+        // when it was queued. The file mirrors the map, it is not a log, so
+        // writing the latest state is always the right thing.
+        const snapshot = JSON.stringify([...this.entries.values()], null, 2);
         await mkdir(dirname(path), { recursive: true });
         await writeFile(path, `${snapshot}\n`, "utf8");
       })

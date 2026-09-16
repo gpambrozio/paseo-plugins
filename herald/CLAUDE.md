@@ -155,6 +155,12 @@ it. Anything live is newer than anything on disk, so `load` skips every agent in
 of agents upserted or removed since the store was made. Without that, an announcement that arrived
 mid-read would vanish under the older persisted entry for the same agent.
 
+Merging in memory is only half of it: that live upsert also *queued a write*. Left alone it would
+truncate the file mid-read and then save a map that had not been merged yet, erasing from
+`attention.json` the very rows just read out of it. So `persist` holds any write queued while
+`loading` is set until the read finishes, and serialises inside the write callback rather than at the
+call — the file mirrors the map, it is not a log, so writing the latest state is always right.
+
 ## Speech happens on the client, and only on two of three platforms
 
 Plugin client code has no audio module: not from the host's module list, not from React Native core.

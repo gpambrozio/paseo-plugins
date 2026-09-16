@@ -85,6 +85,36 @@ describe("AttentionStore", () => {
     expect(store.get("a2")).toBeNull();
   });
 
+  it("leaves the merged map on disk, not just in memory", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "herald-store-"));
+    tempDirs.push(dir);
+    const path = join(dir, "attention.json");
+
+    const seed = new AttentionStore(path);
+    seed.upsert(entry({ agentId: "a1", eventId: "a1:turn:old" }));
+    seed.upsert(entry({ agentId: "a2" }));
+    seed.upsert(entry({ agentId: "a3" }));
+    await seed.flush();
+
+    // The upsert queues a write of the map as it stands then — a1 alone — and
+    // the merge that follows happens only in memory. Saving that snapshot
+    // would erase a2 and a3 from the very file being read.
+    const store = new AttentionStore(path);
+    const loading = store.load();
+    store.upsert(entry({ agentId: "a1", eventId: "a1:turn:new" }));
+    await loading;
+    await store.flush();
+
+    const saved = JSON.parse(await readFile(path, "utf8")) as AttentionEntry[];
+    expect(saved.map((item) => item.agentId).sort()).toEqual(["a1", "a2", "a3"]);
+    expect(saved.find((item) => item.agentId === "a1")?.eventId).toBe("a1:turn:new");
+
+    // And the next process reads back exactly that.
+    const reopened = new AttentionStore(path);
+    await reopened.load();
+    expect(reopened.list().map((item) => item.agentId).sort()).toEqual(["a1", "a2", "a3"]);
+  });
+
   it("survives a reload, marking an unfinished summary as failed", async () => {
     const dir = await mkdtemp(join(tmpdir(), "herald-store-"));
     tempDirs.push(dir);
