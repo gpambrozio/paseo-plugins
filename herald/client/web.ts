@@ -179,6 +179,16 @@ export function playAudio(dataUrl: string): Promise<void> {
   });
 }
 
+/**
+ * Whether anything here can make a sound from plugin code: either engine will
+ * do. False on iOS and Android, where the host offers plugin code no audio
+ * module at all — which is why every play control is *hidden* there rather
+ * than left to fail when pressed.
+ */
+export function canPlaySpeech(): boolean {
+  return canPlayAudio() || canSpeak();
+}
+
 /** The most a phone can do from plugin code. A no-op on web. */
 export function vibrate(): void {
   if (Platform.OS !== "web") Vibration.vibrate();

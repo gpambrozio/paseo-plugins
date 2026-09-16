@@ -20,7 +20,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-nati
 
 import { listAttention, type AttentionEntry, type AttentionReason } from "../shared/herald";
 import { getAnnouncer, isMutedHere, setMutedHere, speechText } from "./announcer";
-import { canSpeak, speechPlatform } from "./web";
+import { canPlaySpeech, speechPlatform } from "./web";
 
 /** A row's reason: one of Herald's, or "attention" when only Paseo's flag is known. */
 type RowReason = AttentionReason | "attention";
@@ -291,7 +291,8 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
   const title = workspaceName ?? entry?.workspaceTitle ?? basename(row.cwd);
   const subtitle = row.title?.trim() || entry?.lastRequest || null;
   const spoken = entry === null ? null : speechText(entry);
-  const canSpeakRow = entry === null || spoken !== null;
+  // Hidden outright where nothing can play it, rather than offered and failing.
+  const canSpeakRow = canPlaySpeech() && (entry === null || spoken !== null);
 
   let summaryNode: ReactElement | null;
   if (entry === null) {
@@ -488,9 +489,9 @@ export function HeraldSurface(props: PluginSurfaceProps) {
   const platform = speechPlatform();
   let hint: string | null = null;
   if (platform === "mobile") {
-    hint = "Phones cannot speak from a plugin yet. Herald vibrates instead when that is switched on in Settings › Plugins › Herald.";
-  } else if (!canSpeak()) {
-    hint = "This browser has no speech synthesis, so summaries can only be read here.";
+    hint = "Phones cannot play audio from a plugin yet, so there is nothing to press here. Herald vibrates instead when that is switched on in Settings › Plugins › Herald.";
+  } else if (!canPlaySpeech()) {
+    hint = "This browser can neither play audio nor speak, so summaries can only be read here.";
   } else if (platform === "browser") {
     hint = "In a browser tab, tap Test voice once so the page is allowed to speak.";
   }
@@ -505,29 +506,31 @@ export function HeraldSurface(props: PluginSurfaceProps) {
         <Text style={styles.title}>Herald</Text>
         {count > 0 ? <Text style={styles.count}>{count}</Text> : null}
         <View style={styles.spacer} />
-        {platform === "mobile" ? null : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={muted ? "Unmute on this device" : "Mute on this device"}
-            onPress={toggleMute}
-            style={styles.toolButton}
-          >
-            <Icon name={muted ? "VolumeX" : "Volume2"} size={14} color={foreground} />
-            {props.layout.compact ? null : (
-              <Text style={styles.toolButtonText}>{muted ? "Muted here" : "Mute here"}</Text>
-            )}
-          </Pressable>
-        )}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Test voice"
-          onPress={() => void onTest()}
-          disabled={testing}
-          style={styles.toolButton}
-        >
-          <Icon name="Play" size={14} color={foreground} />
-          {props.layout.compact ? null : <Text style={styles.toolButtonText}>Test voice</Text>}
-        </Pressable>
+        {canPlaySpeech() ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={muted ? "Unmute on this device" : "Mute on this device"}
+              onPress={toggleMute}
+              style={styles.toolButton}
+            >
+              <Icon name={muted ? "VolumeX" : "Volume2"} size={14} color={foreground} />
+              {props.layout.compact ? null : (
+                <Text style={styles.toolButtonText}>{muted ? "Muted here" : "Mute here"}</Text>
+              )}
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Test voice"
+              onPress={() => void onTest()}
+              disabled={testing}
+              style={styles.toolButton}
+            >
+              <Icon name="Play" size={14} color={foreground} />
+              {props.layout.compact ? null : <Text style={styles.toolButtonText}>Test voice</Text>}
+            </Pressable>
+          </>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Refresh"

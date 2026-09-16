@@ -1,7 +1,7 @@
 /**
  * Herald's card in an agent's transcript: the sentence written about the
  * turn or question just above it, and a play icon right after the header's
- * label that says it again.
+ * label that says it again — absent on iOS and Android, which cannot play it.
  *
  * The row is written by the daemon (`server/card.ts`); this only draws it.
  * The host re-validates `data` against `HeraldCardSchema` before calling this,
@@ -17,6 +17,7 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { AttentionReason } from "../shared/herald";
 import type { HeraldCard } from "../shared/timeline";
 import { getAnnouncer } from "./announcer";
+import { canPlaySpeech } from "./web";
 
 function reasonLabel(reason: AttentionReason): string {
   switch (reason) {
@@ -105,16 +106,18 @@ export function HeraldTimelineCard({ theme, layout, item }: PluginTimelineItemPr
         <Icon name="Megaphone" size={14} color={theme.colors.foregroundMuted} />
         <Text style={styles.brand}>Herald</Text>
         <Text style={styles.reason}>· {reasonLabel(card.reason)}</Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={speaking ? "Speaking" : "Play the summary"}
-          hitSlop={8}
-          disabled={text === null || speaking}
-          onPress={() => void play()}
-          style={[styles.play, text === null || speaking ? styles.playDisabled : null]}
-        >
-          <Icon name={speaking ? "Volume2" : "Play"} size={14} color={theme.colors.foreground} />
-        </Pressable>
+        {canPlaySpeech() ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={speaking ? "Speaking" : "Play the summary"}
+            hitSlop={8}
+            disabled={text === null || speaking}
+            onPress={() => void play()}
+            style={[styles.play, text === null || speaking ? styles.playDisabled : null]}
+          >
+            <Icon name={speaking ? "Volume2" : "Play"} size={14} color={theme.colors.foreground} />
+          </Pressable>
+        ) : null}
         <View style={styles.spacer} />
       </View>
       {card.summary.status === "pending" ? (

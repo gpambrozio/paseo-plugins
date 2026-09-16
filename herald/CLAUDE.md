@@ -171,6 +171,14 @@ Platform rules apply to both:
 - **iOS / Android** cannot play either. `Vibration.vibrate()` is the most plugin code can do,
   behind a switch that is off by default. Paseo's own push notifications carry the text there.
 
+**Every play control is hidden where `canPlaySpeech()` is false**, rather than shown and failing when
+pressed: the panel row's speaker, the transcript card's play icon, and the panel header's *Mute here*
+and *Test voice*. The settings screen's whole Voice section goes the same way. That covers phones and
+a browser with neither audio playback nor speech synthesis. The upstream ask that would change this
+is a host-provided player in `@getpaseo/plugin/client/react-native`, next to `copyText` — the app
+already has one behind `useVoiceAudioEngineOptional`, which plays voice mode's base64 `audio_output`
+chunks on every platform.
+
 Deliveries queue behind one another in the announcer (`chain`), so a Speak button pressed during a
 poll's announcement waits rather than talking over it.
 
