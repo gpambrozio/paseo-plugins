@@ -86,6 +86,11 @@ agent move on: `turn_started` (the user replied), `permission_resolved` for the 
 `requiresAttention` flag handles that, and the panel lists the union of Paseo's flagged agents and
 Herald's entries, joined by agent id. Herald explains; Paseo decides who is listed.
 
+Paseo's flag is not cleared by looking, either — only by the next message to that agent — so an idle
+agent from a week ago is still "finished" to it. The panel holds Paseo-only rows to the same day-long
+window the store uses and drops `closed` sessions (`isCurrent` in `client/herald.tsx`); a row with no
+Herald entry says so, because the event predates the plugin watching that agent.
+
 `attention.json` mirrors the map so a plugin reload keeps the sentences already written. A summary
 still `pending` at load is marked `failed` with the fallback, because its helper died with the old
 process.

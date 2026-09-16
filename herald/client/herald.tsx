@@ -42,8 +42,16 @@ interface FlaggedAgent {
   title: string | null;
   workspaceId: string | null;
   cwd: string;
+  status: string;
   attentionReason: "finished" | "error" | "permission" | null;
   at: string;
+}
+
+/** A Paseo-flagged agent worth a row: a live session, flagged within the day. */
+function isCurrent(agent: FlaggedAgent, now: number): boolean {
+  if (agent.status === "closed") return false;
+  const flaggedAt = new Date(agent.at).getTime();
+  return Number.isFinite(flaggedAt) && now - flaggedAt < FLAGGED_MAX_AGE_MS;
 }
 
 /**
@@ -60,6 +68,14 @@ let cachedWorkspaceNames: Record<string, string> = {};
 
 const IDLE_REFRESH_MS = 10_000;
 const BUSY_REFRESH_MS = 2_500;
+
+/**
+ * How long Paseo's own attention flag counts here. Paseo keeps an agent
+ * flagged until the user sends it another message, so an idle agent from a
+ * week ago is still "finished" to it; Herald's entries expire after a day and
+ * Paseo's flag is held to the same rule, else the panel fills with history.
+ */
+const FLAGGED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const TEST_SENTENCE = "This is Herald. Your agents will be announced like this.";
 
 function withAlpha(color: string, alpha: string): string {
@@ -112,7 +128,7 @@ function lookOf(reason: RowReason): ReasonLook {
   }
 }
 
-function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[]): Row[] {
+function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[], now: number): Row[] {
   const byAgent = new Map<string, Row>();
   entries.forEach((entry) => {
     byAgent.set(entry.agentId, {
@@ -126,7 +142,7 @@ function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[]): Row[] {
     });
   });
   flagged.forEach((agent) => {
-    if (byAgent.has(agent.id)) return;
+    if (byAgent.has(agent.id) || !isCurrent(agent, now)) return;
     byAgent.set(agent.id, {
       agentId: agent.id,
       title: agent.title,
@@ -328,7 +344,10 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
       </View>
       <Text style={styles.cardMeta}>{workspaceName ?? basename(row.cwd)}</Text>
       {entry === null ? (
-        <Text style={styles.headline}>{look.label === "Needs you" ? "Waiting for you." : `${look.label}.`}</Text>
+        <View style={{ gap: 2 }}>
+          <Text style={styles.headline}>{look.label === "Needs you" ? "Waiting for you." : `${look.label}.`}</Text>
+          <Text style={styles.detail}>No summary: this happened before Herald was watching this agent.</Text>
+        </View>
       ) : (
         <View style={{ gap: 2 }}>
           <Text style={styles.headline}>{entry.headline}</Text>
@@ -405,10 +424,11 @@ export function HeraldSurface(props: PluginSurfaceProps) {
           title: item.agent.title ?? null,
           workspaceId: item.agent.workspaceId ?? null,
           cwd: item.agent.cwd,
+          status: item.agent.status,
           attentionReason: item.agent.attentionReason ?? null,
           at: item.agent.attentionTimestamp ?? item.agent.updatedAt,
         }));
-        const next = joinRows(attention.entries, agents);
+        const next = joinRows(attention.entries, agents, Date.now());
         cachedRows = next;
         setRows(next);
         setError(null);
