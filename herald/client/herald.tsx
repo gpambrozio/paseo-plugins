@@ -13,7 +13,7 @@
  * Android evaluates an async arrow to `undefined`. Same reason every closure
  * over a list element goes through `.map`, never a `for…of` body.
  */
-import { type PluginSurfaceProps, usePaseo, useRpc, useWorkspace } from "@getpaseo/plugin/client";
+import { type PluginSurfaceProps, usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
@@ -47,11 +47,16 @@ interface FlaggedAgent {
 }
 
 /**
- * Module-scope cache, because the surface is unmounted whenever the user
+ * Module-scope caches, because the surface is unmounted whenever the user
  * navigates to an agent — which the Open button does — and mounted fresh on
  * the way back. The list repaints before the first load answers.
+ *
+ * Workspace names come from the host API, not `useWorkspace`: the SDK's state
+ * hooks are for workspace and agent panels and throw in a sidebar surface
+ * ("Plugin state hooks must run inside a workspace panel").
  */
 let cachedRows: Row[] | null = null;
+let cachedWorkspaceNames: Record<string, string> = {};
 
 const IDLE_REFRESH_MS = 10_000;
 const BUSY_REFRESH_MS = 2_500;
@@ -268,21 +273,16 @@ function toneColor(theme: PluginSurfaceProps["theme"], tone: ReasonLook["tone"])
 // ---------------------------------------------------------------------------
 // Rows
 
-function WorkspaceName({ workspaceId, style }: { workspaceId: string; style: Styles["cardMeta"] }) {
-  const name = useWorkspace(workspaceId, (workspace) => workspace.name);
-  if (name === null) return null;
-  return <Text style={style}>{name}</Text>;
-}
-
 interface RowCardProps {
   row: Row;
+  workspaceName: string | null;
   props: PluginSurfaceProps;
   styles: Styles;
   onOpen: ((agentId: string) => void) | null;
   onSpeak: (row: Row) => void;
 }
 
-function RowCard({ row, props, styles, onOpen, onSpeak }: RowCardProps) {
+function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCardProps) {
   const look = lookOf(row.reason);
   const color = toneColor(props.theme, look.tone);
   const muted = props.theme.colors.foregroundMuted;
@@ -326,13 +326,7 @@ function RowCard({ row, props, styles, onOpen, onSpeak }: RowCardProps) {
         <View style={styles.spacer} />
         <Text style={styles.cardMeta}>{relativeTime(row.at)}</Text>
       </View>
-      <View style={{ flexDirection: "row", gap: 6 }}>
-        {row.workspaceId === null ? (
-          <Text style={styles.cardMeta}>{basename(row.cwd)}</Text>
-        ) : (
-          <WorkspaceName workspaceId={row.workspaceId} style={styles.cardMeta} />
-        )}
-      </View>
+      <Text style={styles.cardMeta}>{workspaceName ?? basename(row.cwd)}</Text>
       {entry === null ? (
         <Text style={styles.headline}>{look.label === "Needs you" ? "Waiting for you." : `${look.label}.`}</Text>
       ) : (
@@ -384,6 +378,7 @@ export function HeraldSurface(props: PluginSurfaceProps) {
   const toast = useToast();
 
   const [rows, setRows] = useState<Row[] | null>(cachedRows);
+  const [workspaceNames, setWorkspaceNames] = useState<Record<string, string>>(cachedWorkspaceNames);
   const [error, setError] = useState<string | null>(null);
   const [muted, setMuted] = useState(isMutedHere());
   const [testing, setTesting] = useState(false);
@@ -394,10 +389,17 @@ export function HeraldSurface(props: PluginSurfaceProps) {
       if (busyRef.current) return;
       busyRef.current = true;
       try {
-        const [attention, flagged] = await Promise.all([
+        const [attention, flagged, workspaces] = await Promise.all([
           list({}),
           paseo.agents.list({ filter: { requiresAttention: true }, page: { limit: 100 } }),
+          paseo.workspaces.list({ page: { limit: 200 } }),
         ]);
+        const names: Record<string, string> = {};
+        workspaces.entries.forEach((workspace) => {
+          names[workspace.id] = workspace.title ?? workspace.name;
+        });
+        cachedWorkspaceNames = names;
+        setWorkspaceNames(names);
         const agents: FlaggedAgent[] = flagged.entries.map((item) => ({
           id: item.agent.id,
           title: item.agent.title ?? null,
@@ -552,7 +554,15 @@ export function HeraldSurface(props: PluginSurfaceProps) {
           </View>
         ) : (
           rows.map((row) => (
-            <RowCard key={row.agentId} row={row} props={props} styles={styles} onOpen={onOpen} onSpeak={onSpeak} />
+            <RowCard
+              key={row.agentId}
+              row={row}
+              workspaceName={row.workspaceId === null ? null : workspaceNames[row.workspaceId] ?? null}
+              props={props}
+              styles={styles}
+              onOpen={onOpen}
+              onSpeak={onSpeak}
+            />
           ))
         )}
       </ScrollView>

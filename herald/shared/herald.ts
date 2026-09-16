@@ -69,6 +69,38 @@ export const listAttention = defineRpc({
 });
 
 // ---------------------------------------------------------------------------
+// Speech rendered on the daemon
+
+export const SpeechVoiceSchema = z.object({ name: z.string(), lang: z.string() });
+export type SpeechVoice = z.infer<typeof SpeechVoiceSchema>;
+
+/**
+ * The daemon Mac's `say` voices, and whether `say` is there at all. The app
+ * cannot run a command, but the daemon can, and its voices are better than
+ * the browser's; so the daemon renders the sentence to audio and the app plays
+ * the bytes.
+ */
+export const listSpeechVoices = defineRpc({
+  name: "herald.speech.voices",
+  input: z.object({}),
+  output: z.object({ available: z.boolean(), voices: z.array(SpeechVoiceSchema) }),
+});
+
+export const MAX_SPEECH_CHARS = 2000;
+
+export const renderSpeech = defineRpc({
+  name: "herald.speech.render",
+  input: z.object({
+    text: z.string().min(1).max(MAX_SPEECH_CHARS),
+    /** A `say` voice name, or empty for the Mac's default. */
+    voice: z.string().default(""),
+    /** A multiplier on the voice's natural pace. */
+    rate: z.number().min(0.5).max(2).default(1),
+  }),
+  output: z.object({ mimeType: z.string(), base64: z.string() }),
+});
+
+// ---------------------------------------------------------------------------
 // Daemon-side configuration
 
 /** The event kinds a user can switch off. A canceled turn follows `error`. */

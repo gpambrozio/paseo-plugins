@@ -36,9 +36,18 @@ interface WebSynth {
   removeEventListener?(type: "voiceschanged", listener: () => void): void;
 }
 
+interface WebAudioElement {
+  src: string;
+  play(): Promise<void>;
+  pause(): void;
+  onended: (() => void) | null;
+  onerror: ((event: unknown) => void) | null;
+}
+
 interface WebGlobals {
   speechSynthesis?: WebSynth;
   SpeechSynthesisUtterance?: new (text: string) => WebUtterance;
+  Audio?: new (src?: string) => WebAudioElement;
   /** The desktop preload's bridge; present in the Electron renderer and nowhere else. */
   paseoDesktop?: unknown;
 }
@@ -136,6 +145,38 @@ export function speak(text: string, options: SpeakOptions): Promise<void> {
 
 export function stopSpeaking(): void {
   web()?.speechSynthesis?.cancel();
+}
+
+export function canPlayAudio(): boolean {
+  return typeof web()?.Audio === "function";
+}
+
+/** Elements are held until they end for the same reason utterances are. */
+const playing = new Set<WebAudioElement>();
+
+/**
+ * Plays audio the daemon rendered, handed over as a data URL. Resolves when it
+ * ends; rejects when the browser refuses — a tab without user activation, a
+ * format it cannot decode — so the caller can fall back to the browser voice.
+ */
+export function playAudio(dataUrl: string): Promise<void> {
+  const Audio = web()?.Audio;
+  if (Audio === undefined) return Promise.reject(new Error("Audio playback is not available here."));
+  return new Promise<void>((resolve, reject) => {
+    const element = new Audio(dataUrl);
+    let settled = false;
+    const finish = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      playing.delete(element);
+      if (error === null) resolve();
+      else reject(error instanceof Error ? error : new Error("The browser could not play the audio."));
+    };
+    element.onended = () => finish(null);
+    element.onerror = (event) => finish(event);
+    playing.add(element);
+    element.play().catch((error: unknown) => finish(error));
+  });
 }
 
 /** The most a phone can do from plugin code. A no-op on web. */

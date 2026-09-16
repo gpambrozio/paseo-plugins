@@ -11,10 +11,13 @@ to open the session, and a button to hear it again.
 ## What you need
 
 - Paseo **0.8.0 or newer**, on the daemon and on the device running the app.
-- Speech comes out of the device running the Paseo app, not the daemon machine. The **desktop app**
-  speaks on its own. A **browser tab** speaks once you have pressed *Test voice* in the panel (browsers
-  do not let a page speak until it has been tapped). **Phones cannot speak** from a plugin yet; Herald
-  can vibrate instead, and Paseo's own notifications already carry the text there.
+- Speech comes out of the device running the Paseo app, not the daemon machine. The voice, by
+  default, is the daemon Mac's: it renders each sentence with `say` and the app plays the audio, so
+  you hear the Mac's voices rather than a browser's. If the daemon is not a Mac, the browser's own
+  voice is used. The **desktop app** speaks on its own. A **browser tab** speaks once you have pressed
+  *Test voice* in the panel (browsers do not let a page play sound until it has been tapped). **Phones
+  cannot speak** from a plugin yet; Herald can vibrate instead, and Paseo's own notifications already
+  carry the text there.
 - Summaries are written by a helper agent through whichever provider you pick, Claude Haiku 4.5 by
   default. Each event is one short turn of that model; the helper appears briefly under the agent it
   describes and is archived when it finishes.
@@ -33,7 +36,9 @@ Pin a release with `--ref herald/v<version>`. To hack on it, clone the repositor
 **Settings › Plugins › Herald**, or *Herald settings* from the Command Center.
 
 - **Speech** — the master switch; whether the desktop app, browser tabs, and phones act on it; the
-  voice and speed; a test button. These are shared by every device connected to the daemon, and each
+  voice source (the daemon Mac's `say` voices, or this device's browser voice), which voice, the
+  speed; a test button. To add Mac voices, install them on the daemon Mac under System Settings ›
+  Accessibility › Spoken Content. These are shared by every device connected to the daemon, and each
   device follows its own switch. *Mute here* in the panel silences just the device you are on until
   the app restarts.
 - **Summaries** — the model that writes them, and which kinds of event are announced: questions, plan

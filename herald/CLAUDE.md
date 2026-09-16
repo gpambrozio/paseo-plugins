@@ -21,10 +21,11 @@ compile time. This file covers only what is specific to `herald`.
 | `server/store.ts`            | One entry per agent, mirrored to `attention.json`.                                     |
 | `server/timeline.ts`         | Pure text: what an agent said, what a permission asks, the no-model fallback sentence. |
 | `server/config.ts`           | `$PASEO_HOME/plugins/herald/config.json`, read on every event.                          |
+| `server/say.ts`              | `say` on the daemon Mac, driven for its voices: text in on stdin, a WAV out, bytes back. |
 | `client/announcer.ts`        | The poll-and-speak loop that runs while the app is open, panel or no panel.            |
 | `client/herald.tsx`          | The surface: Paseo's attention list joined with Herald's entries.                      |
 | `client/settings-screen.tsx` | Settings › Plugins › Herald: speech (host document) and summaries (daemon RPCs).       |
-| `client/web.ts`              | Every browser global: the Web Speech API, the desktop-shell check, the vibration no-op. |
+| `client/web.ts`              | Every browser global: audio playback, the Web Speech API, the desktop-shell check.      |
 | `server/*.test.ts`           | The tests. `npm test`.                                                                 |
 
 ## The hooks have 30 seconds and the summary does not fit
@@ -91,15 +92,32 @@ process.
 ## Speech happens on the client, and only on two of three platforms
 
 Plugin client code has no audio module: not from the host's module list, not from React Native core.
-The only voice is the Web Speech API in `client/web.ts`.
+What it has are two browser globals, both confined to `client/web.ts`: the audio element and the Web
+Speech API. Two engines are built on them, chosen by the `engine` setting:
 
-- **Desktop (Electron)** speaks unprompted. Electron's autoplay policy defaults to no gesture
+- **`say` (default).** The app cannot run a command, but the daemon can. `herald.speech.render` has
+  the daemon Mac run `say -o … --file-format=WAVE` with the sentence on stdin, and returns the WAV as
+  base64; the client plays it through `new Audio(dataUrl)`. That is how the Mac's voices — far
+  better than a browser's — reach the desktop app and any browser tab, wherever they are. Rendered at
+  16 kHz mono so a long sentence stays well under a megabyte on the wire. Nothing plays on the
+  daemon. Not a Mac, no `say`, an unknown voice, or a refused playback: the announcer logs once and
+  falls through to the browser voice.
+- **`web`.** The Web Speech API, with this device's voices. The fallback, and the choice for a
+  daemon that is not a Mac.
+
+Platform rules apply to both:
+
+- **Desktop (Electron)** plays unprompted. Electron's autoplay policy defaults to no gesture
   required and Paseo does not override it.
-- **Browser tab** speaks only after the page has been tapped once. Chromium and WebKit drop `speak()`
-  without user activation *and fire no event*, which is why `speak` also resolves on a guard timer —
-  a queue waiting on `onend` would otherwise stall. The panel's **Test voice** button is the tap.
-- **iOS / Android** cannot speak. `Vibration.vibrate()` is the most plugin code can do, behind a
-  switch that is off by default. Paseo's own push notifications carry the text there.
+- **Browser tab** plays only after the page has been tapped once. Chromium and WebKit refuse both
+  `play()` and `speak()` without user activation; `speak()` fires no event on refusal, which is why
+  it also resolves on a guard timer — a queue waiting on `onend` would otherwise stall. The panel's
+  **Test voice** button is the tap.
+- **iOS / Android** cannot play either. `Vibration.vibrate()` is the most plugin code can do,
+  behind a switch that is off by default. Paseo's own push notifications carry the text there.
+
+Deliveries queue behind one another in the announcer (`chain`), so a Speak button pressed during a
+poll's announcement waits rather than talking over it.
 
 Paseo's daemon has a text-to-speech pipeline of its own (`TTSManager`, behind voice mode) that the
 app plays on every platform, but nothing in the 0.8 plugin API reaches it. If mobile speech is ever
@@ -120,6 +138,14 @@ to the values a mounted screen last mirrored, or to the defaults.
 The daemon config (`shared/herald.ts`) is what the hooks act on — which events to summarise, which
 model — so it is the daemon's file behind `herald.config.read` / `herald.config.write`.
 
+## The SDK's state hooks do not work in a surface
+
+`useWorkspace` and `useAgent` throw "Plugin state hooks must run inside a workspace panel" when
+called from a sidebar surface — they are for `addWorkspacePanel` components, which have a workspace
+or agent in scope. The first shipped panel used one for the workspace name and failed on mount.
+`client/herald.tsx` lists workspaces through the host API on each refresh and maps id to title
+instead. Anything a surface needs to know about workspaces or agents goes through `usePaseo()`.
+
 ## Checking it
 
 `npm test` covers everything that does not need a daemon: text extraction, the fallback sentences,
@@ -128,7 +154,8 @@ cover, check by hand after `paseo plugin reload herald`:
 
 1. Ask a running agent something that makes it call AskUserQuestion, or let one finish a turn. Within
    a few seconds the panel shows the entry with "Writing the summary…", then the sentence, and the
-   desktop app speaks it. `paseo plugin logs herald` shows any summary failure.
+   desktop app speaks it in the Mac's voice. `paseo plugin logs herald` shows any summary or render
+   failure; a fall-through to the browser voice is a warning in the app console.
 2. Open the agent from the panel; the row disappears once you reply.
 3. In a browser tab, nothing is spoken until **Test voice** has been pressed once.
 4. Switch a kind off in Settings › Plugins › Herald and trigger it: the row appears with "Not

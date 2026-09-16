@@ -14,6 +14,15 @@ import { z } from "zod";
 export const RATE_OPTIONS = ["0.8", "1", "1.2", "1.5"] as const;
 export type RateOption = (typeof RATE_OPTIONS)[number];
 
+/**
+ * Where the voice comes from. `say` has the daemon Mac render the sentence
+ * with its own voices and the app play the audio; `web` is the browser's own
+ * speech synthesis, which every web client has but which sounds worse. `say`
+ * falls back to `web` when the daemon is not a Mac or the render fails.
+ */
+export const SPEECH_ENGINES = ["say", "web"] as const;
+export type SpeechEngine = (typeof SPEECH_ENGINES)[number];
+
 export const speechSettings = defineSettings({
   id: "speech",
   scope: "host",
@@ -27,7 +36,10 @@ export const speechSettings = defineSettings({
     speakInBrowser: z.boolean().default(true),
     /** Phones cannot speak from plugin code; a short buzz is the most they can do. */
     vibrateOnMobile: z.boolean().default(false),
-    /** A system voice by name, or empty for the platform default. */
+    engine: z.enum(SPEECH_ENGINES).default("say"),
+    /** A `say` voice on the daemon Mac by name, or empty for its default. */
+    sayVoice: z.string().default(""),
+    /** A browser voice by name, or empty for the platform default. Used by the `web` engine. */
     voice: z.string().default(""),
     /** Speech rate as a multiplier; kept as a string because it is picked from a list. */
     rate: z.enum(RATE_OPTIONS).default("1"),
@@ -41,6 +53,8 @@ export const DEFAULT_SPEECH: SpeechSettings = {
   speakOnDesktop: true,
   speakInBrowser: true,
   vibrateOnMobile: false,
+  engine: "say",
+  sayVoice: "",
   voice: "",
   rate: "1",
 };

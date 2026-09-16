@@ -22,10 +22,24 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 
-import { ANNOUNCE_KEYS, readConfig, writeConfig, type AnnounceKey, type HeraldConfig } from "../shared/herald";
-import { RATE_OPTIONS, speechSettings, type RateOption, type SpeechSettings } from "../shared/settings";
-import { mirrorSettings } from "./announcer";
-import { canSpeak, listVoices, onVoicesChanged, speak, speechPlatform, type Voice } from "./web";
+import {
+  ANNOUNCE_KEYS,
+  listSpeechVoices,
+  readConfig,
+  writeConfig,
+  type AnnounceKey,
+  type HeraldConfig,
+  type SpeechVoice,
+} from "../shared/herald";
+import {
+  RATE_OPTIONS,
+  speechSettings,
+  type RateOption,
+  type SpeechEngine,
+  type SpeechSettings,
+} from "../shared/settings";
+import { getAnnouncer, mirrorSettings } from "./announcer";
+import { canSpeak, listVoices, onVoicesChanged, speechPlatform, type Voice } from "./web";
 
 const RATE_LABELS: Record<RateOption, string> = {
   "0.8": "Slower",
@@ -87,23 +101,50 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
     return [{ label: "System default", value: "" }, ...options];
   }, [voices, settings]);
 
+  // ---- the daemon Mac's voices ---------------------------------------------
+  const fetchSayVoices = useRpc(listSpeechVoices);
+  const [sayVoices, setSayVoices] = useState<{ available: boolean; voices: SpeechVoice[] } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchSayVoices({})
+      .then((result) => {
+        if (!cancelled) setSayVoices(result);
+      })
+      .catch((caught: unknown) => {
+        console.warn("[herald] could not list say voices", caught);
+        if (!cancelled) setSayVoices({ available: false, voices: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchSayVoices]);
+  const sayVoiceOptions = useMemo(() => {
+    const options = (sayVoices?.voices ?? []).map((voice) => ({
+      label: `${voice.name} (${voice.lang})`,
+      value: voice.name,
+    }));
+    const current = settings.status === "ready" ? settings.values.sayVoice : "";
+    if (current !== "" && !options.some((option) => option.value === current)) {
+      options.unshift({ label: `${current} (not installed on the daemon)`, value: current });
+    }
+    return [{ label: "The Mac's default voice", value: "" }, ...options];
+  }, [sayVoices, settings]);
+
   const [testing, setTesting] = useState(false);
   const onTest = useCallback(
     async function onTest() {
-      if (settings.status !== "ready") return;
+      const announcer = getAnnouncer();
+      if (announcer === null) return;
       setTesting(true);
       try {
-        await speak("This is Herald. Your agents will be announced like this.", {
-          voice: settings.values.voice,
-          rate: Number(settings.values.rate),
-        });
+        await announcer.speakText("This is Herald. Your agents will be announced like this.");
       } catch (caught) {
         toast.error(errorText(caught));
       } finally {
         setTesting(false);
       }
     },
-    [settings, toast],
+    [toast],
   );
 
   // ---- daemon config ------------------------------------------------------
@@ -227,16 +268,49 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
             onValueChange={(value) => void saveSpeech({ vibrateOnMobile: value })}
           />
         </SettingsSection>
-        {canSpeak() ? (
-          <SettingsSection title="Voice">
-            <SettingsSelect
-              label="Voice"
-              hint="A system voice on this device. Other devices keep their own default."
-              value={speech?.voice ?? ""}
-              options={voiceOptions}
+        {platform === "mobile" ? null : (
+          <SettingsSection
+            title="Voice"
+            info={
+              <Text style={styles.note}>
+                The daemon Mac can render each sentence with its own voices, which sound far better than a
+                browser's, and this device plays the audio. If the daemon is not a Mac, or a render fails,
+                the browser voice is used instead.
+              </Text>
+            }
+          >
+            <SettingsSelect<SpeechEngine>
+              label="Voice source"
+              value={speech?.engine ?? "say"}
+              options={[
+                {
+                  label: sayVoices?.available === false ? "The daemon Mac (say) — not available" : "The daemon Mac (say)",
+                  value: "say",
+                },
+                { label: "This device's browser voice", value: "web" },
+              ]}
               disabled={speech === null}
-              onValueChange={(value) => void saveSpeech({ voice: value })}
+              onValueChange={(value) => void saveSpeech({ engine: value })}
             />
+            {speech?.engine === "say" ? (
+              <SettingsSelect
+                label="Mac voice"
+                hint="Installed on the daemon Mac. Add more under System Settings › Accessibility › Spoken Content there."
+                value={speech.sayVoice}
+                options={sayVoiceOptions}
+                disabled={sayVoices === null || !sayVoices.available}
+                onValueChange={(value) => void saveSpeech({ sayVoice: value })}
+              />
+            ) : canSpeak() ? (
+              <SettingsSelect
+                label="Browser voice"
+                hint="A system voice on this device. Other devices keep their own default."
+                value={speech?.voice ?? ""}
+                options={voiceOptions}
+                disabled={speech === null}
+                onValueChange={(value) => void saveSpeech({ voice: value })}
+              />
+            ) : null}
             <SettingsSelect<RateOption>
               label="Speed"
               value={speech?.rate ?? "1"}
@@ -246,13 +320,13 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
             />
             <SettingsAction
               label="Test voice"
-              hint="Speaks one sentence with the voice and speed above."
+              hint="Speaks one sentence with the settings above."
               actionLabel={testing ? "Speaking…" : "Speak"}
               disabled={testing || speech === null}
               onPress={() => void onTest()}
             />
           </SettingsSection>
-        ) : null}
+        )}
       </SettingsGroup>
 
       <SettingsGroup title="Summaries">

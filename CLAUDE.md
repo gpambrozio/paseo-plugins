@@ -147,6 +147,10 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   in module-scope variables the component reads on mount: `cachedBoard` in `github-board`,
   `cachedPane` and `cachedDraft` in `launchd-jobs`. Anything that *is* worth persisting belongs in a
   settings document, which the host restores on its own.
+- **`useWorkspace` and `useAgent` work only inside workspace panels.** Called from a sidebar surface
+  they throw "Plugin state hooks must run inside a workspace panel" on mount, and the surface renders
+  that error instead of itself. A surface reads workspaces and agents through `usePaseo()` — see
+  `herald/client/herald.tsx`, which maps workspace ids to titles from `workspaces.list()`.
 - **A surface cannot open its own settings screen.** `PluginSurfaceProps` carries no
   `openSettings`; only `PluginClientContext` and a Command Center or slash-command callback have it.
   A surface that needs to reach one has to keep its own in-surface editor or route the user through
@@ -263,5 +267,7 @@ Watches every agent through the server lifecycle hooks and has a short-lived hel
 spoken sentence about what the agent needs; the app speaks it and a sidebar panel lists it. Three
 constraints shape it, all in `herald/CLAUDE.md`: a hook has 30 seconds and a summary does not fit, so
 summaries are detached from the handler; the helper is a visible agent that fires this plugin's own
-hooks and is recognised by title as well as id; and speech is the Web Speech API on the client, which
-means desktop and browser only — nothing in the 0.8 plugin API plays audio on a phone.
+hooks and is recognised by title as well as id; and the app cannot run `say`, so the daemon renders
+the sentence with it and the client plays the bytes through the browser's audio element, with the Web
+Speech API as the fallback — desktop and browser only, since nothing in the 0.8 plugin API plays audio
+on a phone.

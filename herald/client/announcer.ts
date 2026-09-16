@@ -15,9 +15,9 @@
 import { settingsRpc } from "@getpaseo/plugin";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 
-import { listAttention, type AttentionEntry } from "../shared/herald";
+import { listAttention, renderSpeech, type AttentionEntry } from "../shared/herald";
 import { DEFAULT_SPEECH, speechSettings, type SpeechSettings } from "../shared/settings";
-import { canSpeak, speak, speechPlatform, vibrate } from "./web";
+import { canPlayAudio, canSpeak, playAudio, speak, speechPlatform, vibrate } from "./web";
 
 const IDLE_POLL_MS = 10_000;
 const BUSY_POLL_MS = 2_000;
@@ -82,8 +82,11 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
   let polling = false;
   let seeded = false;
   let warnedSettings = false;
+  let warnedSay = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const spoken = new Set<string>();
+  /** Deliveries queue behind one another, so a button press never talks over the poll. */
+  let chain: Promise<void> = Promise.resolve();
 
   async function readSettings(): Promise<SpeechSettings> {
     try {
@@ -116,13 +119,44 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
     }
   }
 
-  async function deliver(text: string, settings: SpeechSettings): Promise<void> {
+  /**
+   * The daemon Mac's voice when asked for and reachable, the browser's voice
+   * otherwise. A failed render or a refused playback falls through to the
+   * browser voice rather than to silence, and is logged once.
+   */
+  async function deliverNow(text: string, settings: SpeechSettings): Promise<void> {
     if (speechPlatform() === "mobile") {
       vibrate();
       return;
     }
+    const rate = Number(settings.rate);
+    if (settings.engine === "say" && canPlayAudio()) {
+      try {
+        const audio = await client.rpc(renderSpeech, { text, voice: settings.sayVoice, rate });
+        await playAudio(`data:${audio.mimeType};base64,${audio.base64}`);
+        return;
+      } catch (error) {
+        if (!warnedSay) {
+          warnedSay = true;
+          console.warn("[herald] the daemon's say voice is unavailable, using the browser voice", error);
+        }
+      }
+    }
     if (!canSpeak()) return;
-    await speak(text, { voice: settings.voice, rate: Number(settings.rate) });
+    await speak(text, { voice: settings.voice, rate });
+  }
+
+  function deliver(text: string, settings: SpeechSettings): Promise<void> {
+    const next = chain.then(
+      function run() {
+        return deliverNow(text, settings);
+      },
+      function runAfterFailure() {
+        return deliverNow(text, settings);
+      },
+    );
+    chain = next.catch(() => {});
+    return next;
   }
 
   async function announce(entries: AttentionEntry[], settings: SpeechSettings): Promise<void> {
