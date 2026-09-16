@@ -328,3 +328,13 @@ connection.
 
 Ruling 49: KEEPING the Command Center item. It is the keyboard path, and it is the only path on an
 app that predates `addClientSide`. Cost if wrong: two entry points to document instead of one.
+
+Ruling 50: the badge's count is fetched by `button.icon`, not at registration. Paseo 0.8.0 replaced
+the pill's React component with a declarative button, which leaves no render to hang a query on —
+so the icon, the one part of a button that is still a component, runs `useSkillsQuery` and pushes
+the answer into `label` through the registration's `update`. The alternative, one `skills.list` per
+pill at registration time, is simpler and loses Ruling 47's whole point: the host mounts an icon
+only when that agent's composer is on screen, so the scan stays bounded to the agents the user is
+looking at instead of running once per agent on the host at every app connection. Cost if wrong: a
+box holding the registration the icon was built from, because the two are defined in terms of each
+other.
