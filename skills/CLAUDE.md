@@ -63,7 +63,18 @@ entries there exist because a reviewer proved the code was wrong about the real 
   returning its cleanup as the entry's. The `paseo-plugin.d.ts` shim that used to type all of this
   by hand is gone — `@getpaseo/plugin` is a real dependency, so a new host API needs no declaration
   written first.
-- **A pill's registration is not its render.** `contributePills` registers a pill for every agent
-  on the host, but the component only mounts when that agent's composer is on screen — which is
-  what keeps the badge's `skills.list` call bounded to visible agents rather than to every agent
-  that exists.
+- **A composer pill is a description, not a component.** `addComposerPill` takes
+  `{ id, workspaceId, agentId, button }`, where `button` is a `title`, an `icon`, an optional
+  `label` and a `behavior` — and it returns `{ update, remove }`, not a cleanup function. The
+  0.8.0-beta.1 SDK typed the older `{ title, Component, onPress }` shape instead, which the released
+  0.8.0 app rejects, so the pill silently never registered. **Track the daemon's exact version**;
+  a beta of the SDK is not the release.
+- **The count reaches the label through the icon.** A declarative button has no render to hang a
+  query on, so `client/pill.tsx` makes `button.icon` a component, runs `useSkillsQuery` there, and
+  calls `update({ label })` from an effect. That is what keeps the badge's `skills.list` call
+  bounded to visible agents: `contributePills` registers a pill for every agent on the host, but
+  the host mounts one only when that agent's composer is on screen. Fetching the count at
+  registration instead would scan for every agent that exists.
+- **`button.id` must match `/^[a-z][a-z0-9-]*$/`**, which is stricter than the RPC name pattern —
+  no dots. Registering the same id twice for one agent throws `Duplicate plugin button`, which is
+  the other reason `addPill` returns early rather than re-registering.

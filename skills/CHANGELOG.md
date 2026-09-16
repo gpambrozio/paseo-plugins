@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.1.1] — 2026-09-16
+
+### Fixed
+
+- **The Skills pill is back above the composer.** It vanished on Paseo 0.8.0, which changed the way
+  a plugin adds one. Nothing else about it has changed: it still counts what the panel will list,
+  and pressing it still opens that agent's skills. ⌘K and **Skills** worked throughout, if you need
+  the panel before you update.
+
 ## [0.1.0] — 2026-09-08
 
 The first numbered release. The plugin itself is older than this entry — it simply had no version

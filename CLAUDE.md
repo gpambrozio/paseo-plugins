@@ -167,7 +167,7 @@ optional.
 ### The SDK dependency
 
 All three plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
-the daemon runs — `0.8.0-beta.1` at the time of writing. `skills` used to ship a hand-written
+the daemon runs — `0.8.0` at the time of writing. `skills` used to ship a hand-written
 `paseo-plugin.d.ts` shim instead; it was deleted in the 0.8 migration, because every new host API
 had to be hand-declared into it before it could be used.
 
@@ -175,6 +175,13 @@ had to be hand-declared into it before it could be used.
 against, so all three move together: `npm install @getpaseo/plugin@<v> @getpaseo/client@<v>
 @getpaseo/protocol@<v>` in one command. Bumping one alone fails `ERESOLVE`. Track the daemon's
 version — `paseo daemon status` prints it.
+
+**A prerelease of the SDK is not the release, and nothing tells you when it stops matching.** The
+semver range in `paseo-plugin.json` is satisfied either way, the daemon loads the plugin, and
+`tsc` type-checks happily against whatever shape the pinned types happen to declare — so a
+contribution the shipped app has since redefined compiles clean and is rejected at runtime, in the
+app, where no log here shows it. `skills` sat on `0.8.0-beta.1` past the 0.8.0 release and lost its
+composer pill exactly that way. When `paseo daemon status` prints a version, pin that version.
 
 Because `skipLibCheck: true` is set everywhere, an unresolvable `@getpaseo/client` import is
 swallowed silently and the entire Paseo API types as `any` — and `tsc` still exits 0, so a clean
