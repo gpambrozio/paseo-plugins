@@ -7,12 +7,13 @@
 - [ ] `skills`
 - [ ] `github-board`
 - [ ] `launchd-jobs`
+- [ ] `herald`
 - [ ] Repo-level (docs, CI, config)
 
 ## Checks
 
 - [ ] `npm run typecheck` passes in every plugin I touched
-- [ ] `npm test` passes in `skills` / `launchd-jobs` if touched
+- [ ] `npm test` passes in `skills` / `launchd-jobs` / `herald` if touched
 - [ ] `paseo plugin reload <id>` loads cleanly against a real daemon
 
 ## UI
