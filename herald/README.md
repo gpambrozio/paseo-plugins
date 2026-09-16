@@ -5,9 +5,23 @@ A [Paseo](https://paseo.sh) plugin that tells you, out loud, when one of your ag
 When an agent asks a question, pauses for permission, wants a plan approved, finishes its turn, or
 fails, Herald has a small helper agent write one spoken sentence about it — what is being asked and
 the choices, or what was done and whether anything is left — and the Paseo app on your desk speaks
-it. A **Herald** panel in the sidebar lists every agent waiting on you with that sentence, a button
-to open the session, and a button to hear it again. The sentence also appears as a card in the
-agent's own conversation, right after the turn or question it is about, with a Play button.
+it. A **Herald** panel in the sidebar lists every agent waiting on you with that sentence. Tap a row
+to open that session, or the speaker beside its title to hear the sentence again.
+
+![The Herald panel: three finished agents, each headed by its workspace title with a speaker icon
+beside it and how long ago it finished, then what the agent was last asked, its own last line, and
+in italics the sentence Herald wrote about it. Mute here, Test voice and a refresh button sit in the
+header, next to a badge counting the agents waiting.](docs/panel.png)
+
+## The sentence is in the conversation too
+
+Every announced event also leaves a card in the agent's own transcript, right where the turn or the
+question happened, with a play icon to hear it again. It is written as soon as the event lands, so it
+reads "Writing the summary…" for the second or two the helper takes.
+
+![A Herald card in an agent's conversation: a small panel headed "Herald · Finished" with a play
+icon, and under it, in italics, the sentence written about the turn that just ended. The agent's
+composer sits below it.](docs/timeline-card.png)
 
 ## What you need
 
