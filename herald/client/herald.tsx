@@ -239,28 +239,8 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       summaryMuted: { color: colors.foregroundMuted, fontSize: 14, lineHeight: 20, fontStyle: "italic" as const },
       pending: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
       pendingText: { color: colors.foregroundMuted, fontSize: 13 },
-      actions: { flexDirection: "row" as const, gap: 8, flexWrap: "wrap" as const },
-      primaryButton: {
-        flexDirection: "row" as const,
-        alignItems: "center" as const,
-        gap: 6,
-        paddingHorizontal: 12,
-        paddingVertical: 7,
-        borderRadius: 8,
-        backgroundColor: colors.accent,
-      },
-      primaryButtonText: { color: colors.accentForeground, fontSize: 13, fontWeight: "600" as const },
-      secondaryButton: {
-        flexDirection: "row" as const,
-        alignItems: "center" as const,
-        gap: 6,
-        paddingHorizontal: 12,
-        paddingVertical: 7,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: separator,
-      },
-      secondaryButtonText: { color: colors.foreground, fontSize: 13 },
+      cardPressed: { backgroundColor: colors.surface2 },
+      speaker: { padding: 4, marginLeft: 2 },
     };
   }, [theme, layout.compact]);
 }
@@ -295,16 +275,23 @@ interface RowCardProps {
   onSpeak: (row: Row) => void;
 }
 
+/**
+ * The whole card opens the session; the speaker at the right of the title
+ * says the sentence again. Nested pressables: the speaker takes the touch
+ * and the card does not also open.
+ */
 function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCardProps) {
   const look = lookOf(row.reason);
   const color = toneColor(props.theme, look.tone);
   const muted = props.theme.colors.foregroundMuted;
   const entry = row.entry;
-  // Agents are usually untitled; the workspace names the work. The agent's
-  // own title, when it has one, is the second line.
+  // Agents are usually untitled; the workspace names the work. Under it, the
+  // agent's own title or, failing that, what it was last asked — which is
+  // what tells two untitled agents in one workspace apart.
   const title = workspaceName ?? entry?.workspaceTitle ?? basename(row.cwd);
-  const subtitle = row.title?.trim() || null;
+  const subtitle = row.title?.trim() || entry?.lastRequest || null;
   const spoken = entry === null ? null : speechText(entry);
+  const canSpeakRow = entry === null || spoken !== null;
 
   let summaryNode: ReactElement | null;
   if (entry === null) {
@@ -330,7 +317,13 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
   }
 
   return (
-    <View style={styles.card}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${title}`}
+      disabled={onOpen === null}
+      onPress={onOpen === null ? undefined : () => onOpen(row.agentId)}
+      style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
+    >
       <View style={styles.cardTop}>
         <View style={[styles.reasonPill, { backgroundColor: withAlpha(color, "22") }]}>
           <Icon name={look.icon} size={13} color={color} />
@@ -341,6 +334,17 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
         </Text>
         <View style={styles.spacer} />
         <Text style={styles.cardMeta}>{relativeTime(row.at)}</Text>
+        {canSpeakRow ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Speak the summary for ${title}`}
+            hitSlop={8}
+            onPress={() => onSpeak(row)}
+            style={styles.speaker}
+          >
+            <Icon name="Volume2" size={16} color={props.theme.colors.foreground} />
+          </Pressable>
+        ) : null}
       </View>
       {subtitle === null ? null : (
         <Text style={styles.cardMeta} numberOfLines={1}>
@@ -363,31 +367,7 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
         </View>
       )}
       {summaryNode}
-      <View style={styles.actions}>
-        {onOpen === null ? null : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Open ${title}`}
-            onPress={() => onOpen(row.agentId)}
-            style={styles.primaryButton}
-          >
-            <Icon name="ArrowUpRight" size={14} color={props.theme.colors.accentForeground} />
-            <Text style={styles.primaryButtonText}>Open</Text>
-          </Pressable>
-        )}
-        {spoken === null && entry !== null ? null : (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Speak the summary for ${title}`}
-            onPress={() => onSpeak(row)}
-            style={styles.secondaryButton}
-          >
-            <Icon name="Volume2" size={14} color={props.theme.colors.foreground} />
-            <Text style={styles.secondaryButtonText}>Speak</Text>
-          </Pressable>
-        )}
-      </View>
-    </View>
+    </Pressable>
   );
 }
 

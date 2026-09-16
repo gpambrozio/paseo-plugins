@@ -106,7 +106,11 @@ Agents are almost always untitled, so "Untitled agent" is what an agent title wo
 look up the workspace's title (`server/workspaces.ts`, cached five minutes) and store it on the entry;
 the fallback sentence, the helper's prompt, and the panel's card title all use `displayName`: the
 agent's own title when it has one, else the workspace's. The card shows the agent title, if any, as
-the line under the workspace title.
+the line under the workspace title — or, for an untitled agent, the start of what it was last asked
+(`lastRequest`), because two untitled agents in one workspace would otherwise read as one.
+
+The whole panel card opens the session (`navigation.openAgent`); the speaker icon at the right of the
+title speaks the sentence again. They nest, and the inner pressable takes the touch.
 
 ## What the store means
 

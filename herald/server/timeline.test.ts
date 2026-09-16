@@ -8,6 +8,7 @@ import {
   lastUserMessage,
   latestOutputText,
   plainText,
+  preview,
   shellCommand,
 } from "./timeline";
 
@@ -138,6 +139,13 @@ describe("plainText and firstWords", () => {
     );
     expect(firstWords("one two three four five", 3)).toBe("one two three…");
     expect(firstWords("", 3)).toBe("");
+  });
+});
+
+describe("preview", () => {
+  it("flattens to one line and clips with an ellipsis", () => {
+    expect(preview("Fix the **login** bug\nplease")).toBe("Fix the login bug please");
+    expect(preview("abcdefghij", 6)).toBe("abcde…");
   });
 });
 

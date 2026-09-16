@@ -38,6 +38,7 @@ import {
   firstWords,
   lastUserMessage,
   latestOutputText,
+  preview,
 } from "./timeline";
 
 export interface HookDeps {
@@ -120,6 +121,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       workspaceId: agent.workspaceId,
       workspaceTitle: title,
       agentTitle: agent.title,
+      lastRequest: text.lastUser === null ? null : preview(text.lastUser),
       cwd: agent.cwd,
       reason,
       eventId,

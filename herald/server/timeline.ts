@@ -149,6 +149,12 @@ export function firstWords(text: string, maxWords: number): string {
   return taken.length < words.length ? `${joined}…` : joined;
 }
 
+/** One line of at most `max` characters, for a preview under a title. */
+export function preview(text: string, max = 90): string {
+  const line = plainText(text);
+  return line.length <= max ? line : `${line.slice(0, max - 1).trimEnd()}…`;
+}
+
 export interface SpeechSource {
   workspaceTitle: string | null;
   agentTitle: string | null;

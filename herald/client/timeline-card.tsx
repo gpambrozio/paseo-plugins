@@ -1,6 +1,7 @@
 /**
  * Herald's card in an agent's transcript: the sentence written about the
- * turn or question just above it, and a Play button that says it again.
+ * turn or question just above it, and a play icon at the right of the
+ * header that says it again.
  *
  * The row is written by the daemon (`server/card.ts`); this only draws it.
  * The host re-validates `data` against `HeraldCardSchema` before calling this,
@@ -77,19 +78,8 @@ export function HeraldTimelineCard({ theme, layout, item }: PluginTimelineItemPr
       pending: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
       pendingText: { color: colors.foregroundMuted, fontSize: 13 },
       note: { color: colors.foregroundMuted, fontSize: 11 },
-      play: {
-        flexDirection: "row" as const,
-        alignItems: "center" as const,
-        gap: 6,
-        alignSelf: "flex-start" as const,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: colors.border,
-      },
-      playDisabled: { opacity: 0.5 },
-      playText: { color: colors.foreground, fontSize: 12 },
+      play: { padding: 4 },
+      playDisabled: { opacity: 0.4 },
     };
   }, [theme, layout.compact]);
 
@@ -116,6 +106,16 @@ export function HeraldTimelineCard({ theme, layout, item }: PluginTimelineItemPr
         <Text style={styles.brand}>Herald</Text>
         <Text style={styles.reason}>· {reasonLabel(card.reason)}</Text>
         <View style={styles.spacer} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={speaking ? "Speaking" : "Play the summary"}
+          hitSlop={8}
+          disabled={text === null || speaking}
+          onPress={() => void play()}
+          style={[styles.play, text === null || speaking ? styles.playDisabled : null]}
+        >
+          <Icon name={speaking ? "Volume2" : "Play"} size={14} color={theme.colors.foreground} />
+        </Pressable>
       </View>
       {card.summary.status === "pending" ? (
         <View style={styles.pending}>
@@ -128,16 +128,6 @@ export function HeraldTimelineCard({ theme, layout, item }: PluginTimelineItemPr
       {card.summary.status === "failed" ? (
         <Text style={styles.note}>Summary failed: {card.summary.error}</Text>
       ) : null}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={speaking ? "Speaking" : "Play the summary"}
-        disabled={text === null || speaking}
-        onPress={() => void play()}
-        style={[styles.play, text === null || speaking ? styles.playDisabled : null]}
-      >
-        <Icon name={speaking ? "Volume2" : "Play"} size={13} color={theme.colors.foreground} />
-        <Text style={styles.playText}>{speaking ? "Speaking…" : "Play"}</Text>
-      </Pressable>
     </View>
   );
 }

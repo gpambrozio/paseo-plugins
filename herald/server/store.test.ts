@@ -12,6 +12,7 @@ function entry(overrides: Partial<AttentionEntry> = {}): AttentionEntry {
     workspaceId: "w1",
     workspaceTitle: "Shop",
     agentTitle: "Login fix",
+    lastRequest: null,
     cwd: "/repo",
     reason: "question",
     eventId: "a1:permission:p1",

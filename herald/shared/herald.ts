@@ -54,6 +54,12 @@ export const AttentionEntrySchema = z.object({
    */
   workspaceTitle: z.string().nullable().default(null),
   agentTitle: z.string().nullable(),
+  /**
+   * The start of what the user last asked this agent, for telling two
+   * untitled agents in one workspace apart. Null for a pause, which carries
+   * no timeline.
+   */
+  lastRequest: z.string().nullable().default(null),
   cwd: z.string(),
   reason: AttentionReasonSchema,
   /** Unique per event, so a client can remember what it has already spoken. */

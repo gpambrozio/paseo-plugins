@@ -174,6 +174,7 @@ describe("registerHooks", () => {
       headline: "Finished",
       detail: "I fixed auth.ts and added a test.",
       eventId: "a1:turn:t1",
+      lastRequest: "Fix the login bug",
     });
     await settle();
     expect(summarize.mock.calls[0]?.[0]).toMatchObject({

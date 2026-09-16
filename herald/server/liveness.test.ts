@@ -11,6 +11,7 @@ function entry(agentId: string): AttentionEntry {
     workspaceId: "w1",
     workspaceTitle: null,
     agentTitle: agentId,
+    lastRequest: null,
     cwd: "/repo",
     reason: "finished",
     eventId: `${agentId}:turn:t1`,
