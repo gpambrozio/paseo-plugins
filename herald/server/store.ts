@@ -36,6 +36,14 @@ export class AttentionStore {
    * serialise a map that has not been merged yet.
    */
   private loading: Promise<void> | null = null;
+  /**
+   * Conditional removals that arrived before the entry they test had been
+   * read. `remove` can mark its agent `touched` unconditionally; `removeIf`
+   * cannot, because its test needs the very entry still on disk. So the test
+   * is kept here and applied to that entry as it is merged — otherwise a
+   * permission answered during the read is silently restored by the merge.
+   */
+  private readonly deferredRemovals = new Map<string, Array<(entry: AttentionEntry) => boolean>>();
 
   /** `path === null` keeps everything in memory, which is what the tests want. */
   constructor(private readonly path: string | null) {}
@@ -63,6 +71,7 @@ export class AttentionStore {
     }
     const json: unknown = JSON.parse(raw);
     if (!Array.isArray(json)) throw new Error(`${this.path}: expected an array of entries`);
+    let dropped = false;
     for (const item of json) {
       const parsed = AttentionEntrySchema.safeParse(item);
       if (!parsed.success) {
@@ -72,6 +81,11 @@ export class AttentionStore {
       const entry = parsed.data;
       // Never undo a live upsert or removal that landed during the read.
       if (this.touched.has(entry.agentId)) continue;
+      const held = this.deferredRemovals.get(entry.agentId);
+      if (held !== undefined && held.some((matches) => matches(entry))) {
+        dropped = true;
+        continue;
+      }
       this.entries.set(
         entry.agentId,
         entry.summary.status === "pending"
@@ -86,7 +100,10 @@ export class AttentionStore {
           : entry,
       );
     }
+    // Nothing else is going to write the dropped rows out of the file.
+    if (dropped) this.persist();
     this.touched.clear();
+    this.deferredRemovals.clear();
   }
 
   list(): AttentionEntry[] {
@@ -128,7 +145,17 @@ export class AttentionStore {
 
   removeIf(agentId: string, predicate: (entry: AttentionEntry) => boolean): boolean {
     const current = this.entries.get(agentId);
-    if (current === undefined || !predicate(current)) return false;
+    if (current === undefined) {
+      // Absent, or simply not read yet. While loading it is the second, so the
+      // test is held for the merge rather than thrown away.
+      if (this.loading !== null) {
+        const held = this.deferredRemovals.get(agentId) ?? [];
+        held.push(predicate);
+        this.deferredRemovals.set(agentId, held);
+      }
+      return false;
+    }
+    if (!predicate(current)) return false;
     this.touched.add(agentId);
     this.entries.delete(agentId);
     this.persist();

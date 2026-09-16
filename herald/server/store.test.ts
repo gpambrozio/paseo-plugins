@@ -115,6 +115,34 @@ describe("AttentionStore", () => {
     expect(reopened.list().map((item) => item.agentId).sort()).toEqual(["a1", "a2", "a3"]);
   });
 
+  it("applies a conditional removal that arrived before its entry was read", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "herald-store-"));
+    tempDirs.push(dir);
+    const path = join(dir, "attention.json");
+
+    const seed = new AttentionStore(path);
+    seed.upsert(entry({ agentId: "a1", requestId: "p1", eventId: "a1:permission:p1" }));
+    seed.upsert(entry({ agentId: "a2", requestId: "p2", eventId: "a2:permission:p2" }));
+    await seed.flush();
+
+    const store = new AttentionStore(path);
+    const loading = store.load();
+    // The user answers a question that is still only on disk. The test cannot
+    // run yet, so it is held for the merge rather than dropped.
+    expect(store.removeIf("a1", (item) => item.requestId === "p1")).toBe(false);
+    // One whose test does not match must leave its row alone.
+    store.removeIf("a2", (item) => item.requestId === "answered elsewhere");
+    await loading;
+
+    expect(store.get("a1")).toBeNull();
+    expect(store.get("a2")?.requestId).toBe("p2");
+
+    // And it is gone from the file, so the next start does not restore it.
+    await store.flush();
+    const saved = JSON.parse(await readFile(path, "utf8")) as AttentionEntry[];
+    expect(saved.map((item) => item.agentId)).toEqual(["a2"]);
+  });
+
   it("survives a reload, marking an unfinished summary as failed", async () => {
     const dir = await mkdtemp(join(tmpdir(), "herald-store-"));
     tempDirs.push(dir);

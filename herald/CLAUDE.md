@@ -155,6 +155,12 @@ it. Anything live is newer than anything on disk, so `load` skips every agent in
 of agents upserted or removed since the store was made. Without that, an announcement that arrived
 mid-read would vanish under the older persisted entry for the same agent.
 
+`removeIf` needs one more step than `remove`. `remove` marks its agent `touched` whether or not an
+entry is there, so the merge skips it either way; `removeIf` cannot, because its test needs the entry
+still on disk. So a conditional removal that arrives mid-read is *held* and applied to that entry as
+it is merged — without it, a permission answered during the read comes back with the merge and sits
+in the panel until liveness clears it.
+
 Merging in memory is only half of it: that live upsert also *queued a write*. Left alone it would
 truncate the file mid-read and then save a map that had not been merged yet, erasing from
 `attention.json` the very rows just read out of it. So `persist` holds any write queued while
