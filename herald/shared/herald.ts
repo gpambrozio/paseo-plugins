@@ -125,11 +125,60 @@ export function announceKeyFor(reason: AttentionReason): AnnounceKey {
   return reason === "canceled" ? "error" : reason;
 }
 
+/**
+ * What a prompt template may put in `{{ }}`, and what the daemon fills each
+ * one with. The descriptions are what the settings screen lists, so they are
+ * written for the person editing the prompt.
+ *
+ * Two rules the editor states and `renderPrompt` keeps: a **line** whose
+ * placeholder has nothing to fill it for this event is left out whole — that
+ * is how "Detail: {{detail}}" disappears for an event with no detail — and a
+ * name that is not on this list is left in the prompt exactly as typed.
+ */
+export const PROMPT_PLACEHOLDERS = [
+  { name: "agent", description: "What the work is called: the agent's title, or its workspace's." },
+  { name: "workspace", description: "The workspace's title, or the folder name when it has none." },
+  { name: "folder", description: "The last part of the agent's working directory." },
+  { name: "event", description: "A sentence saying why the agent is waiting — a question, a plan, a finished turn." },
+  { name: "headline", description: "The one line Herald builds without a model: the question, the command, \"Finished\"." },
+  { name: "detail", description: "The choices, the command, or the start of the final message. Often empty." },
+  { name: "request", description: "What the user last asked this agent for. Empty when the agent paused without one." },
+  { name: "output", description: "What the agent said since that last message. Empty for a pause." },
+] as const;
+export type PromptPlaceholder = (typeof PROMPT_PLACEHOLDERS)[number]["name"];
+
+/**
+ * The prompt every summary starts from, and what *Restore the default* puts
+ * back. The closing line is what makes the helper answer with
+ * `{"speech": "..."}`; a template without it still works — the parser falls
+ * back to reading the reply as prose — but the sentence is less predictable.
+ */
+export const DEFAULT_SUMMARY_PROMPT = [
+  // One line per paragraph: the editor wraps them, and a break typed here is a
+  // break the reader has to tidy up before editing the sentence it lands in.
+  "You are Herald. You tell a developer, out loud, what one of their coding agents needs. Answer with the JSON object only. Do not run tools, read files, or ask anything back.",
+  "",
+  'Agent: "{{agent}}", working in the workspace "{{workspace}}" (folder {{folder}}).',
+  "Event: {{event}}",
+  "Headline: {{headline}}",
+  "Detail: {{detail}}",
+  "",
+  "What the user last asked for: {{request}}",
+  "",
+  "What the agent said: {{output}}",
+  "",
+  "Write what should be spoken: one or two sentences, under 35 words, plain text with no markdown, no code, and no file paths unless nothing else identifies the work. Start with the agent's name as given above, so the listener knows which piece of work this is about. For a question, say what is being asked and the choices. For finished work, say what was done and whether anything is left for the user. For a permission, say what the agent wants to do.",
+  "",
+  'Reply with exactly one JSON object shaped like {"speech": "..."} — the key must be "speech", no code fences, nothing before or after it.',
+].join("\n");
+
 export const DEFAULT_SUMMARIZER = {
   /** `provider/model`, the format the Paseo SDK takes. */
   provider: "claude/claude-haiku-4-5",
   /** How long one summary may take before it is given up on and the fallback is used. */
   timeoutMs: 90_000,
+  /** The template the helper's prompt is rendered from. */
+  prompt: DEFAULT_SUMMARY_PROMPT,
 };
 
 export const DEFAULT_ANNOUNCE: Record<AnnounceKey, boolean> = {
@@ -151,6 +200,8 @@ export const HeraldConfigSchema = z.object({
     .object({
       provider: z.string().min(1).default(DEFAULT_SUMMARIZER.provider),
       timeoutMs: z.number().int().min(10_000).max(600_000).default(DEFAULT_SUMMARIZER.timeoutMs),
+      /** Blank is not an error: `buildPrompt` reads it as "use the default". */
+      prompt: z.string().default(DEFAULT_SUMMARY_PROMPT),
     })
     .default(DEFAULT_SUMMARIZER),
   announce: z

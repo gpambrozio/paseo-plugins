@@ -13,14 +13,14 @@ compile time. This file covers only what is specific to `herald`.
 | File                         | What it owns                                                                          |
 | ---------------------------- | ------------------------------------------------------------------------------------- |
 | `index.server.ts`            | Wiring — three RPCs, the speech settings document, the hooks, the store's file.        |
-| `index.client.tsx`           | Wiring — starts the announcer, registers the surface, sidebar item, settings screen.   |
+| `index.client.tsx`           | Wiring — the announcer, the surface, sidebar item, settings screen, its opener.         |
 | `shared/herald.ts`           | The `AttentionEntry` shape, the list RPC, and the daemon config document with defaults. |
 | `shared/settings.ts`         | The host settings document for *how* to speak; the app reads it, the daemon never does. |
 | `shared/timeline.ts`         | The summary card's `kind`/`version` and schema; a *runtime* import on both sides.        |
 | `server/card.ts`             | Appends the summary card to the agent's transcript, one chain per row.                 |
 | `client/timeline-card.tsx`   | Draws that card, with a Play button that speaks the sentence again.                     |
 | `server/hooks.ts`            | Lifecycle events → store entries; helper recognition; turn dedupe; the summary queue.  |
-| `server/summarize.ts`        | One helper agent per summary: prompt, structured output, cleanup on failure.           |
+| `server/summarize.ts`        | One helper per summary: the prompt template, structured output, cleanup on failure.     |
 | `server/store.ts`            | One entry per agent, mirrored to `attention.json`.                                     |
 | `server/liveness.ts`         | Asks the daemon whether each entry's agent is still open before the list goes out.     |
 | `server/workspaces.ts`       | The workspace title an entry is named by, cached; agents are usually untitled.         |
@@ -31,6 +31,7 @@ compile time. This file covers only what is specific to `herald`.
 | `client/herald.tsx`          | The surface: Paseo's attention list joined with Herald's entries.                      |
 | `client/settings-screen.tsx` | Settings › Plugins › Herald: speech (host document) and summaries (daemon RPCs).       |
 | `client/option-picker.tsx`   | A settings row opening a searchable, scrolling list, for choices too long for a select. |
+| `client/prompt-editor.tsx`   | A settings row opening the summary prompt in a modal, with its placeholder legend.      |
 | `client/web.ts`              | Every browser global: audio playback, the Web Speech API, the desktop-shell check.      |
 | `server/*.test.ts`           | The tests. `npm test`.                                                                 |
 
@@ -60,12 +61,35 @@ the old process may still be finishing. **Do not rename the title without checki
 `autoArchive` fires only on a finished turn. A helper that timed out or asked for a permission is
 archived by hand in `summarize`, otherwise it sits in the subagent track forever.
 
+## The prompt is a template the user owns
+
+`config.summarizer.prompt` holds it; `DEFAULT_SUMMARY_PROMPT` in `shared/herald.ts` is what ships and
+what *Restore the default* writes back. `renderPrompt` substitutes the names in `PROMPT_PLACEHOLDERS`
+and nothing else, under two rules the settings screen states in the same words:
+
+- **A line whose placeholder is empty for this event is dropped whole**, and the blank lines that
+  leaves are collapsed. That is what replaced the old `if (detail !== null) lines.push(...)`: a
+  template has no conditionals, so `Detail: {{detail}}` has to disappear on its own. It is also why
+  the default keeps each label on one line with its value, `What the agent said: {{output}}`, rather
+  than the label on a line of its own — that one would survive with nothing under it.
+- **An unknown `{{name}}` is left exactly as typed.** A typo reaches the model verbatim instead of
+  silently becoming an empty line.
+
+Blank is not empty: `buildPrompt` reads a blank template as the default, and the editor saves `""`
+when the draft matches the default, so a user who never customised it follows the default as it
+changes rather than freezing a copy of today's.
+
+**The closing JSON line is now the user's to delete**, which is a change from what the next paragraph
+used to promise. Deleting it is survivable only because `parseSummaryText` falls back to the prose;
+the editor warns when the word `speech` has left the prompt, and the default still asks for the
+object. Keep both halves working — do not lean on the prompt now that it is editable.
+
 **`outputSchema` is a request, not a guarantee.** Against a live daemon, Claude Haiku returned the
 object inside a ```` ```json ```` fence, and once under a key of its own choosing (`spoken`). The
 first shipped version read that as the words "code block". `parseSummaryText` therefore strips
 fences, finds the object anywhere in the text, takes `speech` or else the first string in it, and
-only then falls back to the prose. Keep the prompt's closing line — the exact shape and "no code
-fences" — and keep the parser defensive; do not trust one to fix the other.
+only then falls back to the prose. Keep the *default* prompt's closing line — the exact shape and "no
+code fences" — and keep the parser defensive; do not trust one to fix the other.
 
 ## `turn_ended` can repeat
 
@@ -269,7 +293,8 @@ if the host stopped routing `settings.*` through `rpc`, the announcer logs one w
 to the values a mounted screen last mirrored, or to the defaults.
 
 The daemon config (`shared/herald.ts`) is what the hooks act on — which events to summarise, which
-model — so it is the daemon's file behind `herald.config.read` / `herald.config.write`.
+model, and the prompt template — so it is the daemon's file behind `herald.config.read` /
+`herald.config.write`.
 
 ## Long lists do not fit a `SettingsSelect`
 
@@ -281,6 +306,11 @@ off, so the host `FlatList` inside it is what scrolls, above a host `TextInput` 
 detail, or value. Keep `SettingsSelect` for anything under about ten options and reach for the picker
 past that.
 
+`SettingsInput` is one line, which is why the prompt is not one: `client/prompt-editor.tsx` is the
+same shape as the picker — a `SettingsRow` opening a `Modal.Content scrollable={false}` — with a
+multiline host `TextInput` taking the body. Its draft is local until *Save*, so *Cancel* cancels and
+the daemon is not written per keystroke.
+
 ## The SDK's state hooks do not work in a surface
 
 `useWorkspace` and `useAgent` throw "Plugin state hooks must run inside a workspace panel" when
@@ -288,6 +318,11 @@ called from a sidebar surface — they are for `addWorkspacePanel` components, w
 or agent in scope. The first shipped panel used one for the workspace name and failed on mount.
 `client/herald.tsx` lists workspaces through the host API on each refresh and maps id to title
 instead. Anything a surface needs to know about workspaces or agents goes through `usePaseo()`.
+
+The header's gear is the other half of that gap: a surface is given no `openSettings` either, so
+`index.client.tsx` lends it one through `bindSettingsOpener`, and the button is hidden while nothing
+is bound. Keep the binding cleared in the contribution's cleanup — the module outlives a
+disconnected client's context.
 
 ## Checking it
 
@@ -303,3 +338,5 @@ cover, check by hand after `paseo plugin reload herald`:
 3. In a browser tab, nothing is spoken until **Test voice** has been pressed once.
 4. Switch a kind off in Settings › Plugins › Herald and trigger it: the row appears with "Not
    announced" and no helper is created.
+5. Edit the summary prompt — "Answer in French" is enough — and trigger an event: the next sentence
+   follows it. *Restore the default* and *Save* puts it back.

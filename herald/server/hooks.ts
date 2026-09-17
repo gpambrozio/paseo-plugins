@@ -225,6 +225,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
             paseo,
             provider: config.summarizer.provider,
             timeoutMs: config.summarizer.timeoutMs,
+            prompt: config.summarizer.prompt,
             onHelperCreated: (helperId) => helpers.add(helperId),
           },
         );
