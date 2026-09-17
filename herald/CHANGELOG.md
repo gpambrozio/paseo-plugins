@@ -15,6 +15,8 @@ pin and a line to read before you move.
   helper is given, so you can ask for shorter sentences, another language, or more detail about the
   things you care about. Herald fills in the agent, the event and what was said wherever you put
   them, and one press restores the original prompt.
+- **A settings button in the panel header**, beside refresh, so the voice, the model and the prompt
+  are one press away from the list rather than a trip through Settings.
 
 ### Changed
 

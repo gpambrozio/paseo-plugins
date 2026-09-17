@@ -10,8 +10,8 @@ to open that session, or the speaker beside its title to hear the sentence again
 
 ![The Herald panel: three finished agents, each headed by its workspace title with a speaker icon
 beside it and how long ago it finished, then what the agent was last asked, its own last line, and
-in italics the sentence Herald wrote about it. Mute here, Test voice and a refresh button sit in the
-header, next to a badge counting the agents waiting.](docs/panel.png)
+in italics the sentence Herald wrote about it. Mute here, Test voice, a refresh button and a settings
+button sit in the header, next to a badge counting the agents waiting.](docs/panel.png)
 
 ## The sentence is in the conversation too
 
@@ -48,7 +48,8 @@ Pin a release with `--ref herald/v<version>`. To hack on it, clone the repositor
 
 ## Settings
 
-**Settings › Plugins › Herald**, or *Herald settings* from the Command Center.
+**Settings › Plugins › Herald** — the gear in the panel's header, *Herald settings* from the Command
+Center, or the settings screen itself.
 
 - **Speech** — the master switch; whether the desktop app, browser tabs, and phones act on it; the
   voice source (the daemon Mac's `say` voices, or this device's browser voice), which voice, the

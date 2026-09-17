@@ -157,8 +157,11 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   `herald/client/option-picker.tsx`.
 - **A surface cannot open its own settings screen.** `PluginSurfaceProps` carries no
   `openSettings`; only `PluginClientContext` and a Command Center or slash-command callback have it.
-  A surface that needs to reach one has to keep its own in-surface editor or route the user through
-  ⌘K — see `github-board`, which does both.
+  A surface that needs to reach one keeps its own in-surface editor, routes the user through ⌘K —
+  see `github-board`, which does both — or is *lent* the capability by the entry:
+  `herald/index.client.tsx` passes `client.openSettings` to a module-scope binding in
+  `herald/client/herald.tsx`, which its header gear calls. Contribution runs before any surface
+  mounts, so the binding is always set by the time one renders; it is cleared in the cleanup.
 
 ### Versions
 

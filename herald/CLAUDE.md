@@ -13,7 +13,7 @@ compile time. This file covers only what is specific to `herald`.
 | File                         | What it owns                                                                          |
 | ---------------------------- | ------------------------------------------------------------------------------------- |
 | `index.server.ts`            | Wiring — three RPCs, the speech settings document, the hooks, the store's file.        |
-| `index.client.tsx`           | Wiring — starts the announcer, registers the surface, sidebar item, settings screen.   |
+| `index.client.tsx`           | Wiring — the announcer, the surface, sidebar item, settings screen, its opener.         |
 | `shared/herald.ts`           | The `AttentionEntry` shape, the list RPC, and the daemon config document with defaults. |
 | `shared/settings.ts`         | The host settings document for *how* to speak; the app reads it, the daemon never does. |
 | `shared/timeline.ts`         | The summary card's `kind`/`version` and schema; a *runtime* import on both sides.        |
@@ -318,6 +318,11 @@ called from a sidebar surface — they are for `addWorkspacePanel` components, w
 or agent in scope. The first shipped panel used one for the workspace name and failed on mount.
 `client/herald.tsx` lists workspaces through the host API on each refresh and maps id to title
 instead. Anything a surface needs to know about workspaces or agents goes through `usePaseo()`.
+
+The header's gear is the other half of that gap: a surface is given no `openSettings` either, so
+`index.client.tsx` lends it one through `bindSettingsOpener`, and the button is hidden while nothing
+is bound. Keep the binding cleared in the contribution's cleanup — the module outlives a
+disconnected client's context.
 
 ## Checking it
 

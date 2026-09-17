@@ -22,6 +22,20 @@ import { listAttention, type AttentionEntry, type AttentionReason } from "../sha
 import { getAnnouncer, isMutedHere, setMutedHere, speechText } from "./announcer";
 import { canPlaySpeech, speechPlatform } from "./web";
 
+/**
+ * Opening the settings screen is a `PluginClientContext` capability:
+ * `PluginSurfaceProps` carries no `openSettings`, so the surface cannot reach
+ * its own settings on its own. `index.client.tsx` has the context and hands the
+ * opener down here at contribution time — which happens before any surface can
+ * mount — and the header button calls it. Module scope belongs to this client's
+ * bundle eval, the same place the other plugins here keep their surface caches.
+ */
+let openSettingsScreen: ((id: string) => void) | null = null;
+
+export function bindSettingsOpener(open: ((id: string) => void) | null): void {
+  openSettingsScreen = open;
+}
+
 /** A row's reason: one of Herald's, or "attention" when only Paseo's flag is known. */
 type RowReason = AttentionReason | "attention";
 
@@ -554,6 +568,16 @@ export function HeraldSurface(props: PluginSurfaceProps) {
         >
           <Icon name="RefreshCw" size={14} color={foreground} />
         </Pressable>
+        {openSettingsScreen === null ? null : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Herald settings"
+            onPress={() => openSettingsScreen?.("herald")}
+            style={styles.toolButton}
+          >
+            <Icon name="Settings" size={14} color={foreground} />
+          </Pressable>
+        )}
       </View>
       {hint === null ? null : <Text style={styles.hint}>{hint}</Text>}
       {error === null ? null : (
