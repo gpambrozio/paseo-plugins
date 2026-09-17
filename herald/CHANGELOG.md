@@ -13,13 +13,13 @@ pin and a line to read before you move.
 
 - **A Herald panel in the sidebar** listing every agent that is waiting on you — a question asked, a
   plan or a permission to approve, a turn finished, a turn failed — with a one-sentence summary of
-  what it needs, a button to open the session, and a button to hear the sentence again.
+  what it needs. Tap a row to open that session, or the speaker beside its title to hear it again.
 - **Spoken announcements.** When one of those events happens, a small helper agent writes the
   sentence and the Paseo app on your desk speaks it — in the daemon Mac's own voice, which it renders
   and the app plays, or in the browser's voice when the daemon is not a Mac. The desktop app speaks
   on its own; a browser tab speaks once you have pressed *Test voice*; phones can vibrate instead,
   since a plugin cannot yet speak there.
 - **A card in the agent's conversation.** The same sentence appears in the agent's own transcript,
-  right after the turn or question it is about, with a Play button to hear it again.
+  right after the turn or question it is about, with a play icon to hear it again.
 - **Settings** for where to speak, which voice source and voice, how fast, which kinds of event to
   announce, and which model writes the summaries — Claude Haiku 4.5 unless you pick another.
