@@ -3,14 +3,15 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Plugins for [Paseo](https://paseo.sh), one self-contained folder per plugin: `skills/`,
-`github-board/`, and `launchd-jobs/`. Plugin code is trusted and unsandboxed — the server half runs
+`github-board/`, `launchd-jobs/`, and `herald/`. Plugin code is trusted and unsandboxed — the server half runs
 next to the daemon with its files, processes, and credentials; the client half runs inside the
 Paseo app.
 
 Each plugin has its own `CLAUDE.md` for what only that plugin does — `skills/CLAUDE.md` before
 touching skill discovery, `github-board/CLAUDE.md` before touching the `gh` queries or the board's
 caching, `launchd-jobs/CLAUDE.md` before touching anything that calls `launchctl` or writes a
-plist. This file is only what they share.
+plist, `herald/CLAUDE.md` before touching the lifecycle hooks or the summary helper. This file is
+only what they share.
 
 ## There is no workspace root
 
@@ -22,13 +23,13 @@ Every command below runs from inside a plugin folder, never from the repo root.
 path on every start, so moving this clone means reinstalling every plugin in it.
 
 ```bash
-cd skills          # or github-board, launchd-jobs
+cd skills          # or github-board, launchd-jobs, herald
 npm install
 npm run typecheck  # every plugin
-npm test           # skills and launchd-jobs — github-board defines no test script
+npm test           # skills, launchd-jobs and herald — github-board defines no test script
 ```
 
-Single test (skills and launchd-jobs, vitest):
+Single test (skills, launchd-jobs and herald, vitest):
 
 ```bash
 npm test -- server/resolve/frontmatter.test.ts   # one file
@@ -43,11 +44,11 @@ paseo plugin logs skills          # load errors and stderr
 ```
 
 - The plugin id comes from `paseo-plugin.json`, which `paseo plugin init` seeds from the directory
-  basename. The ids are `skills`, `github-board`, and `launchd-jobs`.
+  basename. The ids are `skills`, `github-board`, `launchd-jobs`, and `herald`.
 - **A failed reload stays failed.** Paseo does not restore the previous code.
 - **Never restart the daemon** — it manages the user's running agents.
 - The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.8.0 or newer**. All
-  three plugins declare `requirements.paseo: ">=0.8.0"`; on an older daemon they do not degrade,
+  four plugins declare `requirements.paseo: ">=0.8.0"`; on an older daemon they do not degrade,
   they refuse to load. There are no version fallbacks left in this repo — see *Versions* below for
   why the app-side check made them unnecessary.
 - There is no harness for plugin UI. A clean typecheck and a clean reload prove a `client/` change
@@ -146,6 +147,14 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   in module-scope variables the component reads on mount: `cachedBoard` in `github-board`,
   `cachedPane` and `cachedDraft` in `launchd-jobs`. Anything that *is* worth persisting belongs in a
   settings document, which the host restores on its own.
+- **`useWorkspace` and `useAgent` work only inside workspace panels.** Called from a sidebar surface
+  they throw "Plugin state hooks must run inside a workspace panel" on mount, and the surface renders
+  that error instead of itself. A surface reads workspaces and agents through `usePaseo()` — see
+  `herald/client/herald.tsx`, which maps workspace ids to titles from `workspaces.list()`.
+- **`SettingsSelect`'s popover does not scroll.** It works for a handful of options and cannot be
+  used for a long list — a Mac lists 185 `say` voices. Past about ten options, open a host `Modal`
+  with `scrollable={false}` and put the host `FlatList` and a search `TextInput` inside it — see
+  `herald/client/option-picker.tsx`.
 - **A surface cannot open its own settings screen.** `PluginSurfaceProps` carries no
   `openSettings`; only `PluginClientContext` and a Command Center or slash-command callback have it.
   A surface that needs to reach one has to keep its own in-surface editor or route the user through
@@ -155,8 +164,8 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
 
 `paseo-plugin.json` carries `requirements.paseo`, an npm semver range. **A missing
 `requirements.paseo` means `<0.8.0`**, so 0.8 rejects the plugin outright with a link to the
-migration guide — adding the field is part of migrating, not a substitute for it. All three plugins
-here declare `>=0.8.0`.
+migration guide — adding the field is part of migrating, not a substitute for it. All four plugins here declare
+`>=0.8.0`.
 
 The daemon checks the range before installing or loading, and **each connected app checks it against
 its own version** before evaluating client code. That second check is what retired this repo's
@@ -166,7 +175,7 @@ optional.
 
 ### The SDK dependency
 
-All three plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
+All four plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
 the daemon runs — `0.8.0` at the time of writing. `skills` used to ship a hand-written
 `paseo-plugin.d.ts` shim instead; it was deleted in the 0.8 migration, because every new host API
 had to be hand-declared into it before it could be used.
@@ -206,7 +215,8 @@ in its `CHANGELOG.md`, and a tag. Nothing is published to a registry — `paseo 
 branch unless the user pins `--ref <tag>` — so a release is exactly two things to a user, a tag to
 pin and an entry to read before they move.
 
-**Tags are namespaced per plugin**: `skills/v0.1.0`, `github-board/v0.6.0`, `launchd-jobs/v0.3.0`.
+**Tags are namespaced per plugin**: `skills/v0.1.0`, `github-board/v0.6.0`, `launchd-jobs/v0.3.0`,
+`herald/v0.1.0`.
 A tag names a repo-wide commit, so `github-board/v0.6.0` points at a tree where the other two
 plugins sit at whatever in-between state they were in. That is harmless, because an install is
 `(repo, ref, path)` and `--path` decides which folder the daemon loads — the other two are never
@@ -230,7 +240,7 @@ paseo plugin add gpambrozio/paseo-plugins --path <plugin> --ref <plugin>/v<versi
 
 **What earns a version** is what a user of the plugin can observe, which is the same bar the
 changelog entry has to clear. A dev-dependency bump earns neither: `vitest` and `@types/node` are
-devDependencies in all three plugins and reach no bundle, so there is no line worth reading and
+devDependencies in all four plugins and reach no bundle, so there is no line worth reading and
 nothing changes for someone who re-pins. The only dependency that ships is `@getpaseo/plugin`.
 
 **The "Latest" badge is repo-wide and arbitrary.** GitHub designates exactly one non-draft,
@@ -261,3 +271,14 @@ decision costs if it turns out wrong.
 To check discovery against reality rather than fixtures, write a throwaway `*.tmp.test.ts` that
 runs a resolver against the real `~/.claude` and a real workspace, read what it prints, then delete
 it. **Never write to `~/.claude`.**
+
+## herald
+
+Watches every agent through the server lifecycle hooks and has a short-lived helper agent write a
+spoken sentence about what the agent needs; the app speaks it and a sidebar panel lists it. Three
+constraints shape it, all in `herald/CLAUDE.md`: a hook has 30 seconds and a summary does not fit, so
+summaries are detached from the handler; the helper is a visible agent that fires this plugin's own
+hooks and is recognised by title as well as id; and the app cannot run `say`, so the daemon renders
+the sentence with it and the client plays the bytes through the browser's audio element, with the Web
+Speech API as the fallback — desktop and browser only, since nothing in the 0.8 plugin API plays audio
+on a phone.

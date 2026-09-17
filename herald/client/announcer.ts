@@ -1,0 +1,285 @@
+/**
+ * The part that runs while the app is open, whether or not the Herald panel
+ * is on screen. `index.client.tsx` starts one per connected client and stops
+ * it on cleanup; a surface would not do, because a surface is unmounted the
+ * moment the user navigates anywhere.
+ *
+ * It pulls, because a plugin has no server-to-client push: a short poll of
+ * the entries RPC, quickened when Paseo's own agent stream reports an agent
+ * needing attention or a summary is still being written. Each entry is spoken
+ * once per device, remembered by its event id.
+ *
+ * Async **function expressions**, never async arrows, anywhere in this file —
+ * Hermes evaluates an async arrow in an eval'd bundle to `undefined`.
+ */
+import { settingsRpc } from "@getpaseo/plugin";
+import type { PluginClientContext } from "@getpaseo/plugin/client";
+
+import { listAttention, renderSpeech, type AttentionEntry } from "../shared/herald";
+import { DEFAULT_SPEECH, speechSettings, type SpeechSettings } from "../shared/settings";
+import {
+  canPlayAudio,
+  canSpeak,
+  playAudio,
+  primeSpeech,
+  speak,
+  speechPlatform,
+  stopAudio,
+  stopSpeaking,
+  vibrate,
+} from "./web";
+
+const IDLE_POLL_MS = 10_000;
+const BUSY_POLL_MS = 2_000;
+
+/**
+ * The settings as last read by anything — the announcer's own RPC read or a
+ * mounted screen's `useSettings` — and the fallback when the read fails.
+ */
+let mirroredSettings: SpeechSettings | null = null;
+
+export function mirrorSettings(values: SpeechSettings): void {
+  mirroredSettings = values;
+}
+
+/**
+ * Muted on this device only. Module scope so it survives navigating away and
+ * back, and nothing more: the settings document is shared by every client of
+ * the daemon, which is the wrong place for "not right now, not here".
+ */
+let mutedHere = false;
+
+export function isMutedHere(): boolean {
+  return mutedHere;
+}
+
+export function setMutedHere(muted: boolean): void {
+  mutedHere = muted;
+}
+
+/** What is said for an entry, or null when there is nothing to say yet or ever. */
+export function speechText(entry: AttentionEntry): string | null {
+  switch (entry.summary.status) {
+    case "ready":
+      return entry.summary.text;
+    case "failed":
+      return entry.summary.fallback;
+    case "pending":
+    case "off":
+      return null;
+  }
+}
+
+export interface Announcer {
+  stop(): void;
+  /** Poll now rather than at the next tick. */
+  poke(): void;
+  readSettings(): Promise<SpeechSettings>;
+  /**
+   * Say one entry again, announced before or not. Resolves to null once it has
+   * played, or to the reason this device stayed quiet, for the caller to show.
+   */
+  speakEntry(entry: AttentionEntry): Promise<string | null>;
+  /**
+   * `force` skips the switches, for *Test voice* alone: it is how the voice is
+   * checked while announcements are off, and on the web it is the press that
+   * hands the browser its audio permission. Gating it would disable it exactly
+   * when someone is trying to get sound working.
+   */
+  speakText(text: string, options?: { force?: boolean }): Promise<string | null>;
+}
+
+let active: Announcer | null = null;
+
+/** The running announcer, for the panel's buttons. Null before the client entry has run. */
+export function getAnnouncer(): Announcer | null {
+  return active;
+}
+
+export function startAnnouncer(client: PluginClientContext): Announcer {
+  let stopped = false;
+  let polling = false;
+  let seeded = false;
+  let warnedSettings = false;
+  let warnedSay = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const spoken = new Set<string>();
+  /** Deliveries queue behind one another, so a button press never talks over the poll. */
+  let chain: Promise<void> = Promise.resolve();
+
+  async function readSettings(): Promise<SpeechSettings> {
+    try {
+      const result = await client.rpc(settingsRpc(speechSettings.id).read, {});
+      if (result.status === "ready") {
+        const parsed = speechSettings.schema.safeParse(result.values);
+        if (parsed.success) {
+          mirroredSettings = parsed.data;
+          return parsed.data;
+        }
+      }
+    } catch (error) {
+      if (!warnedSettings) {
+        warnedSettings = true;
+        console.warn("[herald] could not read speech settings, using the last known values", error);
+      }
+    }
+    return mirroredSettings ?? DEFAULT_SPEECH;
+  }
+
+  /**
+   * Why this device stays quiet, or null when it may speak. One function for
+   * both callers: the poll drops a blocked announcement silently, a pressed
+   * control shows the reason. A switch the user set has to mean what it says,
+   * and a control that simply did nothing would have no way to explain itself.
+   */
+  function blockedMessage(settings: SpeechSettings): string | null {
+    if (mutedHere) return "Herald is muted on this device. Unmute it from the Herald panel.";
+    if (!settings.enabled) return "Announcements are off in Settings › Plugins › Herald.";
+    switch (speechPlatform()) {
+      case "desktop":
+        return settings.speakOnDesktop ? null : "Speaking on the desktop app is off in Herald settings.";
+      case "browser":
+        return settings.speakInBrowser ? null : "Speaking in a browser tab is off in Herald settings.";
+      case "mobile":
+        return settings.vibrateOnMobile ? null : "Vibrating on phones is off in Herald settings.";
+    }
+  }
+
+  /**
+   * The daemon Mac's voice when asked for and reachable, the browser's voice
+   * otherwise. A failed render or a refused playback falls through to the
+   * browser voice rather than to silence, and is logged once.
+   */
+  async function deliverNow(text: string, settings: SpeechSettings): Promise<void> {
+    // Checked here rather than only at the call site: this runs once per
+    // queued delivery, and a reload can stop the announcer while one waits.
+    if (stopped) return;
+    if (speechPlatform() === "mobile") {
+      vibrate();
+      return;
+    }
+    const rate = Number(settings.rate);
+    if (settings.engine === "say" && canPlayAudio()) {
+      try {
+        const audio = await client.rpc(renderSpeech, { text, voice: settings.sayVoice, rate });
+        if (stopped) return;
+        await playAudio(`data:${audio.mimeType};base64,${audio.base64}`);
+        return;
+      } catch (error) {
+        if (!warnedSay) {
+          warnedSay = true;
+          console.warn("[herald] the daemon's say voice is unavailable, using the browser voice", error);
+        }
+      }
+    }
+    if (!canSpeak()) return;
+    await speak(text, { voice: settings.voice, rate });
+  }
+
+  function deliver(text: string, settings: SpeechSettings): Promise<void> {
+    const next = chain.then(
+      function run() {
+        return deliverNow(text, settings);
+      },
+      function runAfterFailure() {
+        return deliverNow(text, settings);
+      },
+    );
+    chain = next.catch(() => {});
+    return next;
+  }
+
+  async function announce(entries: AttentionEntry[], settings: SpeechSettings): Promise<void> {
+    // Oldest first, so a batch that arrived together reads in order.
+    const ordered = [...entries].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    for (const entry of ordered) {
+      spoken.add(entry.eventId);
+      const text = speechText(entry);
+      if (text !== null && blockedMessage(settings) === null) await deliver(text, settings);
+    }
+  }
+
+  function schedule(delay: number): void {
+    if (stopped) return;
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => void poll(), delay);
+  }
+
+  async function poll(): Promise<void> {
+    if (stopped || polling) return;
+    polling = true;
+    let busy = false;
+    try {
+      const { entries } = await client.rpc(listAttention, {});
+      if (stopped) return;
+      const present = new Set(entries.map((entry) => entry.eventId));
+      if (!seeded) {
+        // Whatever was already waiting when this client came up has been
+        // waiting a while; the panel shows it, but it is not news to announce.
+        entries.forEach((entry) => spoken.add(entry.eventId));
+        seeded = true;
+      }
+      busy = entries.some((entry) => entry.summary.status === "pending");
+      const fresh = entries.filter(
+        (entry) => !spoken.has(entry.eventId) && entry.summary.status !== "pending",
+      );
+      if (fresh.length > 0) await announce(fresh, await readSettings());
+      // Forget ids that are gone; an event id never comes back.
+      for (const id of [...spoken]) if (!present.has(id)) spoken.delete(id);
+    } catch (error) {
+      console.warn("[herald] could not list what needs attention", error);
+    } finally {
+      polling = false;
+      schedule(busy ? BUSY_POLL_MS : IDLE_POLL_MS);
+    }
+  }
+
+  // Paseo's own stream says an agent needs attention before the summary is
+  // ready; use it to start polling quickly rather than waiting for the tick.
+  const unsubscribe = client.paseo.agents.subscribe((update) => {
+    if (update.kind === "upsert" && update.agent.requiresAttention) schedule(BUSY_POLL_MS / 2);
+  });
+
+  const announcer: Announcer = {
+    stop() {
+      stopped = true;
+      if (timer !== null) clearTimeout(timer);
+      unsubscribe();
+      // A plugin reload starts the replacement announcer at once, so whatever
+      // this one was saying has to stop or the two talk over each other.
+      stopSpeaking();
+      stopAudio();
+      if (active === announcer) active = null;
+    },
+    poke() {
+      schedule(0);
+    },
+    readSettings,
+    /**
+     * Both of these run their first statement in the press handler's own task,
+     * which is the only place a browser grants audio. Everything after the
+     * first `await` is too late, so `primeSpeech()` goes first — before the
+     * settings read, before the render.
+     */
+    async speakEntry(entry) {
+      primeSpeech();
+      const settings = await readSettings();
+      const blocked = blockedMessage(settings);
+      if (blocked !== null) return blocked;
+      const text = speechText(entry) ?? `${entry.agentTitle ?? "An agent"}: ${entry.headline}`;
+      await deliver(text, settings);
+      return null;
+    },
+    async speakText(text, options) {
+      primeSpeech();
+      const settings = await readSettings();
+      const blocked = options?.force === true ? null : blockedMessage(settings);
+      if (blocked !== null) return blocked;
+      await deliver(text, settings);
+      return null;
+    },
+  };
+  active = announcer;
+  schedule(500);
+  return announcer;
+}

@@ -1,0 +1,194 @@
+/**
+ * One entry per agent: the most recent reason it is waiting on the user, and
+ * the summary for it. Newer events replace older ones for the same agent —
+ * an agent has one composer and one thing it is waiting for.
+ *
+ * Paseo's own `requiresAttention` flag stays the authority on *who* is waiting;
+ * this store only explains *why*. Entries are removed when the hooks see the
+ * agent move on (a new turn, a resolved permission, an archive), and by
+ * `Liveness` when the agent turns out to be archived or gone. There is no age
+ * limit: an agent that asked a question a week ago is still waiting for the
+ * answer.
+ *
+ * Mirrored to a JSON file so a plugin reload does not lose the summaries
+ * already written; a summary still pending at load time is marked failed,
+ * because the helper that was writing it died with the old process.
+ */
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
+import { AttentionEntrySchema, type AttentionEntry, type SummaryState } from "../shared/herald";
+import { fallbackSpeech } from "./timeline";
+
+export class AttentionStore {
+  private readonly entries = new Map<string, AttentionEntry>();
+  private writes: Promise<void> = Promise.resolve();
+  /**
+   * Agents changed since this store was made. `load` runs while the plugin is
+   * already answering events — a contribution registers its handlers
+   * synchronously, so the file read cannot be awaited first — and whatever
+   * arrived live is newer than anything on disk. Cleared once `load` is done.
+   */
+  private readonly touched = new Set<string>();
+  /**
+   * Set while `load()` is reading. Writes queued in that window wait for it:
+   * otherwise one would truncate the very file being read, and it would
+   * serialise a map that has not been merged yet.
+   */
+  private loading: Promise<void> | null = null;
+  /**
+   * Conditional removals that arrived before the entry they test had been
+   * read. `remove` can mark its agent `touched` unconditionally; `removeIf`
+   * cannot, because its test needs the very entry still on disk. So the test
+   * is kept here and applied to that entry as it is merged — otherwise a
+   * permission answered during the read is silently restored by the merge.
+   */
+  private readonly deferredRemovals = new Map<string, Array<(entry: AttentionEntry) => boolean>>();
+
+  /** `path === null` keeps everything in memory, which is what the tests want. */
+  constructor(private readonly path: string | null) {}
+
+  async load(): Promise<void> {
+    if (this.path === null) return;
+    const run = this.read();
+    // Never rejects, so a failed read cannot wedge the write chain behind it.
+    this.loading = run.catch(() => {});
+    try {
+      await run;
+    } finally {
+      this.loading = null;
+    }
+  }
+
+  private async read(): Promise<void> {
+    if (this.path === null) return;
+    let raw: string;
+    try {
+      raw = await readFile(this.path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    const json: unknown = JSON.parse(raw);
+    if (!Array.isArray(json)) throw new Error(`${this.path}: expected an array of entries`);
+    let dropped = false;
+    for (const item of json) {
+      const parsed = AttentionEntrySchema.safeParse(item);
+      if (!parsed.success) {
+        console.error(`[herald] dropping unreadable entry from ${this.path}: ${parsed.error.message}`);
+        continue;
+      }
+      const entry = parsed.data;
+      // Never undo a live upsert or removal that landed during the read.
+      if (this.touched.has(entry.agentId)) continue;
+      const held = this.deferredRemovals.get(entry.agentId);
+      if (held !== undefined && held.some((matches) => matches(entry))) {
+        dropped = true;
+        continue;
+      }
+      this.entries.set(
+        entry.agentId,
+        entry.summary.status === "pending"
+          ? {
+              ...entry,
+              summary: {
+                status: "failed",
+                error: "The plugin restarted before the summary was written.",
+                fallback: fallbackSpeech(entry),
+              },
+            }
+          : entry,
+      );
+    }
+    // Nothing else is going to write the dropped rows out of the file.
+    if (dropped) this.persist();
+    this.touched.clear();
+    this.deferredRemovals.clear();
+  }
+
+  list(): AttentionEntry[] {
+    return [...this.entries.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  get(agentId: string): AttentionEntry | null {
+    return this.entries.get(agentId) ?? null;
+  }
+
+  upsert(entry: AttentionEntry): void {
+    this.touched.add(entry.agentId);
+    this.entries.set(entry.agentId, entry);
+    this.persist();
+  }
+
+  /**
+   * Applies a summary only if the agent is still waiting on the same event.
+   * A helper that finishes after the user has already moved on — or after a
+   * newer event replaced this one — must not overwrite what is there now.
+   */
+  updateSummary(agentId: string, eventId: string, summary: SummaryState): boolean {
+    const current = this.entries.get(agentId);
+    if (current === undefined || current.eventId !== eventId) return false;
+    this.entries.set(agentId, { ...current, summary });
+    this.persist();
+    return true;
+  }
+
+  remove(agentId: string): AttentionEntry | null {
+    this.touched.add(agentId);
+    const current = this.entries.get(agentId) ?? null;
+    if (current !== null) {
+      this.entries.delete(agentId);
+      this.persist();
+    }
+    return current;
+  }
+
+  removeIf(agentId: string, predicate: (entry: AttentionEntry) => boolean): boolean {
+    const current = this.entries.get(agentId);
+    if (current === undefined) {
+      // Absent, or simply not read yet. While loading it is the second, so the
+      // test is held for the merge rather than thrown away.
+      if (this.loading !== null) {
+        const held = this.deferredRemovals.get(agentId) ?? [];
+        held.push(predicate);
+        this.deferredRemovals.set(agentId, held);
+      }
+      return false;
+    }
+    if (!predicate(current)) return false;
+    this.touched.add(agentId);
+    this.entries.delete(agentId);
+    this.persist();
+    return true;
+  }
+
+  /** Resolves once every write issued so far has landed; for tests and cleanup. */
+  flush(): Promise<void> {
+    return this.writes;
+  }
+
+  /**
+   * Writes are chained so two events a millisecond apart cannot interleave
+   * halves of a file. A failed write is reported and never thrown: the store
+   * in memory is still right, and the next write tries again.
+   */
+  private persist(): void {
+    if (this.path === null) return;
+    const path = this.path;
+    const loaded = this.loading ?? Promise.resolve();
+    this.writes = this.writes
+      .then(() => loaded)
+      .then(async () => {
+        // Serialised here rather than at the call, so a write that waited for
+        // `load()` puts the merged map on disk rather than the map as it stood
+        // when it was queued. The file mirrors the map, it is not a log, so
+        // writing the latest state is always the right thing.
+        const snapshot = JSON.stringify([...this.entries.values()], null, 2);
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, `${snapshot}\n`, "utf8");
+      })
+      .catch((error: unknown) => {
+        console.error(`[herald] could not write ${path}:`, error);
+      });
+  }
+}

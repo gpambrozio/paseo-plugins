@@ -1,7 +1,8 @@
 # Contributing
 
-Thanks for taking a look. This repo holds three independent Paseo plugins, one per folder:
-[`skills/`](skills), [`github-board/`](github-board), and [`launchd-jobs/`](launchd-jobs).
+Thanks for taking a look. This repo holds four independent Paseo plugins, one per folder:
+[`skills/`](skills), [`github-board/`](github-board), [`launchd-jobs/`](launchd-jobs), and
+[`herald/`](herald).
 
 ## There is no workspace root
 
@@ -10,10 +11,10 @@ and `paseo-plugin.json`. Nothing is hoisted, and there is no root `package.json`
 below runs from inside a plugin folder.
 
 ```bash
-cd skills          # or github-board, launchd-jobs
+cd skills          # or github-board, launchd-jobs, herald
 npm install
 npm run typecheck  # every plugin has this
-npm test           # skills and launchd-jobs only — github-board defines no test script
+npm test           # skills, launchd-jobs and herald — github-board defines no test script
 ```
 
 Run a single test (vitest):
