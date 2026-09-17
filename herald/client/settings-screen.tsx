@@ -4,8 +4,9 @@
  * - **Speech** is the host settings document from `shared/settings.ts` — read
  *   by every client of this daemon, acted on by each according to its own
  *   platform switch. Saved through `useSettings`.
- * - **Summaries** is the daemon's file — which events get a summary and which
- *   model writes it — read by the hooks, so it goes through two RPCs.
+ * - **Summaries** is the daemon's file — which events get a summary, which
+ *   model writes it, and the prompt it is written from — read by the hooks, so
+ *   it goes through two RPCs.
  *
  * Async function expressions only; see `client/herald.tsx`.
  */
@@ -14,7 +15,6 @@ import { useToast } from "@getpaseo/plugin/client/react-native";
 import {
   SettingsAction,
   SettingsGroup,
-  SettingsInput,
   SettingsSection,
   SettingsSelect,
   SettingsSwitch,
@@ -40,6 +40,7 @@ import {
 } from "../shared/settings";
 import { getAnnouncer, mirrorSettings } from "./announcer";
 import { OptionPicker, type PickerOption } from "./option-picker";
+import { PromptEditor } from "./prompt-editor";
 import { canSpeak, listVoices, onVoicesChanged, speechPlatform, type Voice } from "./web";
 
 const RATE_LABELS: Record<RateOption, string> = {
@@ -213,8 +214,6 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
     return [{ label: current, value: current, detail: "typed in" }, ...models];
   }, [models, config]);
 
-  const [customModel, setCustomModel] = useState("");
-
   const styles = useMemo(
     () => ({
       screen: { flex: 1, backgroundColor: theme.colors.surface0 },
@@ -361,20 +360,27 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
             theme={theme}
             compact={layout.compact}
           />
-          <SettingsInput
-            label="Or type one"
-            hint="provider/model, as Paseo names them — for example claude/claude-haiku-4-5."
-            placeholder="provider/model"
-            onChangeText={setCustomModel}
+        </SettingsSection>
+        <SettingsSection
+          title="Prompt"
+          info={
+            <Text style={styles.note}>
+              What the helper is asked, before every summary. Herald fills in the agent, the event and
+              what was said; the rest is yours — the length, the tone, the language, what matters for
+              each kind of event.
+            </Text>
+          }
+        >
+          <PromptEditor
+            label="Summary prompt"
+            hint="Opens the prompt for editing, with the list of placeholders Herald fills in."
+            value={config?.summarizer.prompt ?? ""}
             disabled={config === null}
-          />
-          <SettingsAction
-            label="Use the typed model"
-            actionLabel="Use"
-            disabled={config === null || customModel.trim() === "" || !customModel.includes("/")}
-            onPress={() => {
-              if (config !== null) void saveConfig({ ...config, summarizer: { ...config.summarizer, provider: customModel.trim() } });
+            onSave={(next) => {
+              if (config !== null) void saveConfig({ ...config, summarizer: { ...config.summarizer, prompt: next } });
             }}
+            theme={theme}
+            compact={layout.compact}
           />
         </SettingsSection>
         <SettingsSection

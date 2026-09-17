@@ -8,7 +8,7 @@ import type {
 } from "@getpaseo/plugin/server";
 import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
 
-import { DEFAULT_CONFIG, type AttentionEntry, type HeraldConfig } from "../shared/herald";
+import { DEFAULT_CONFIG, DEFAULT_SUMMARY_PROMPT, type AttentionEntry, type HeraldConfig } from "../shared/herald";
 import { registerHooks, type HookDeps } from "./hooks";
 import { AttentionStore } from "./store";
 import { HELPER_TITLE, type Summary, type SummaryRequest, type SummarizerDeps } from "./summarize";
@@ -138,7 +138,11 @@ describe("registerHooks", () => {
       agent: { id: "a1", workspaceId: "w1", workspaceTitle: "Shop" },
       output: "",
     });
-    expect(deps).toMatchObject({ provider: "claude/claude-haiku-4-5", timeoutMs: 90_000 });
+    expect(deps).toMatchObject({
+      provider: "claude/claude-haiku-4-5",
+      timeoutMs: 90_000,
+      prompt: DEFAULT_SUMMARY_PROMPT,
+    });
   });
 
   it("puts a card in the transcript when recorded and again when the summary lands", async () => {

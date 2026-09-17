@@ -10,7 +10,7 @@
  * `onHelperCreated` is the other.
  */
 import type { PaseoApi } from "@getpaseo/client";
-import type { AttentionReason } from "../shared/herald";
+import { DEFAULT_SUMMARY_PROMPT, type AttentionReason, type PromptPlaceholder } from "../shared/herald";
 import { displayName, firstWords, plainText } from "./timeline";
 
 export const HELPER_TITLE = "Herald summary";
@@ -34,6 +34,8 @@ export interface SummarizerDeps {
   /** `provider/model`, as the SDK takes it. */
   provider: string;
   timeoutMs: number;
+  /** The user's prompt template. Blank or absent means the default one. */
+  prompt?: string;
   /** Called as soon as the helper exists, before its first turn can end. */
   onHelperCreated?: (helperId: string) => void;
 }
@@ -102,38 +104,54 @@ function basename(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
-export function buildPrompt(request: SummaryRequest): string {
+/** What each `{{placeholder}}` is worth for one event. Empty means "not there for this one". */
+export function promptValues(request: SummaryRequest): Record<PromptPlaceholder, string> {
   const name = displayName({ workspaceTitle: request.agent.workspaceTitle, agentTitle: request.agent.title }) ?? "an agent";
-  const workspace = request.agent.workspaceTitle?.trim() || basename(request.agent.cwd);
-  const lines = [
-    "You are Herald. You tell a developer, out loud, what one of their coding agents needs.",
-    "Answer with the JSON object only. Do not run tools, read files, or ask anything back.",
-    "",
-    `Agent: "${name}", working in the workspace "${workspace}" (folder ${basename(request.agent.cwd)}).`,
-    `Event: ${describeReason(request.reason)}`,
-    `Headline: ${request.headline}`,
-  ];
-  if (request.detail !== null && request.detail.trim() !== "") {
-    lines.push(`Detail: ${request.detail.trim()}`);
+  const folder = basename(request.agent.cwd);
+  return {
+    agent: name,
+    workspace: request.agent.workspaceTitle?.trim() || folder,
+    folder,
+    event: describeReason(request.reason),
+    headline: request.headline.trim(),
+    detail: request.detail?.trim() ?? "",
+    request: request.lastUser === null ? "" : clip(request.lastUser.trim(), MAX_USER_CHARS),
+    output: request.output.trim() === "" ? "" : clip(request.output.trim(), MAX_OUTPUT_CHARS),
+  };
+}
+
+/**
+ * The user's template with this event's values in it.
+ *
+ * Two rules, both of them things the settings screen tells the user:
+ *
+ * - **A line whose placeholder is empty for this event is left out whole.**
+ *   That is what keeps `Detail: {{detail}}` from reaching the model as a bare
+ *   `Detail:` when the event carries none, without the template needing any
+ *   notion of a conditional. Runs of blank lines left behind are collapsed.
+ * - **A name we do not know is left exactly as typed**, so a prompt that talks
+ *   about `{{ }}` for its own reasons is not quietly mangled.
+ */
+export function renderPrompt(template: string, values: Readonly<Record<string, string>>): string {
+  const kept: string[] = [];
+  for (const line of template.split("\n")) {
+    let missing = false;
+    const rendered = line.replace(/\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g, (whole, name: string) => {
+      const value = values[name];
+      if (value === undefined) return whole;
+      if (value === "") missing = true;
+      return value;
+    });
+    if (missing) continue;
+    if (rendered.trim() === "" && kept[kept.length - 1]?.trim() === "") continue;
+    kept.push(rendered);
   }
-  if (request.lastUser !== null) {
-    lines.push("", "What the user last asked for:", clip(request.lastUser, MAX_USER_CHARS));
-  }
-  if (request.output.trim() !== "") {
-    lines.push("", "What the agent said:", clip(request.output, MAX_OUTPUT_CHARS));
-  }
-  lines.push(
-    "",
-    "Write what should be spoken: one or two sentences, under 35 words, plain text with no markdown,",
-    "no code, and no file paths unless nothing else identifies the work. Start with the agent's name",
-    "as given above, so the listener knows which piece of work this is about.",
-    "For a question, say what is being asked and the choices. For finished work, say what was done",
-    "and whether anything is left for the user. For a permission, say what the agent wants to do.",
-    "",
-    'Reply with exactly one JSON object shaped like {"speech": "..."} — the key must be "speech",',
-    "no code fences, nothing before or after it.",
-  );
-  return lines.join("\n");
+  return kept.join("\n").trim();
+}
+
+export function buildPrompt(request: SummaryRequest, template?: string): string {
+  const chosen = template?.trim() === "" || template === undefined ? DEFAULT_SUMMARY_PROMPT : template;
+  return renderPrompt(chosen, promptValues(request));
 }
 
 /**
@@ -172,7 +190,7 @@ export async function summarize(request: SummaryRequest, deps: SummarizerDeps): 
     title: HELPER_TITLE,
     autoArchive: true,
     outputSchema: SUMMARY_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
-    prompt: buildPrompt(request),
+    prompt: buildPrompt(request, deps.prompt),
     labels: { "herald.role": "summarizer" },
   });
   deps.onHelperCreated?.(helper.id);

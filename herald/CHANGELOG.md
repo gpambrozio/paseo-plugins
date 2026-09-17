@@ -7,6 +7,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.2.0] — 2026-09-17
+
+### Added
+
+- **The summary prompt is yours to edit.** Settings › Plugins › Herald now opens the whole prompt the
+  helper is given, so you can ask for shorter sentences, another language, or more detail about the
+  things you care about. Herald fills in the agent, the event and what was said wherever you put
+  them, and one press restores the original prompt.
+
+### Changed
+
+- The model that writes the summaries is now picked from the list of your providers' models only. The
+  box for typing one by hand is gone; a model you had typed in is kept and still shown.
+
 ## [0.1.0] — 2026-09-16
 
 ### Added

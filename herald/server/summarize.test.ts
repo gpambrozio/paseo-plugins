@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PaseoAgentHandle, PaseoApi } from "@getpaseo/client";
 
-import { HELPER_TITLE, buildPrompt, parseSummaryText, summarize, type SummaryRequest } from "./summarize";
+import { DEFAULT_SUMMARY_PROMPT } from "../shared/herald";
+import {
+  HELPER_TITLE,
+  buildPrompt,
+  parseSummaryText,
+  renderPrompt,
+  summarize,
+  type SummaryRequest,
+} from "./summarize";
 
 const request: SummaryRequest = {
   agent: { id: "a1", workspaceId: "w1", workspaceTitle: "Shop", cwd: "/Users/me/repo", title: "Login fix" },
@@ -18,8 +26,8 @@ describe("buildPrompt", () => {
     expect(prompt).toContain('Agent: "Login fix", working in the workspace "Shop" (folder repo).');
     expect(prompt).toContain("Event: The agent finished its turn");
     expect(prompt).toContain("Detail: I fixed it.");
-    expect(prompt).toContain("What the user last asked for:\nFix the login bug");
-    expect(prompt).toContain("What the agent said:\nI fixed **auth.ts**.");
+    expect(prompt).toContain("What the user last asked for: Fix the login bug");
+    expect(prompt).toContain("What the agent said: I fixed **auth.ts**.");
     expect(prompt).toContain("Start with the agent's name");
   });
 
@@ -37,6 +45,37 @@ describe("buildPrompt", () => {
     expect(prompt).toContain('Agent: "an agent", working in the workspace "repo"');
     // An untitled agent takes the workspace's title as its name.
     expect(buildPrompt({ ...request, agent: { ...request.agent, title: null } })).toContain('Agent: "Shop"');
+  });
+
+  it("renders the user's template, and reads a blank one as the default", () => {
+    const prompt = buildPrompt(request, "Tell me about {{agent}} in German.\nEvent: {{event}}");
+    expect(prompt).toBe(
+      "Tell me about Login fix in German.\nEvent: The agent finished its turn and is waiting for the user.",
+    );
+    expect(buildPrompt(request, "   ")).toBe(buildPrompt(request));
+    expect(buildPrompt(request, DEFAULT_SUMMARY_PROMPT)).toBe(buildPrompt(request));
+  });
+});
+
+describe("renderPrompt", () => {
+  const values = { agent: "Login fix", detail: "", output: "It is done." };
+
+  it("drops a whole line whose placeholder is empty for this event", () => {
+    expect(renderPrompt("Agent: {{agent}}\nDetail: {{detail}}\nSaid: {{output}}", values)).toBe(
+      "Agent: Login fix\nSaid: It is done.",
+    );
+  });
+
+  it("collapses the blank lines a dropped line leaves behind", () => {
+    expect(renderPrompt("A\n\n{{detail}}\n\nB", values)).toBe("A\n\nB");
+  });
+
+  it("leaves a name it does not know exactly as typed", () => {
+    expect(renderPrompt("Say {{agent}} and {{nonsense}}.", values)).toBe("Say Login fix and {{nonsense}}.");
+  });
+
+  it("accepts spaces inside the braces", () => {
+    expect(renderPrompt("{{ agent }}", values)).toBe("Login fix");
   });
 });
 
@@ -94,6 +133,7 @@ describe("summarize", () => {
       paseo,
       provider: "claude/claude-haiku-4-5",
       timeoutMs: 1000,
+      prompt: "Summarise {{agent}}.",
       onHelperCreated: (id) => seen.push(id),
     });
     expect(summary).toEqual({ text: "Login fix is done.", model: "claude/claude-haiku-4-5" });
@@ -107,7 +147,7 @@ describe("summarize", () => {
       labels: { "herald.role": "summarizer" },
     });
     expect(options.outputSchema).toMatchObject({ required: ["speech"] });
-    expect(typeof options.prompt).toBe("string");
+    expect(options.prompt).toBe("Summarise Login fix.");
     expect(helper.archive).not.toHaveBeenCalled();
   });
 

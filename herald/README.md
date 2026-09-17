@@ -56,13 +56,39 @@ Pin a release with `--ref herald/v<version>`. To hack on it, clone the repositor
   Accessibility › Spoken Content. These are shared by every device connected to the daemon, and each
   device follows its own switch. *Mute here* in the panel silences just the device you are on until
   the app restarts.
-- **Summaries** — the model that writes them, and which kinds of event are announced: questions, plan
-  approvals, tool permissions, finished turns, errors. A kind that is switched off still appears in
-  the panel, without a summary and without being spoken.
+- **Summaries** — the model that writes them, the prompt they are written from, and which kinds of
+  event are announced: questions, plan approvals, tool permissions, finished turns, errors. A kind
+  that is switched off still appears in the panel, without a summary and without being spoken.
+
+### The prompt
+
+*Summary prompt* opens the whole prompt the helper is given, to edit however you like — shorter
+sentences, another language, more about what matters to you for a finished turn than for a question.
+Herald fills in the parts that change per event wherever you put them:
+
+| Placeholder | Filled with |
+| --- | --- |
+| `{{agent}}` | What the work is called: the agent's title, or its workspace's. |
+| `{{workspace}}` | The workspace's title, or the folder name when it has none. |
+| `{{folder}}` | The last part of the agent's working directory. |
+| `{{event}}` | A sentence saying why the agent is waiting. |
+| `{{headline}}` | The one line Herald builds without a model: the question, the command, "Finished". |
+| `{{detail}}` | The choices, the command, or the start of the final message. Often empty. |
+| `{{request}}` | What you last asked this agent for. Empty when the agent paused without one. |
+| `{{output}}` | What the agent said since that message. Empty for a pause. |
+
+A **line** whose placeholder has nothing to fill it for that event is left out whole, so keep a label
+and its placeholder on the same line — `Detail: {{detail}}` simply disappears when there is no detail.
+Anything else in double braces is sent as you typed it. *Restore the default* brings the original
+prompt back, and an empty prompt is the default one.
+
+The default prompt ends by asking for a small JSON object, which is what Herald reads the sentence
+out of. You can drop that — Herald then speaks whatever the model replies, trimmed to the first 45
+words — but the result is less predictable, so the editor says so.
 
 ## What the helper sees
 
-For a finished turn the helper is given what the agent said after your last message, and your last
-message. For a question or permission it is given the question and the choices, or the command. That
+With the default prompt, for a finished turn the helper is given what the agent said after your last
+message, and your last message. For a question or permission it is given the question and the choices, or the command. That
 text goes to the model you chose, through your own provider credentials, the same way the agent's own
 work does.
