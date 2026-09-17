@@ -7,7 +7,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
-## [0.1.0] — 2026-09-15
+## [0.1.0] — 2026-09-16
 
 ### Added
 
