@@ -154,8 +154,9 @@ export type PromptPlaceholder = (typeof PROMPT_PLACEHOLDERS)[number]["name"];
  * back to reading the reply as prose — but the sentence is less predictable.
  */
 export const DEFAULT_SUMMARY_PROMPT = [
-  "You are Herald. You tell a developer, out loud, what one of their coding agents needs.",
-  "Answer with the JSON object only. Do not run tools, read files, or ask anything back.",
+  // One line per paragraph: the editor wraps them, and a break typed here is a
+  // break the reader has to tidy up before editing the sentence it lands in.
+  "You are Herald. You tell a developer, out loud, what one of their coding agents needs. Answer with the JSON object only. Do not run tools, read files, or ask anything back.",
   "",
   'Agent: "{{agent}}", working in the workspace "{{workspace}}" (folder {{folder}}).',
   "Event: {{event}}",
@@ -166,14 +167,9 @@ export const DEFAULT_SUMMARY_PROMPT = [
   "",
   "What the agent said: {{output}}",
   "",
-  "Write what should be spoken: one or two sentences, under 35 words, plain text with no markdown,",
-  "no code, and no file paths unless nothing else identifies the work. Start with the agent's name",
-  "as given above, so the listener knows which piece of work this is about.",
-  "For a question, say what is being asked and the choices. For finished work, say what was done",
-  "and whether anything is left for the user. For a permission, say what the agent wants to do.",
+  "Write what should be spoken: one or two sentences, under 35 words, plain text with no markdown, no code, and no file paths unless nothing else identifies the work. Start with the agent's name as given above, so the listener knows which piece of work this is about. For a question, say what is being asked and the choices. For finished work, say what was done and whether anything is left for the user. For a permission, say what the agent wants to do.",
   "",
-  'Reply with exactly one JSON object shaped like {"speech": "..."} — the key must be "speech",',
-  "no code fences, nothing before or after it.",
+  'Reply with exactly one JSON object shaped like {"speech": "..."} — the key must be "speech", no code fences, nothing before or after it.',
 ].join("\n");
 
 export const DEFAULT_SUMMARIZER = {
