@@ -15,6 +15,13 @@ three, together with Ollama Cloud, are read from [models.dev](https://models.dev
 catalog of model specifications. OpenRouter publishes its own, so it is read directly from
 OpenRouter. The daemon does the fetching; nothing is sent anywhere.
 
+![The Model pricing panel: a subtitle reading "Agent-capable models, 80/20 input:output blend,
+cheapest = 1.0x, USD per 1M tokens, updated 1 hour ago", a row of coloured provider dots for
+Anthropic, OpenAI, Fireworks AI and Ollama Cloud, a search box, and a table with columns for model,
+context, output, price, reasoning, tool call, structured, temperature, relative and platform. The
+rows run from o1-pro at $150 / $600 and 3000.0x down to Claude Fable 5.1 at $10 / $50, each with a
+coloured strip at its left edge matching its platform.](docs/screenshot.png)
+
 ## What you need
 
 - Paseo 0.8.0 or newer, with plugins enabled.
