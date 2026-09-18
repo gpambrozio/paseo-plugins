@@ -22,6 +22,9 @@ pin and a line to read before you move.
 - **Sorting and search.** Tap a column heading to sort by it, tap again to reverse, and type in the
   search box to narrow the list to a model or a provider. A sort survives leaving the panel and
   coming back.
+- **Tap a coloured dot to hide that provider** and tap it again to bring it back, for narrowing the
+  table while you compare two of them. It is instant, and unlike switching a provider off in
+  settings it keeps the prices loaded.
 - **Settings**, under Settings › Plugins › Model pricing: which providers to follow, whether to hide
   models that cannot call tools, and how much of the relative-cost blend is input rather than
   output — an agent reading a repository and writing a patch is mostly input, a chat drafting prose

@@ -56,6 +56,17 @@ let cachedFetchedAt = 0;
 let cachedProviderKey = "";
 let cachedSort: Sort = { key: "relative", descending: true };
 let cachedSearch = "";
+/**
+ * Providers hidden by tapping their legend dot.
+ *
+ * Deliberately *not* the `providers` list in the settings document, which is a
+ * different question: that one decides what is fetched, and a provider dropped
+ * from it also drops out of the legend — leaving no dot to tap to bring it
+ * back. This is the cheap view filter layered over it, so a hidden provider is
+ * still fetched and reappears instantly. Module scope, like the sort and the
+ * search text, because it is this session's business and not worth persisting.
+ */
+let cachedHidden: ReadonlySet<string> = new Set();
 
 /** Past this, a mount refetches — underneath the table already on screen. */
 const STALE_AFTER_MS = 30 * 60_000;
@@ -122,6 +133,16 @@ export function PricingSurface(props: PluginSurfaceProps) {
   const [busy, setBusy] = useState(false);
   const [search, setSearchState] = useState(cachedSearch);
   const [sort, setSortState] = useState<Sort>(cachedSort);
+  const [hidden, setHiddenState] = useState<ReadonlySet<string>>(cachedHidden);
+
+  const toggleHidden = useCallback((providerId: string) => {
+    setHiddenState((current) => {
+      const next = new Set(current);
+      if (!next.delete(providerId)) next.add(providerId);
+      cachedHidden = next;
+      return next;
+    });
+  }, []);
 
   const setSearch = useCallback((next: string) => {
     cachedSearch = next;
@@ -193,12 +214,28 @@ export function PricingSurface(props: PluginSurfaceProps) {
     void refresh(enabledIds, false);
   }, [settingsReady, providerKey, enabledIds, refresh]);
 
+  useEffect(() => {
+    // Forget a provider that has since been switched off in settings, so that
+    // switching it back on does not bring it back still hidden — which would
+    // read as the switch not working.
+    setHiddenState((current) => {
+      const allowed = new Set(providerKey.split(",").filter((id) => id !== ""));
+      const next = new Set([...current].filter((id) => allowed.has(id)));
+      if (next.size === current.size) return current;
+      cachedHidden = next;
+      return next;
+    });
+  }, [providerKey]);
+
   // ---- the visible set ----------------------------------------------------
 
   const visible = useMemo((): TableRow[] => {
     if (rows === null) return [];
     const terms = search.toLowerCase().split(/\s+/).filter((term) => term !== "");
     const filtered = rows.filter((row) => {
+      // Tapped off in the legend. Checked first because it is the cheapest
+      // test and the one most likely to reject.
+      if (hidden.has(row.providerId)) return false;
       // Unknown is not hidden. `null` means the upstream did not say whether
       // the model calls tools, and dropping it would lose models whose
       // catalogue entry is merely quiet rather than negative.
@@ -213,7 +250,7 @@ export function PricingSurface(props: PluginSurfaceProps) {
     const relatives = relativeCosts(filtered, inputShare(inputWeight));
     const entries = filtered.map((row) => ({ row, relative: relatives.get(rowKey(row)) ?? 1 }));
     return entries.sort((a, b) => compareRows(a, b, sort));
-  }, [rows, search, sort, toolCallOnly, inputWeight]);
+  }, [rows, search, sort, toolCallOnly, inputWeight, hidden]);
 
   const failures = sources.filter((source) => source.error !== null);
   const openSettings = openSettingsScreen;
@@ -252,12 +289,34 @@ export function PricingSurface(props: PluginSurfaceProps) {
       <Text style={styles.subtitle}>{subtitle(inputWeight, toolCallOnly, fetchedAt, rows)}</Text>
 
       <View style={styles.legend}>
-        {enabled.map((provider) => (
-          <View key={provider.id} style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: accentColor(theme, provider.accentToken) }]} />
-            <Text style={styles.legendLabel}>{provider.label}</Text>
-          </View>
-        ))}
+        {enabled.map((provider) => {
+          const off = hidden.has(provider.id);
+          const color = accentColor(theme, provider.accent);
+          return (
+            <Pressable
+              key={provider.id}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: !off }}
+              accessibilityLabel={provider.label}
+              accessibilityHint={off ? `Show ${provider.label} models` : `Hide ${provider.label} models`}
+              // The dot is 10px across; the finger aiming at it is not.
+              hitSlop={10}
+              onPress={() => toggleHidden(provider.id)}
+              style={({ pressed }) => [styles.legendItem, pressed ? styles.pressed : null]}
+            >
+              <View
+                style={[
+                  styles.legendDot,
+                  // Hollow when off. The provider keeps its colour either way,
+                  // so the dot still says which provider it is and only the
+                  // fill reports the state.
+                  off ? [styles.legendDotOff, { borderColor: color }] : { backgroundColor: color },
+                ]}
+              />
+              <Text style={[styles.legendLabel, off ? styles.legendLabelOff : null]}>{provider.label}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       <TextInput
@@ -298,7 +357,9 @@ export function PricingSurface(props: PluginSurfaceProps) {
             layout.compact ? null : <TableHeader styles={styles} sort={sort} onSort={onSort} />
           }
           stickyHeaderIndices={layout.compact ? undefined : [0]}
-          ListEmptyComponent={<EmptyState styles={styles} busy={busy} enabled={enabledIds.length} rows={rows} />}
+          ListEmptyComponent={
+            <EmptyState styles={styles} busy={busy} enabled={enabledIds.length} hidden={hidden.size} rows={rows} />
+          }
           ListFooterComponent={<View style={styles.pad} />}
           renderItem={({ item }) =>
             layout.compact ? (
@@ -317,16 +378,21 @@ function EmptyState({
   styles,
   busy,
   enabled,
+  hidden,
   rows,
 }: {
   styles: Styles;
   busy: boolean;
   enabled: number;
+  hidden: number;
   rows: PriceRow[] | null;
 }) {
   if (enabled === 0) return <Text style={styles.empty}>No providers are switched on. Pick some in settings.</Text>;
   if (busy && rows === null) return <Text style={styles.empty}>Loading prices…</Text>;
   if (rows === null) return <Text style={styles.empty}>No prices loaded yet.</Text>;
+  // Worth saying outright: an empty table under a full legend of hollow dots
+  // otherwise looks like the fetch failed.
+  if (hidden >= enabled) return <Text style={styles.empty}>Every provider is hidden. Tap a dot to bring one back.</Text>;
   return <Text style={styles.empty}>Nothing matches.</Text>;
 }
 

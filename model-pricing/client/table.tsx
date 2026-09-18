@@ -30,7 +30,7 @@ import {
   UNKNOWN,
 } from "../shared/format";
 import type { PriceRow } from "../shared/pricing";
-import { providerById, type AccentToken } from "../shared/providers";
+import { pickAccent, providerById, type ProviderAccent } from "../shared/providers";
 
 /** One row, with the relative multiple already worked out for the visible set. */
 export interface TableRow {
@@ -66,8 +66,10 @@ const COLUMNS: readonly Column[] = [
   { label: "Tool call", sort: null, flex: 1.3 },
   { label: "Structured", sort: null, flex: 1.3 },
   { label: "Temperature", sort: null, flex: 1.5 },
-  { label: "Relative", sort: "relative", flex: 1.2, right: true },
-  { label: "Platform", sort: "provider", flex: 1.7 },
+  // Wide enough for the four-digit multiples a full catalog produces: with
+  // every provider on, the dearest model runs to "11320.8×".
+  { label: "Relative", sort: "relative", flex: 1.6, right: true },
+  { label: "Platform", sort: "provider", flex: 1.8 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -140,9 +142,16 @@ export function useStyles({ theme, layout }: { theme: PluginTheme; layout: { com
       subtitle: { color: colors.foregroundMuted, fontSize: 12, paddingHorizontal: pad, paddingTop: 4 },
 
       legend: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 12, paddingHorizontal: pad, paddingTop: 8 },
-      legendItem: { flexDirection: "row" as const, alignItems: "center" as const, gap: 5 },
-      legendDot: { width: 8, height: 8, borderRadius: 4 },
-      legendLabel: { color: colors.foregroundMuted, fontSize: 12 },
+      legendItem: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, paddingVertical: 2 },
+      legendDot: { width: 10, height: 10, borderRadius: 5 },
+      /**
+       * The hidden state. `borderColor` is set per provider at the call site;
+       * the ring keeps the dot's size, so the legend does not reflow as
+       * providers are toggled.
+       */
+      legendDotOff: { backgroundColor: "transparent" as const, borderWidth: 2 },
+      legendLabel: { color: colors.foreground, fontSize: 12 },
+      legendLabelOff: { color: colors.foregroundMuted },
 
       iconButton: { padding: 7, borderRadius: 8 },
       pressed: { opacity: 0.6 },
@@ -187,9 +196,12 @@ export function useStyles({ theme, layout }: { theme: PluginTheme; layout: { com
       headerRow: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
-        paddingLeft: pad + ACCENT_WIDTH,
+        // Lines the headings up with the cells under them, which start after
+        // the accent strip and its gap.
+        paddingLeft: pad + ACCENT_WIDTH + ACCENT_GAP,
         paddingRight: pad,
-        paddingVertical: 10,
+        paddingVertical: layout.compact ? 10 : 12,
+        gap: COLUMN_GAP,
         borderBottomWidth: 1,
         borderBottomColor: separator,
         backgroundColor: colors.surface1,
@@ -198,32 +210,59 @@ export function useStyles({ theme, layout }: { theme: PluginTheme; layout: { com
       headerLabel: { color: colors.foregroundMuted, fontSize: 11, fontWeight: "600" as const, letterSpacing: 0.6 },
       headerLabelActive: { color: colors.foreground },
 
+      /**
+       * `stretch`, not `center`, so the accent strip runs the full height of
+       * the row. The cells are centred by `rowCells` inside it instead — an
+       * `alignSelf: "stretch"` on the strip alone left it floating at about
+       * two thirds height.
+       */
       row: {
         flexDirection: "row" as const,
-        alignItems: "center" as const,
-        paddingRight: pad,
-        paddingVertical: 11,
+        alignItems: "stretch" as const,
         borderBottomWidth: 1,
-        borderBottomColor: withAlpha(colors.foregroundMuted, "1f"),
+        borderBottomColor: withAlpha(colors.foregroundMuted, "2b"),
+      },
+      rowCells: {
+        flex: 1,
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: COLUMN_GAP,
+        paddingLeft: ACCENT_GAP,
+        paddingRight: pad,
+        paddingVertical: layout.compact ? 11 : 14,
       },
       rowPressed: { backgroundColor: faint },
-      accent: { width: ACCENT_WIDTH, alignSelf: "stretch" as const, marginLeft: pad },
-      cellText: { color: colors.foregroundMuted, fontSize: 13 },
-      cellName: { color: colors.foreground, fontSize: 14, fontWeight: "600" as const },
-      cellMono: { ...mono, color: colors.foregroundMuted, fontSize: 12 },
-      cellPrice: { ...mono, color: colors.foreground, fontSize: 13, fontWeight: "600" as const },
-      cellRelative: { ...mono, color: colors.foreground, fontSize: 13, fontWeight: "700" as const, textAlign: "right" as const },
+      accent: { width: ACCENT_WIDTH, marginLeft: pad },
+
+      /**
+       * Cells carry `foreground`, not `foregroundMuted`. Muted is legible
+       * enough on a dark theme and washes out badly on a light one, and a
+       * table of numbers is the last place to spend contrast. What stays muted
+       * is the em dash — there the point *is* that nothing was stated.
+       */
+      cellText: { color: colors.foreground, fontSize: 13 },
+      cellName: { color: colors.foreground, fontSize: 15, fontWeight: "600" as const },
+      cellMono: { ...mono, color: colors.foreground, fontSize: 13 },
+      cellPrice: { ...mono, color: colors.foreground, fontSize: 14, fontWeight: "600" as const },
+      cellRelative: { ...mono, color: colors.foreground, fontSize: 14, fontWeight: "700" as const, textAlign: "right" as const },
+      cellPlatform: { color: colors.foreground, fontSize: 13, fontWeight: "600" as const },
+      cellUnknown: { color: colors.foregroundMuted, fontWeight: "400" as const },
 
       // ---- the compact cards ----------------------------------------------
+      // Same shape as `row`: a full-height strip beside a padded body.
       card: {
         flexDirection: "row" as const,
-        gap: 10,
+        alignItems: "stretch" as const,
+        borderBottomWidth: 1,
+        borderBottomColor: withAlpha(colors.foregroundMuted, "2b"),
+      },
+      cardBody: {
+        flex: 1,
+        gap: 5,
+        paddingLeft: ACCENT_GAP,
         paddingRight: pad,
         paddingVertical: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: withAlpha(colors.foregroundMuted, "1f"),
       },
-      cardBody: { flex: 1, gap: 4 },
       cardTop: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
       cardName: { color: colors.foreground, fontSize: 15, fontWeight: "600" as const, flex: 1 },
       cardMeta: { color: colors.foregroundMuted, fontSize: 12 },
@@ -248,8 +287,24 @@ export function useStyles({ theme, layout }: { theme: PluginTheme; layout: { com
 
 export type Styles = ReturnType<typeof useStyles>;
 
-/** The coloured strip down a row's left edge, tying it to the legend. */
-const ACCENT_WIDTH = 3;
+/**
+ * The coloured strip down a row's left edge, tying it to the legend. Wide
+ * enough to judge a hue by: at 3–4px every colour reads as "a dark sliver",
+ * which is most of why the providers were hard to tell apart.
+ */
+const ACCENT_WIDTH = 6;
+
+/**
+ * Between the strip and the model name. Without it the strip reads as part of
+ * the first letter rather than as a marker for the row.
+ */
+const ACCENT_GAP = 12;
+
+/**
+ * Between every pair of columns. Flex cells butt right up against each other
+ * otherwise, which put "11320.8×" and "OpenAI" in contact.
+ */
+const COLUMN_GAP = 18;
 
 /**
  * A theme colour at reduced alpha. Themes hand out `#rrggbb`, so appending two
@@ -260,14 +315,18 @@ export function withAlpha(color: string, alpha: string): string {
   return /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}${alpha}` : color;
 }
 
-/** Resolve a provider's legend token against the live theme. */
-export function accentColor(theme: PluginTheme, token: AccentToken): string {
-  return theme.colors[token];
+/**
+ * A provider's colour for the theme in play, chosen by looking at what the
+ * theme paints behind the table — see `ProviderAccent` for why this is a
+ * palette rather than a `theme.colors` token.
+ */
+export function accentColor(theme: PluginTheme, accent: ProviderAccent): string {
+  return pickAccent(accent, theme.colors.surface0);
 }
 
 function providerAccent(theme: PluginTheme, providerId: string): string {
   const provider = providerById(providerId);
-  return provider === null ? theme.colors.foregroundMuted : accentColor(theme, provider.accentToken);
+  return provider === null ? theme.colors.foregroundMuted : accentColor(theme, provider.accent);
 }
 
 // ---------------------------------------------------------------------------
@@ -328,27 +387,61 @@ export function TableBodyRow({ entry, styles, theme }: { entry: TableRow; styles
   return (
     <View style={styles.row}>
       <View style={[styles.accent, { backgroundColor: providerAccent(theme, row.providerId) }]} />
-      <Cell flex={COLUMNS[0]?.flex ?? 3} style={styles.cellName} value={row.name} />
-      <Cell flex={COLUMNS[1]?.flex ?? 1} style={styles.cellMono} value={formatTokens(row.contextTokens)} />
-      <Cell flex={COLUMNS[2]?.flex ?? 1} style={styles.cellMono} value={formatTokens(row.outputTokens)} />
-      <Cell flex={COLUMNS[3]?.flex ?? 1} style={styles.cellPrice} value={formatPricePair(row.inputCost, row.outputCost)} />
-      <Cell flex={COLUMNS[4]?.flex ?? 1} style={styles.cellText} value={formatFlag(row.reasoning)} />
-      <Cell flex={COLUMNS[5]?.flex ?? 1} style={styles.cellText} value={formatFlag(row.toolCall)} />
-      <Cell flex={COLUMNS[6]?.flex ?? 1} style={styles.cellText} value={formatFlag(row.structuredOutput)} />
-      <Cell flex={COLUMNS[7]?.flex ?? 1} style={styles.cellText} value={formatFlag(row.temperature)} />
-      <Cell flex={COLUMNS[8]?.flex ?? 1} style={styles.cellRelative} value={formatRelative(entry.relative)} />
-      <Cell
-        flex={COLUMNS[9]?.flex ?? 1}
-        style={[styles.cellText, { color: providerAccent(theme, row.providerId) }]}
-        value={providerLabelOf(row)}
-      />
+      <View style={styles.rowCells}>
+        <Cell flex={COLUMNS[0]?.flex ?? 3} style={styles.cellName} value={row.name} styles={styles} />
+        <Cell flex={COLUMNS[1]?.flex ?? 1} style={styles.cellMono} value={formatTokens(row.contextTokens)} styles={styles} />
+        <Cell flex={COLUMNS[2]?.flex ?? 1} style={styles.cellMono} value={formatTokens(row.outputTokens)} styles={styles} />
+        <Cell
+          flex={COLUMNS[3]?.flex ?? 1}
+          style={styles.cellPrice}
+          value={formatPricePair(row.inputCost, row.outputCost)}
+          styles={styles}
+        />
+        <Cell flex={COLUMNS[4]?.flex ?? 1} style={styles.cellText} value={formatFlag(row.reasoning)} styles={styles} />
+        <Cell flex={COLUMNS[5]?.flex ?? 1} style={styles.cellText} value={formatFlag(row.toolCall)} styles={styles} />
+        <Cell flex={COLUMNS[6]?.flex ?? 1} style={styles.cellText} value={formatFlag(row.structuredOutput)} styles={styles} />
+        <Cell flex={COLUMNS[7]?.flex ?? 1} style={styles.cellText} value={formatFlag(row.temperature)} styles={styles} />
+        <Cell
+          flex={COLUMNS[8]?.flex ?? 1}
+          style={styles.cellRelative}
+          value={formatRelative(entry.relative)}
+          styles={styles}
+        />
+        {/*
+         * Coloured, because the palette has a variant picked to be legible as
+         * text on this background. This is the largest coloured thing in a row
+         * and so the one that actually tells two providers apart; the strip at
+         * the edge only reinforces it.
+         */}
+        <Cell
+          flex={COLUMNS[9]?.flex ?? 1}
+          style={[styles.cellPlatform, { color: providerAccent(theme, row.providerId) }]}
+          value={providerLabelOf(row)}
+          styles={styles}
+        />
+      </View>
     </View>
   );
 }
 
-function Cell({ flex, style, value }: { flex: number; style: object | object[]; value: string }) {
+/**
+ * An em dash is dimmed even where its column is not. Everything else in the
+ * table is a stated fact and gets full contrast; "nothing was published here"
+ * is the one thing that should recede.
+ */
+function Cell({
+  flex,
+  style,
+  value,
+  styles,
+}: {
+  flex: number;
+  style: object | object[];
+  value: string;
+  styles: Styles;
+}) {
   return (
-    <Text style={[{ flex }, style]} numberOfLines={1}>
+    <Text style={[{ flex }, style, value === UNKNOWN ? styles.cellUnknown : null]} numberOfLines={1}>
       {value}
     </Text>
   );
@@ -376,7 +469,7 @@ export function PricingCard({ entry, styles, theme }: { entry: TableRow; styles:
           </Text>
           <Text style={styles.cellRelative}>{formatRelative(entry.relative)}</Text>
         </View>
-        <Text style={[styles.cardMeta, { color: providerAccent(theme, row.providerId) }]} numberOfLines={1}>
+        <Text style={[styles.cellPlatform, { color: providerAccent(theme, row.providerId) }]} numberOfLines={1}>
           {providerLabelOf(row)}
         </Text>
         <Text style={styles.cellPrice} numberOfLines={1}>

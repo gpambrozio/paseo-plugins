@@ -25,7 +25,7 @@ compile time. This file covers only what is specific to `model-pricing`.
 | `client/pricing.tsx`         | The surface: header, legend, search, the module-scope cache, the filter/sort pipeline.    |
 | `client/table.tsx`           | The wide table, the compact card, the sort comparator, and every style the surface uses.  |
 | `client/settings-screen.tsx` | Settings › Plugins › Model pricing.                                                       |
-| `server/*.test.ts`, `shared/format.test.ts` | The tests. `npm test`.                                                    |
+| `server/*.test.ts`, `shared/*.test.ts` | The tests. `npm test`.                                                         |
 
 ## Nobody sells a pricing API
 
@@ -124,9 +124,21 @@ what makes a daemon-side copy of the list unnecessary. **Do not add one.** The c
 the five providers share one fetch, so switching Anthropic off saves nothing until OpenAI, Fireworks
 and Ollama Cloud are off too; `sourcesFor` is where that is decided.
 
-The sort and the search box are *not* settings. They live in module scope next to the cached rows,
-because writing the settings document on every column press would be chatty and a sort is this
-session's business.
+The sort, the search box and the legend's hidden set are *not* settings. They live in module scope
+next to the cached rows, because writing the settings document on every column press would be
+chatty and none of the three is worth persisting.
+
+**The legend dots and the settings switches are deliberately different controls**, and merging them
+would break both:
+
+- A **settings switch** decides what is *fetched*. Off means the provider is not in the RPC.
+- A **legend dot** decides what is *drawn*, over the fetched set. Hiding is instant and costs no
+  network, and the provider is still there to bring back.
+
+Wiring a dot to the settings list would be self-defeating: the legend only draws enabled providers,
+so the first tap would remove the very dot needed to undo it. The two do have to talk in one
+direction — a provider switched off in settings is pruned from the hidden set, so switching it back
+on does not return it still hidden, which would read as the switch being broken.
 
 ## Ten columns do not fit a phone
 
@@ -139,9 +151,33 @@ column headings are its `ListHeaderComponent` with `stickyHeaderIndices={[0]}`, 
 hundred rows down is still readable as a price.
 
 `useStyles` in `client/table.tsx` is the whole surface's styling, including the settings screen's
-neighbours; `withAlpha` derives separators from `foregroundMuted` because a literal colour renders
-wrong in half the themes. Provider accents are stored in `shared/providers.ts` as *token names*
-(`accentToken`) and resolved against the live theme in `accentColor`, for the same reason.
+neighbours; `withAlpha` derives separators from `foregroundMuted`.
+
+## Provider colours are a palette, and that is on purpose
+
+**`shared/providers.ts` is the one place here that does not take a colour from `theme.colors`**, and
+it is a considered exception to the root CLAUDE.md's rule rather than an oversight. That rule's
+stated reason is that an invented *token name* resolves to `undefined` at runtime; a hex string is
+not a token name, and `withAlpha` already computes colour strings in this repo and in launchd-jobs.
+
+A token genuinely cannot do this job:
+
+- Four of the eleven tokens are hues at all — `accent`, `statusSuccess`, `statusWarning`,
+  `statusDanger` — for five providers.
+- They are not guaranteed to differ. In Paseo's default dark theme **`accent` is green**, so the
+  first cut put OpenAI on `statusSuccess` and Ollama Cloud on `accent` and shipped two providers the
+  user could not tell apart. `shared/providers.test.ts` asserts all five are distinct now, in both
+  variants; that test exists because of this bug.
+- The status tokens mean something. Painting Anthropic "danger" is a sentence about Anthropic.
+
+So each provider carries a `ProviderAccent`, a `{ dark, light }` pair of the same hue at two
+lightnesses, with the five hues spread around the wheel — orange, green, violet, blue, pink.
+`pickAccent` chooses between them using `isDarkBackground(theme.colors.surface0)`, because
+`PluginTheme` carries colours and **no `appearance` flag**, so the background is the only evidence
+available of which theme is painting. Both helpers are pure and in `shared/`, so they are tested.
+
+Adding a sixth provider means adding a sixth hue pair, and checking it against the other five on
+both backgrounds. Do not reach for a token.
 
 ## Checking it
 

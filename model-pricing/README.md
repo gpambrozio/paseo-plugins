@@ -50,6 +50,14 @@ so only the last column changes.
 **Only models that can call tools.** On by default, because a model that cannot call a tool cannot
 run an agent. Models whose provider does not say either way are always shown rather than guessed at.
 
+### Hiding a provider for a moment
+
+The coloured dots under the heading are buttons. Tap one and that provider's models drop out of the
+table and its dot goes hollow; tap it again and they come back. This is instant and does not touch
+the network — it is for narrowing the table while you compare two providers, not for saying which
+ones you care about. Use the settings switches for that: a provider switched off there is not
+fetched at all. Hiding is forgotten when you restart the app.
+
 ## Reading the table
 
 Prices are US dollars per million tokens, written input first. An em dash means the provider did not

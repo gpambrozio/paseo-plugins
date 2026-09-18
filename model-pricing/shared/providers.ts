@@ -24,11 +24,35 @@ export const SOURCE_IDS = ["models-dev", "openrouter"] as const;
 export type SourceId = (typeof SOURCE_IDS)[number];
 
 /**
- * The legend dot's colour, as a *token name* rather than a colour. Client code
- * resolves it against `theme.colors`, because a literal renders wrong in half
- * the themes and these are the only five tokens that read as distinct hues.
+ * A provider's identity colour, in a dark-background and a light-background
+ * variant.
+ *
+ * **This is the one place in the plugin that does not take a colour from
+ * `theme.colors`, and it is deliberate.** The root CLAUDE.md's rule exists
+ * because an invented *token name* resolves to `undefined` at runtime; these
+ * are not token names. The reason a token will not do the job:
+ *
+ * - A plugin theme offers four colours that are hues at all — `accent`,
+ *   `statusSuccess`, `statusWarning`, `statusDanger` — for five providers.
+ * - Worse, they are not guaranteed to differ. In Paseo's default dark theme
+ *   `accent` is green, so a provider on `accent` and one on `statusSuccess`
+ *   come out the same colour. That is not a spacing or contrast problem; the
+ *   two providers are genuinely indistinguishable.
+ * - And the status tokens mean something. Painting Anthropic "danger" is a
+ *   sentence about Anthropic, not a label.
+ *
+ * So the five hues are spread around the wheel — orange, green, blue, violet,
+ * pink — and each is given two values: a bright one that reads on a dark
+ * background and a darker one that reads on a light one. `pickAccent` chooses
+ * between them from the theme's own surface colour, which is what keeps this
+ * honest across themes.
  */
-export type AccentToken = "accent" | "statusSuccess" | "statusWarning" | "statusDanger" | "foregroundMuted";
+export interface ProviderAccent {
+  /** Used on a dark background: bright enough to read as text on it. */
+  readonly dark: string;
+  /** Used on a light background: dark enough to read as text on it. */
+  readonly light: string;
+}
 
 export interface ProviderInfo {
   /** This plugin's own id. Stable: it is what the settings document stores. */
@@ -40,7 +64,7 @@ export interface ProviderInfo {
    * fetcher. Note `fireworks-ai` and `ollama-cloud` — the keys are not the ids.
    */
   readonly catalogKey: string | null;
-  readonly accentToken: AccentToken;
+  readonly accent: ProviderAccent;
   /** Where a human checks the number this table shows. */
   readonly doc: string;
 }
@@ -51,7 +75,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     label: "Anthropic",
     source: "models-dev",
     catalogKey: "anthropic",
-    accentToken: "statusWarning",
+    accent: { dark: "#f0916a", light: "#c2410c" },
     doc: "https://www.anthropic.com/pricing",
   },
   {
@@ -59,7 +83,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     label: "OpenAI",
     source: "models-dev",
     catalogKey: "openai",
-    accentToken: "statusSuccess",
+    accent: { dark: "#4ecf9a", light: "#0f766e" },
     doc: "https://openai.com/api/pricing/",
   },
   {
@@ -67,7 +91,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     label: "Fireworks AI",
     source: "models-dev",
     catalogKey: "fireworks-ai",
-    accentToken: "accent",
+    accent: { dark: "#a78bfa", light: "#6d28d9" },
     doc: "https://fireworks.ai/pricing",
   },
   {
@@ -75,7 +99,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     label: "Ollama Cloud",
     source: "models-dev",
     catalogKey: "ollama-cloud",
-    accentToken: "statusDanger",
+    accent: { dark: "#5aa9f0", light: "#1d4ed8" },
     doc: "https://docs.ollama.com/cloud",
   },
   {
@@ -83,7 +107,7 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     label: "OpenRouter",
     source: "openrouter",
     catalogKey: null,
-    accentToken: "foregroundMuted",
+    accent: { dark: "#e879b9", light: "#be185d" },
     doc: "https://openrouter.ai/models",
   },
 ];
@@ -115,4 +139,26 @@ export function sourcesFor(providerIds: readonly string[]): SourceId[] {
 /** The provider ids served by one source, in catalog order. */
 export function providersOfSource(source: SourceId): readonly ProviderInfo[] {
   return PROVIDERS.filter((provider) => provider.source === source);
+}
+
+/**
+ * Whether a background colour is dark, by perceived brightness.
+ *
+ * `PluginTheme` carries colours and nothing else — no `appearance` flag — so
+ * the only way to know which half of the palette to use is to look at what the
+ * theme paints behind the table. Anything that is not a `#rrggbb` string is
+ * treated as dark, which is Paseo's default.
+ */
+export function isDarkBackground(background: string): boolean {
+  if (!/^#[0-9a-fA-F]{6}$/.test(background)) return true;
+  const red = parseInt(background.slice(1, 3), 16);
+  const green = parseInt(background.slice(3, 5), 16);
+  const blue = parseInt(background.slice(5, 7), 16);
+  // Rec. 601 luma: green carries most of what the eye reads as brightness.
+  return (red * 0.299 + green * 0.587 + blue * 0.114) / 255 < 0.5;
+}
+
+/** A provider's colour for the theme currently painting `background`. */
+export function pickAccent(accent: ProviderAccent, background: string): string {
+  return isDarkBackground(background) ? accent.dark : accent.light;
 }
