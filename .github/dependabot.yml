@@ -12,6 +12,7 @@ updates:
       - /skills
       - /github-board
       - /launchd-jobs
+      - /model-pricing
     schedule:
       interval: weekly
     groups:
