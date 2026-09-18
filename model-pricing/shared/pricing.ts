@@ -27,7 +27,6 @@ export const PriceRowSchema = z.object({
   /** USD per 1M tokens. */
   inputCost: z.number(),
   outputCost: z.number(),
-  cacheReadCost: z.number().nullable(),
   reasoning: z.boolean().nullable(),
   toolCall: z.boolean().nullable(),
   structuredOutput: z.boolean().nullable(),

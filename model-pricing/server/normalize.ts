@@ -96,7 +96,6 @@ function modelsDevRow(providerId: string, raw: unknown): PriceRow | null {
     outputTokens: asCount(limit?.["output"]),
     inputCost,
     outputCost,
-    cacheReadCost: asCount(cost?.["cache_read"]),
     reasoning: asBool(model["reasoning"]),
     toolCall: asBool(model["tool_call"]),
     structuredOutput: asBool(model["structured_output"]),
@@ -115,8 +114,20 @@ function modelsDevRow(providerId: string, raw: unknown): PriceRow | null {
 /** The provider id OpenRouter rows are filed under. */
 const OPENROUTER_ID = "openrouter";
 
-/** Per-token dollars → dollars per 1M tokens, which is what the table shows. */
-const PER_MILLION = 1_000_000;
+/**
+ * Per-token dollars → dollars per 1M tokens, which is what the table shows.
+ *
+ * The rounding is not cosmetic. OpenRouter states prices as decimal strings per
+ * token, and multiplying one by a million lands on a float that is a hair off a
+ * round number: `0.0000002 * 1e6` is `0.19999999999999998`. `formatPrice` asks
+ * for the fewest decimals that round-trip *exactly*, so that value printed as
+ * `$0.2000` — and a quarter of OpenRouter's prices came out four decimals wide
+ * in a monospaced column meant to be scanned. Twelve significant digits is far
+ * more precision than any published price carries and snaps the noise away.
+ */
+function perMillion(perToken: number): number {
+  return Number((perToken * 1_000_000).toPrecision(12));
+}
 
 /**
  * OpenRouter has no capability booleans. What it has is `supported_parameters`,
@@ -154,7 +165,6 @@ function openRouterRow(raw: unknown): PriceRow | null {
   const outputCost = asNumericString(pricing?.["completion"]);
   if (inputCost === null || outputCost === null) return null;
 
-  const cacheRead = asNumericString(pricing?.["input_cache_read"]);
   const supported = model["supported_parameters"];
   // An absent list is unknown, not "supports nothing" — so every flag stays
   // null and the row draws four em dashes rather than four confident Nos.
@@ -167,9 +177,8 @@ function openRouterRow(raw: unknown): PriceRow | null {
     name: asString(model["name"]) ?? modelId,
     contextTokens: asCount(model["context_length"]),
     outputTokens: asCount(asRecord(model["top_provider"])?.["max_completion_tokens"]),
-    inputCost: inputCost * PER_MILLION,
-    outputCost: outputCost * PER_MILLION,
-    cacheReadCost: cacheRead === null ? null : cacheRead * PER_MILLION,
+    inputCost: perMillion(inputCost),
+    outputCost: perMillion(outputCost),
     reasoning: flag(PARAMETERS.reasoning),
     toolCall: flag(PARAMETERS.toolCall),
     structuredOutput: flag(PARAMETERS.structuredOutput),

@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { normalizeModelsDev, normalizeOpenRouter } from "./normalize";
+import { formatPrice } from "../shared/format";
 
 function modelsDevDocument(): unknown {
   return {
@@ -78,7 +79,6 @@ describe("normalizeModelsDev", () => {
       outputTokens: 128_000,
       inputCost: 5,
       outputCost: 25,
-      cacheReadCost: 0.5,
       reasoning: true,
       toolCall: true,
       structuredOutput: true,
@@ -179,7 +179,6 @@ describe("normalizeOpenRouter", () => {
 
     expect(fable?.inputCost).toBeCloseTo(10);
     expect(fable?.outputCost).toBeCloseTo(50);
-    expect(fable?.cacheReadCost).toBeCloseTo(0.25);
     expect(fable?.providerId).toBe("openrouter");
   });
 
@@ -218,6 +217,34 @@ describe("normalizeOpenRouter", () => {
   it("drops an unpriceable row and keeps the rest", () => {
     const rows = normalizeOpenRouter(openRouterDocument());
     expect(rows.map((entry) => entry.modelId)).toEqual(["anthropic/claude-fable-5.1", "mystery/model"]);
+  });
+
+  /**
+   * The regression test for a bug neither side could show alone. Multiplying a
+   * per-token string by a million lands a hair off a round number
+   * (`0.0000002 * 1e6 === 0.19999999999999998`), and `formatPrice` prints the
+   * fewest decimals that round-trip *exactly* — so a quarter of OpenRouter's
+   * prices came out `$0.2000` wide in a monospaced column. `toBeCloseTo` is
+   * blind to it, which is why this asserts the rendered string.
+   */
+  it("converts prices to values that print at their natural width", () => {
+    const document = {
+      data: [
+        { id: "a", pricing: { prompt: "0.0000002", completion: "0.0000012" } },
+        { id: "b", pricing: { prompt: "0.00000023", completion: "0.00000091" } },
+        { id: "c", pricing: { prompt: "0.00000005", completion: "0.00001" } },
+        { id: "d", pricing: { prompt: "0.0000000015", completion: "0.0000000175" } },
+      ],
+    };
+    const rendered = normalizeOpenRouter(document).map((row) => `${formatPrice(row.inputCost)} / ${formatPrice(row.outputCost)}`);
+
+    expect(rendered).toEqual([
+      "$0.20 / $1.20",
+      "$0.23 / $0.91",
+      "$0.05 / $10",
+      // Sub-cent prices keep the decimals they genuinely need.
+      "$0.0015 / $0.0175",
+    ]);
   });
 
   it("throws when there is no data array to read", () => {

@@ -18,6 +18,7 @@ compile time. This file covers only what is specific to `model-pricing`.
 | `shared/pricing.ts`          | `PriceRow`, the per-source status, and the `pricing.load` contract.                       |
 | `shared/settings.ts`         | The host settings document: providers, the blend weight, the tool-call filter.            |
 | `shared/format.ts`           | Every number the table prints, and the relative-cost ranking. Pure.                       |
+| `shared/sort.ts`             | The column comparator. In `shared/` so it can be tested without a renderer.               |
 | `server/normalize.ts`        | Each upstream's JSON → `PriceRow[]`. Pure, defensive, skips rather than throws.           |
 | `server/sources.ts`          | The two HTTP fetches, `fetch` injected. ETag revalidation for models.dev.                 |
 | `server/cache.ts`            | `$PASEO_HOME/plugins/model-pricing/<source>.json`, TTL and ETag.                          |
@@ -26,6 +27,9 @@ compile time. This file covers only what is specific to `model-pricing`.
 | `client/table.tsx`           | The wide table, the compact card, the sort comparator, and every style the surface uses.  |
 | `client/settings-screen.tsx` | Settings › Plugins › Model pricing.                                                       |
 | `server/*.test.ts`, `shared/*.test.ts` | The tests. `npm test`.                                                         |
+
+`client/table.tsx` holds no logic worth testing on purpose: the comparator moved to
+`shared/sort.ts` precisely because a module that imports React Native cannot be unit-tested here.
 
 ## Nobody sells a pricing API
 
@@ -106,8 +110,9 @@ reads `1.0×`. Two things about it are deliberate:
   multiple of a price the user cannot see means nothing.
 
 Free models keep a blend of 0, are excluded from the baseline search, and print **Free** rather than
-`0.0×` — OpenRouter carries a few hundred of them, and `0.0×` under a header promising
-"cheapest = 1.0×" reads as a bug.
+`0.0×` — OpenRouter carries a couple of dozen of them, and `0.0×` under a header promising
+"cheapest = 1.0×" reads as a bug. They keep their 0 **even when no paid row is visible**: searching
+"free" narrows the table to exactly that set, and mapping the lot to 1 put `1.0×` on every row.
 
 The map is keyed `providerId/modelId`, because a model id is unique only within a provider and the
 same model is two rows when OpenRouter is on.

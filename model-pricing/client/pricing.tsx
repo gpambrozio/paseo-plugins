@@ -20,22 +20,11 @@ import { FlatList, Icon, TextInput } from "@getpaseo/plugin/client/react-native"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
-import {
-  PricingCard,
-  TableBodyRow,
-  TableHeader,
-  accentColor,
-  compareRows,
-  tableRowKey,
-  useStyles,
-  type Sort,
-  type SortKey,
-  type Styles,
-  type TableRow,
-} from "./table";
+import { PricingCard, TableBodyRow, TableHeader, accentColor, tableRowKey, useStyles, type Styles } from "./table";
+import { compareRows, type Sort, type SortKey, type TableRow } from "../shared/sort";
 import { relativeCosts, relativeTime, rowKey } from "../shared/format";
 import { loadPricing, type PriceRow, type SourceStatus } from "../shared/pricing";
-import { PROVIDERS, providerById } from "../shared/providers";
+import { PROVIDERS, providerLabel } from "../shared/providers";
 import {
   DEFAULT_DISPLAY,
   displaySettings,
@@ -84,6 +73,21 @@ function providerKeyOf(providerIds: readonly string[]): string {
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * When the prices on screen were actually fetched — the *oldest* source, since
+ * that is the one the "updated" line is really about.
+ *
+ * Not the clock when the RPC returned. A cached answer comes back in
+ * milliseconds and its rows can be twelve hours old, so stamping the reply
+ * would have the header say "just now" over half-day-old prices, which is the
+ * one thing that line exists to prevent. Sources that never loaded report 0 and
+ * are ignored; if none of them has a stamp, the reply time is all there is.
+ */
+function stampOf(sources: readonly SourceStatus[]): number {
+  const stamps = sources.map((source) => source.fetchedAt).filter((stamp) => stamp > 0);
+  return stamps.length === 0 ? Date.now() : Math.min(...stamps);
 }
 
 export function PricingSurface(props: PluginSurfaceProps) {
@@ -160,24 +164,35 @@ export function PricingSurface(props: PluginSurfaceProps) {
     });
   }, []);
 
+  /**
+   * Which request is the current one. Two loads overlap whenever a provider is
+   * toggled while the first is still in flight, and the 4.7 MB models.dev fetch
+   * makes that window real — without this, the older answer could land last and
+   * put back rows for a provider the user has just switched off.
+   */
+  const latestRequest = useRef(0);
+
   const refresh = useCallback(
     async function refresh(providerIds: readonly string[], force: boolean) {
+      const request = latestRequest.current + 1;
+      latestRequest.current = request;
       setBusy(true);
       setError(null);
       try {
         const result = await load({ providers: [...providerIds], refresh: force });
-        const now = Date.now();
+        if (latestRequest.current !== request) return;
         cachedRows = result.rows;
         cachedSources = result.sources;
-        cachedFetchedAt = now;
+        cachedFetchedAt = stampOf(result.sources);
         cachedProviderKey = providerKeyOf(providerIds);
         setRows(result.rows);
         setSources(result.sources);
-        setFetchedAt(now);
+        setFetchedAt(cachedFetchedAt);
       } catch (cause) {
+        if (latestRequest.current !== request) return;
         setError(errorText(cause));
       } finally {
-        setBusy(false);
+        if (latestRequest.current === request) setBusy(false);
       }
     },
     [load],
@@ -215,6 +230,11 @@ export function PricingSurface(props: PluginSurfaceProps) {
   }, [settingsReady, providerKey, enabledIds, refresh]);
 
   useEffect(() => {
+    // Not before the settings are in. While they load, `providerKey` is "" —
+    // indistinguishable from "every provider is switched off" — and pruning
+    // against that emptied the hidden set on every single mount, which is
+    // exactly what the module-scope cache exists to prevent.
+    if (!settingsReady) return;
     // Forget a provider that has since been switched off in settings, so that
     // switching it back on does not bring it back still hidden — which would
     // read as the switch not working.
@@ -225,23 +245,30 @@ export function PricingSurface(props: PluginSurfaceProps) {
       cachedHidden = next;
       return next;
     });
-  }, [providerKey]);
+  }, [settingsReady, providerKey]);
 
   // ---- the visible set ----------------------------------------------------
 
   const visible = useMemo((): TableRow[] => {
     if (rows === null) return [];
     const terms = search.toLowerCase().split(/\s+/).filter((term) => term !== "");
+    const shown = new Set(enabledIds);
     const filtered = rows.filter((row) => {
-      // Tapped off in the legend. Checked first because it is the cheapest
-      // test and the one most likely to reject.
+      // Belt as well as braces: the daemon is asked only for enabled providers,
+      // but `rows` is whatever the last answer carried, and that answer can be
+      // older than the switch the user just flipped. Rows for a provider that
+      // is off have no legend dot to hide them and would drag the relative
+      // baseline, so they are dropped here regardless of which reply landed.
+      if (!shown.has(row.providerId)) return false;
+      // Tapped off in the legend. Checked first among the user's own filters
+      // because it is the cheapest test and the one most likely to reject.
       if (hidden.has(row.providerId)) return false;
       // Unknown is not hidden. `null` means the upstream did not say whether
       // the model calls tools, and dropping it would lose models whose
       // catalogue entry is merely quiet rather than negative.
       if (toolCallOnly && row.toolCall === false) return false;
       if (terms.length === 0) return true;
-      const haystack = `${row.name} ${row.modelId} ${providerById(row.providerId)?.label ?? row.providerId}`.toLowerCase();
+      const haystack = `${row.name} ${row.modelId} ${providerLabel(row.providerId)}`.toLowerCase();
       return terms.every((term) => haystack.includes(term));
     });
 
@@ -250,7 +277,7 @@ export function PricingSurface(props: PluginSurfaceProps) {
     const relatives = relativeCosts(filtered, inputShare(inputWeight));
     const entries = filtered.map((row) => ({ row, relative: relatives.get(rowKey(row)) ?? 1 }));
     return entries.sort((a, b) => compareRows(a, b, sort));
-  }, [rows, search, sort, toolCallOnly, inputWeight, hidden]);
+  }, [rows, search, sort, toolCallOnly, inputWeight, hidden, enabledIds]);
 
   const failures = sources.filter((source) => source.error !== null);
   const openSettings = openSettingsScreen;

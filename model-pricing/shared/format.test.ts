@@ -22,7 +22,6 @@ function row(overrides: Partial<PriceRow> = {}): PriceRow {
     outputTokens: 128_000,
     inputCost: 2,
     outputCost: 10,
-    cacheReadCost: null,
     reasoning: true,
     toolCall: true,
     structuredOutput: true,
@@ -39,6 +38,11 @@ describe("formatTokens", () => {
     expect(formatTokens(262_144)).toBe("262K");
     expect(formatTokens(131_072)).toBe("131K");
     expect(formatTokens(196_608)).toBe("197K");
+  });
+
+  it("does not write a thousand thousands as 1000K", () => {
+    expect(formatTokens(999_999)).toBe("1M");
+    expect(formatTokens(999_499)).toBe("999K");
   });
 
   it("keeps a power of two distinct from the round number near it", () => {
@@ -125,9 +129,17 @@ describe("relativeCosts", () => {
     expect(Number.isFinite(relative.get("anthropic/fable") ?? Number.NaN)).toBe(true);
   });
 
-  it("answers 1.0x for everything when every row is free", () => {
+  it("still calls a free row free when there is no paid row to rank against", () => {
+    // Reachable in one keystroke: typing "free" in the search box narrows the
+    // table to OpenRouter's free models and nothing else. Mapping the lot to 1
+    // put "1.0×" on every row under a header promising "cheapest = 1.0×".
     const free = row({ providerId: "ollama", modelId: "free", inputCost: 0, outputCost: 0 });
-    expect(relativeCosts([free], 0.8).get("ollama/free")).toBe(1);
+    const other = row({ providerId: "openrouter", modelId: "also-free", inputCost: 0, outputCost: 0 });
+    const relative = relativeCosts([free, other], 0.8);
+
+    expect(relative.get("ollama/free")).toBe(0);
+    expect(relative.get("openrouter/also-free")).toBe(0);
+    expect(formatRelative(relative.get("ollama/free") ?? -1)).toBe("Free");
   });
 
   it("is empty for no rows rather than throwing", () => {

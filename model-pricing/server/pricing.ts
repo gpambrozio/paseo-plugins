@@ -79,7 +79,14 @@ async function loadSource(
     // A 304 means the rows in hand are still current. Restamping them is the
     // point: without it every mount past the TTL would revalidate again.
     const rows = result.rows ?? cached?.rows ?? [];
-    cache.write(source, { rows: [...rows], fetchedAt, etag: result.etag });
+    // An ETag is only worth keeping next to rows worth keeping. Storing one
+    // beside an empty set is a trap: a single degraded-but-valid 200 (the
+    // catalog served without its provider keys, which normalizes to no rows)
+    // would be revalidated as a 304 for ever after, and even Refresh could not
+    // break out of it — every later call would send `If-None-Match`, be told
+    // nothing changed, and keep the empty table. Dropping the ETag costs one
+    // full download on the next call and makes the state recoverable.
+    cache.write(source, { rows: [...rows], fetchedAt, etag: rows.length === 0 ? null : result.etag });
     return { rows, status: status(source, fetchedAt, result.rows === null, null) };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

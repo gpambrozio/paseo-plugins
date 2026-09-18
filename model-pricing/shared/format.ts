@@ -19,7 +19,9 @@ export const UNKNOWN = "—";
  */
 export function formatTokens(tokens: number | null): string {
   if (tokens === null || !Number.isFinite(tokens) || tokens <= 0) return UNKNOWN;
-  if (tokens >= 1_000_000) return `${trimZeros((tokens / 1_000_000).toFixed(2))}M`;
+  // The bound is 999_500, not 1_000_000: anything above it rounds to 1000K,
+  // which is a thousand thousands written the long way.
+  if (tokens >= 999_500) return `${trimZeros((tokens / 1_000_000).toFixed(2))}M`;
   if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`;
   return String(tokens);
 }
@@ -57,9 +59,9 @@ export function formatPricePair(input: number, output: number): string {
 /**
  * The RELATIVE column. One decimal, so the column stays a column.
  *
- * Zero is its own word. OpenRouter carries a few hundred genuinely free models,
- * and `0.0×` beside a header promising "cheapest = 1.0×" reads as a bug; "Free"
- * says the row is off the scale rather than at the bottom of it.
+ * Zero is its own word. OpenRouter carries a couple of dozen genuinely free
+ * models, and `0.0×` beside a header promising "cheapest = 1.0×" reads as a
+ * bug; "Free" says the row is off the scale rather than at the bottom of it.
  */
 export function formatRelative(multiple: number): string {
   if (!Number.isFinite(multiple)) return UNKNOWN;
@@ -108,9 +110,13 @@ export function relativeCosts(rows: readonly PriceRow[], share: number): Map<str
   // The baseline deliberately skips free rows: with a zero in it, every paid
   // model would divide by nothing. Free rows keep their 0 and print as "Free".
   //
-  // Every row free, or no rows at all: there is no baseline to divide by, and
-  // 1.0× for everything is more honest than Infinity or NaN.
-  if (!Number.isFinite(cheapest)) return new Map([...blended].map(([key]) => [key, 1]));
+  // No paid row at all — searching "free" narrows the table to exactly that —
+  // means there is no baseline to divide by. A free row still has to answer 0
+  // so it still prints "Free"; only a non-zero cost with no baseline falls back
+  // to 1, and that combination cannot arise.
+  if (!Number.isFinite(cheapest)) {
+    return new Map([...blended].map(([key, cost]) => [key, cost === 0 ? 0 : 1]));
+  }
   return new Map([...blended].map(([key, cost]) => [key, cost / cheapest]));
 }
 

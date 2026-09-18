@@ -15,7 +15,6 @@ function row(overrides: Partial<PriceRow> = {}): PriceRow {
     outputTokens: 128_000,
     inputCost: 5,
     outputCost: 25,
-    cacheReadCost: 0.5,
     reasoning: true,
     toolCall: true,
     structuredOutput: true,

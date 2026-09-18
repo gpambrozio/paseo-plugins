@@ -105,9 +105,22 @@ export class PricingCache {
     });
   }
 
-  /** Awaited from the plugin's cleanup, so a reload does not truncate a file. */
-  flush(): Promise<void> {
-    return this.writes;
+  /**
+   * Awaited from the plugin's cleanup, so a reload does not truncate a file.
+   *
+   * Drains rather than returning the chain as it stands: a `pricing.load` still
+   * resolving while the plugin is torn down can queue a write *after* the
+   * cleanup handler has awaited, and returning `this.writes` once would not
+   * cover it.
+   */
+  async flush(): Promise<void> {
+    let pending = this.writes;
+    // Each await lets anything queued during the previous one settle too.
+    for (;;) {
+      await pending;
+      if (this.writes === pending) return;
+      pending = this.writes;
+    }
   }
 }
 

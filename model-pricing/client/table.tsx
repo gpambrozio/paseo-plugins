@@ -30,20 +30,8 @@ import {
   UNKNOWN,
 } from "../shared/format";
 import type { PriceRow } from "../shared/pricing";
-import { pickAccent, providerById, type ProviderAccent } from "../shared/providers";
-
-/** One row, with the relative multiple already worked out for the visible set. */
-export interface TableRow {
-  row: PriceRow;
-  relative: number;
-}
-
-export type SortKey = "name" | "context" | "output" | "price" | "relative" | "provider";
-
-export interface Sort {
-  key: SortKey;
-  descending: boolean;
-}
+import { pickAccent, providerById, providerLabel, type ProviderAccent } from "../shared/providers";
+import type { Sort, SortKey, TableRow } from "../shared/sort";
 
 interface Column {
   label: string;
@@ -71,43 +59,6 @@ const COLUMNS: readonly Column[] = [
   { label: "Relative", sort: "relative", flex: 1.6, right: true },
   { label: "Platform", sort: "provider", flex: 1.8 },
 ];
-
-// ---------------------------------------------------------------------------
-// Sorting
-
-/**
- * Ordering for one key, with unknowns always last whichever way the arrow
- * points — a model that does not publish its context window is not the one with
- * the smallest.
- */
-export function compareRows(a: TableRow, b: TableRow, sort: Sort): number {
-  const direction = sort.descending ? -1 : 1;
-  switch (sort.key) {
-    case "name":
-      return a.row.name.localeCompare(b.row.name) * direction;
-    case "provider":
-      return (providerLabelOf(a.row).localeCompare(providerLabelOf(b.row)) || a.row.name.localeCompare(b.row.name)) * direction;
-    case "context":
-      return compareNullable(a.row.contextTokens, b.row.contextTokens, direction);
-    case "output":
-      return compareNullable(a.row.outputTokens, b.row.outputTokens, direction);
-    case "price":
-      return compareNullable(a.row.inputCost, b.row.inputCost, direction);
-    case "relative":
-      return compareNullable(a.relative, b.relative, direction);
-  }
-}
-
-function compareNullable(a: number | null, b: number | null, direction: number): number {
-  if (a === null && b === null) return 0;
-  if (a === null) return 1;
-  if (b === null) return -1;
-  return (a - b) * direction;
-}
-
-function providerLabelOf(row: PriceRow): string {
-  return providerById(row.providerId)?.label ?? row.providerId;
-}
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -231,7 +182,6 @@ export function useStyles({ theme, layout }: { theme: PluginTheme; layout: { com
         paddingRight: pad,
         paddingVertical: layout.compact ? 11 : 14,
       },
-      rowPressed: { backgroundColor: faint },
       accent: { width: ACCENT_WIDTH, marginLeft: pad },
 
       /**
@@ -351,7 +301,15 @@ export function TableHeader({
               {column.label.toUpperCase()}
             </Text>
             {active ? (
-              <Text style={[styles.headerLabel, styles.headerLabelActive]}>{sort.descending ? "↓" : "↑"}</Text>
+              // The label above already says the direction; left visible this
+              // would be read out after it as "down arrow".
+              <Text
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+                style={[styles.headerLabel, styles.headerLabelActive]}
+              >
+                {sort.descending ? "↓" : "↑"}
+              </Text>
             ) : null}
           </View>
         );
@@ -367,7 +325,11 @@ export function TableHeader({
           <Pressable
             key={column.label}
             accessibilityRole="button"
-            accessibilityLabel={`Sort by ${column.label}`}
+            accessibilityLabel={
+              active
+                ? `${column.label}, sorted ${sort.descending ? "descending" : "ascending"}`
+                : `Sort by ${column.label}`
+            }
             accessibilityState={{ selected: active }}
             onPress={() => onSort(key)}
             style={({ pressed }) => [{ flex: column.flex }, pressed ? styles.pressed : null]}
@@ -416,7 +378,7 @@ export function TableBodyRow({ entry, styles, theme }: { entry: TableRow; styles
         <Cell
           flex={COLUMNS[9]?.flex ?? 1}
           style={[styles.cellPlatform, { color: providerAccent(theme, row.providerId) }]}
-          value={providerLabelOf(row)}
+          value={providerLabel(row.providerId)}
           styles={styles}
         />
       </View>
@@ -470,7 +432,7 @@ export function PricingCard({ entry, styles, theme }: { entry: TableRow; styles:
           <Text style={styles.cellRelative}>{formatRelative(entry.relative)}</Text>
         </View>
         <Text style={[styles.cellPlatform, { color: providerAccent(theme, row.providerId) }]} numberOfLines={1}>
-          {providerLabelOf(row)}
+          {providerLabel(row.providerId)}
         </Text>
         <Text style={styles.cellPrice} numberOfLines={1}>
           {formatPrice(row.inputCost)} in · {formatPrice(row.outputCost)} out · per 1M
@@ -496,5 +458,3 @@ export function PricingCard({ entry, styles, theme }: { entry: TableRow; styles:
 export function tableRowKey(entry: TableRow): string {
   return rowKey(entry.row);
 }
-
-export { UNKNOWN };

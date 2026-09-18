@@ -165,6 +165,28 @@ describe("createPricingHandler", () => {
     expect(revalidated.sources[0]?.error).toBeNull();
   });
 
+  /**
+   * The trap in finding #5: a degraded-but-valid 200 (the catalog served
+   * without its provider keys) normalizes to no rows. Storing its ETag would
+   * mean every later call — Refresh included — is answered 304 and keeps the
+   * empty table, with no way out from the UI.
+   */
+  it("never stores an ETag beside an empty row set, so an empty cache is recoverable", async () => {
+    let body: unknown = { anthropic: { models: {} } };
+    const deps = recordingFetch((url) => (url === MODELS_DEV ? json(body, { etag: '"empty"' }) : json(OPENROUTER_BODY)));
+    const load = createPricingHandler(new PricingCache(null), deps);
+
+    const empty = await load({ providers: ["anthropic"], refresh: false });
+    expect(empty.rows).toEqual([]);
+
+    // The upstream recovers. The second call must ask unconditionally.
+    body = MODELS_DEV_BODY;
+    const recovered = await load({ providers: ["anthropic"], refresh: true });
+
+    expect(deps.calls[1]?.headers["if-none-match"]).toBeUndefined();
+    expect(recovered.rows).toHaveLength(1);
+  });
+
   it("keeps one upstream's rows when the other is down", async () => {
     const deps = recordingFetch((url) => {
       if (url === MODELS_DEV) return json(MODELS_DEV_BODY);

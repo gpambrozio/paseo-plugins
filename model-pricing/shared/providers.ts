@@ -41,7 +41,7 @@ export type SourceId = (typeof SOURCE_IDS)[number];
  * - And the status tokens mean something. Painting Anthropic "danger" is a
  *   sentence about Anthropic, not a label.
  *
- * So the five hues are spread around the wheel — orange, green, blue, violet,
+ * So the five hues are spread around the wheel — orange, green, violet, blue,
  * pink — and each is given two values: a bright one that reads on a dark
  * background and a darker one that reads on a light one. `pickAccent` chooses
  * between them from the theme's own surface colour, which is what keeps this
