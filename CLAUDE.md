@@ -3,15 +3,16 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Plugins for [Paseo](https://paseo.sh), one self-contained folder per plugin: `skills/`,
-`github-board/`, `launchd-jobs/`, and `herald/`. Plugin code is trusted and unsandboxed — the server half runs
-next to the daemon with its files, processes, and credentials; the client half runs inside the
-Paseo app.
+`github-board/`, `launchd-jobs/`, `herald/`, and `model-pricing/`. Plugin code is trusted and
+unsandboxed — the server half runs next to the daemon with its files, processes, and credentials;
+the client half runs inside the Paseo app.
 
 Each plugin has its own `CLAUDE.md` for what only that plugin does — `skills/CLAUDE.md` before
 touching skill discovery, `github-board/CLAUDE.md` before touching the `gh` queries or the board's
 caching, `launchd-jobs/CLAUDE.md` before touching anything that calls `launchctl` or writes a
-plist, `herald/CLAUDE.md` before touching the lifecycle hooks or the summary helper. This file is
-only what they share.
+plist, `herald/CLAUDE.md` before touching the lifecycle hooks or the summary helper,
+`model-pricing/CLAUDE.md` before touching where a price comes from or how it is cached. This file
+is only what they share.
 
 ## There is no workspace root
 
@@ -23,13 +24,13 @@ Every command below runs from inside a plugin folder, never from the repo root.
 path on every start, so moving this clone means reinstalling every plugin in it.
 
 ```bash
-cd skills          # or github-board, launchd-jobs, herald
+cd skills          # or github-board, launchd-jobs, herald, model-pricing
 npm install
 npm run typecheck  # every plugin
-npm test           # skills, launchd-jobs and herald — github-board defines no test script
+npm test           # every plugin but github-board, which defines no test script
 ```
 
-Single test (skills, launchd-jobs and herald, vitest):
+Single test (every plugin but github-board, vitest):
 
 ```bash
 npm test -- server/resolve/frontmatter.test.ts   # one file
@@ -44,11 +45,11 @@ paseo plugin logs skills          # load errors and stderr
 ```
 
 - The plugin id comes from `paseo-plugin.json`, which `paseo plugin init` seeds from the directory
-  basename. The ids are `skills`, `github-board`, `launchd-jobs`, and `herald`.
+  basename. The ids are `skills`, `github-board`, `launchd-jobs`, `herald`, and `model-pricing`.
 - **A failed reload stays failed.** Paseo does not restore the previous code.
 - **Never restart the daemon** — it manages the user's running agents.
 - The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.8.0 or newer**. All
-  four plugins declare `requirements.paseo: ">=0.8.0"`; on an older daemon they do not degrade,
+  five plugins declare `requirements.paseo: ">=0.8.0"`; on an older daemon they do not degrade,
   they refuse to load. There are no version fallbacks left in this repo — see *Versions* below for
   why the app-side check made them unnecessary.
 - There is no harness for plugin UI. A clean typecheck and a clean reload prove a `client/` change
@@ -167,8 +168,8 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
 
 `paseo-plugin.json` carries `requirements.paseo`, an npm semver range. **A missing
 `requirements.paseo` means `<0.8.0`**, so 0.8 rejects the plugin outright with a link to the
-migration guide — adding the field is part of migrating, not a substitute for it. All four plugins here declare
-`>=0.8.0`.
+migration guide — adding the field is part of migrating, not a substitute for it. All five plugins
+here declare `>=0.8.0`.
 
 The daemon checks the range before installing or loading, and **each connected app checks it against
 its own version** before evaluating client code. That second check is what retired this repo's
@@ -178,7 +179,7 @@ optional.
 
 ### The SDK dependency
 
-All four plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
+All five plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
 the daemon runs — `0.8.0` at the time of writing. `skills` used to ship a hand-written
 `paseo-plugin.d.ts` shim instead; it was deleted in the 0.8 migration, because every new host API
 had to be hand-declared into it before it could be used.
@@ -243,7 +244,7 @@ paseo plugin add gpambrozio/paseo-plugins --path <plugin> --ref <plugin>/v<versi
 
 **What earns a version** is what a user of the plugin can observe, which is the same bar the
 changelog entry has to clear. A dev-dependency bump earns neither: `vitest` and `@types/node` are
-devDependencies in all four plugins and reach no bundle, so there is no line worth reading and
+devDependencies in all five plugins and reach no bundle, so there is no line worth reading and
 nothing changes for someone who re-pins. The only dependency that ships is `@getpaseo/plugin`.
 
 **The "Latest" badge is repo-wide and arbitrary.** GitHub designates exactly one non-draft,
@@ -285,3 +286,18 @@ hooks and is recognised by title as well as id; and the app cannot run `say`, so
 the sentence with it and the client plays the bytes through the browser's audio element, with the Web
 Speech API as the fallback — desktop and browser only, since nothing in the 0.8 plugin API plays audio
 on a phone.
+
+## model-pricing
+
+A sidebar table of what every model costs, across Anthropic, OpenAI, Fireworks AI, Ollama Cloud and
+OpenRouter, with a settings screen choosing which of them are fetched and shown. The shape is forced
+by one fact, recorded in `model-pricing/CLAUDE.md`: **nobody sells a pricing API**. Anthropic's,
+OpenAI's and Fireworks' own `GET /v1/models` each want a key and return no prices, so four of the
+five providers are read from the community `models.dev` catalog and only OpenRouter publishes its
+own. Prices are normalized to `PriceRow` *before* anything is cached, because models.dev answers
+with 4.7 MB and neither the cache file nor the RPC payload may carry that.
+
+Two things there are worth knowing before touching it. `null` on a capability means the upstream did
+not say, not "no", and the filters and the table both honour that. And the whole settings document is
+client-read — "which providers to refresh" and "which to show" are one switch, because the surface
+passes the enabled ids into the RPC rather than the daemon keeping a copy.
