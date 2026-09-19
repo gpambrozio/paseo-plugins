@@ -195,6 +195,20 @@ not be in the tarball, and the plugin fails to load with no clue why.
 
 There is no build step. Paseo compiles the TypeScript itself, so the package is sources.
 
+**Publishing is npm trusted publishing (OIDC), so there is no npm token anywhere** — not in the
+repo, not in a secret. `.github/workflows/publish.yml` asks GitHub for a short-lived identity token
+via `permissions: id-token: write`, and each package names *that file, by path* as its trusted
+publisher on npmjs.com. Renaming or moving the workflow silently breaks all five publishes until
+every package is reconfigured, so treat its filename as an interface. The same mechanism attaches
+provenance to each release for free, because the repository and the packages are public.
+
+**A package npm has never seen cannot be published this way.** A trusted publisher is configured on
+an existing package's settings, so the first version of any *new* plugin has to go up by hand —
+`npm publish --otp=<code>` from the folder, with the account's second factor — and the trusted
+publisher is configured after it lands (`npm trust github <package> --workflow publish.yml`, or the
+web UI). See [npm/cli#8544](https://github.com/npm/cli/issues/8544), still open. That is a one-time
+cost per plugin, not per release.
+
 ### The SDK dependency
 
 All five plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
@@ -243,22 +257,22 @@ plugins sit at whatever in-between state they were in. That is harmless, because
 `(repo, ref, path)` and `--path` decides which folder the daemon loads — the other two are never
 read. It is also why a bare `v0.6.0` would be a lie about the other two. Never cut one.
 
-**When a version bump merges to `main`, publish that plugin to npm and then cut its release** —
-only the one whose `version` changed, and in that order, because paseo.cafe reads the npm version
-and fails the listing when npm lags the repository. Nothing in CI does this, and nothing in CI
-checked the merge either: this repo has no workflows, so run `npm run typecheck` in the plugin
-folder first, and `npm test` where there is one.
-
-```bash
-cd <plugin>
-npm pack --dry-run     # read the file list before every publish
-npm publish            # publishConfig pins the registry and public access
-```
+**When a version bump merges to `main`, cut that plugin's release** — only the one whose `version`
+changed. Cutting it is the whole job: publishing the npm package is
+`.github/workflows/publish.yml`, which fires on `release: published`, reads the plugin out of the
+tag, refuses a tag whose version disagrees with `package.json`, typechecks, tests, and publishes.
 
 ```bash
 gh release create "<plugin>/v<version>" --target <merge-commit> \
   --title "<plugin> <version>" --notes-file <notes>
 ```
+
+Watch it with `gh run watch`, because a failed publish leaves a release pointing at a version npm
+does not have — and paseo.cafe reads the npm version, so the listing fails validation until it
+does.
+Re-run a failed one with `workflow_dispatch`, which takes the plugin by name and publishes whatever
+version `package.json` declares. Nothing in CI checks the *merge*, so still run `npm run typecheck`
+in the plugin folder before it, and `npm test` where there is one.
 
 The notes are the plugin's install line followed by its top changelog section verbatim:
 
