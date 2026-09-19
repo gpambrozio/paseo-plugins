@@ -9,7 +9,7 @@
  * `server/hooks.ts` uses to recognise and ignore it; the id reported through
  * `onHelperCreated` is the other.
  */
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoApi } from "./paseo-api";
 import { DEFAULT_SUMMARY_PROMPT, type AttentionReason, type PromptPlaceholder } from "../shared/herald";
 import { displayName, firstWords, plainText } from "./timeline";
 

@@ -20,7 +20,7 @@
  * Answers are cached for a short while so the clients' polling does not turn
  * into one daemon fetch per entry per poll.
  */
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoApi } from "./paseo-api";
 
 import type { AttentionEntry } from "../shared/herald";
 import type { AttentionStore } from "./store";

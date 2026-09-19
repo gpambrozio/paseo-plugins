@@ -5,7 +5,7 @@
  * failed — the daemon replaces the row live and on refetch. Rows live in the
  * daemon's memory: they survive scroll and reconnect, not a daemon restart.
  */
-import type { PaseoApi } from "@getpaseo/client";
+import type { PaseoApi } from "./paseo-api";
 
 import type { AttentionEntry } from "../shared/herald";
 import { HERALD_CARD_KIND, HERALD_CARD_VERSION, type HeraldCard } from "../shared/timeline";
