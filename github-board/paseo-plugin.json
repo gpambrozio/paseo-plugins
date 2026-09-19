@@ -1,6 +1,5 @@
 {
   "id": "github-board",
-  "description": "Your GitHub issues, pull requests and discussions on one sidebar board",
   "requirements": {
     "paseo": ">=0.8.0"
   }

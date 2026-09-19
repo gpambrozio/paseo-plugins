@@ -1,6 +1,5 @@
 {
   "id": "skills",
-  "description": "Lists the skills an agent can use, renders each SKILL.md, and invokes it",
   "requirements": {
     "paseo": ">=0.8.0"
   }

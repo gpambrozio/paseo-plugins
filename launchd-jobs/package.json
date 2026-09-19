@@ -1,6 +1,6 @@
 {
   "name": "@gpambrozio/paseo-launchd-jobs",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Paseo plugin: schedule shell commands on your Mac through launchd, from a sidebar panel",
   "license": "MIT",
   "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/launchd-jobs",
