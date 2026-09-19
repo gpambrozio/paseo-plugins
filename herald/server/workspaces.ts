@@ -4,7 +4,7 @@
  * change rarely and every event would otherwise page through the workspace
  * list.
  */
-import type { PaseoApi } from "./paseo-api";
+import type { PaseoApi } from "./host-types";
 
 export const WORKSPACE_TITLE_TTL_MS = 5 * 60 * 1000;
 

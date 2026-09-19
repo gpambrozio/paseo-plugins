@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
+import type { AgentPermissionRequest, AgentTimelineItem } from "./host-types";
 
 import {
   describePermission,

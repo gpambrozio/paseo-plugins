@@ -4,7 +4,7 @@
  * here touches the network or a model, which is what makes it the part with
  * tests.
  */
-import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
+import type { AgentPermissionRequest, AgentTimelineItem } from "./host-types";
 
 import type { AttentionReason } from "../shared/herald";
 

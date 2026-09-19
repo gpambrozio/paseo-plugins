@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PaseoApi } from "./paseo-api";
+import type { PaseoApi } from "./host-types";
 
 import type { AttentionEntry } from "../shared/herald";
 import { LIVENESS_TTL_MS, Liveness, RUNNING_TTL_MS, SEEN_GRACE_MS } from "./liveness";
