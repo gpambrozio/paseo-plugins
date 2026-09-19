@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { describeCron, describeInterval, entryCount, parseCron } from "../shared/cron";
 import type { Job, JobSpec, RunRecord } from "../shared/jobs";
-import { createJob, deleteJob, listJobs, readJobLog, runJob, setJobEnabled, updateJob } from "../shared/jobs";
+import { acknowledgeJob, createJob, deleteJob, listJobs, readJobLog, runJob, setJobEnabled, updateJob } from "../shared/jobs";
+import { refreshFailureAlert } from "./failure-alert";
 import { useLogFollow } from "./log-follow";
 
 /**
@@ -801,6 +802,7 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
   const foreground = props.theme.colors.foreground;
   const muted = props.theme.colors.foregroundMuted;
   const list = useRpc(listJobs);
+  const acknowledge = useRpc(acknowledgeJob);
 
   const [jobs, setJobs] = useState<Job[] | null>(cachedJobs);
   const [supported, setSupported] = useState(true);
@@ -868,6 +870,30 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
     if (selectedId !== null && jobs !== null && selected === null) setPane({ kind: "empty" });
   }, [selectedId, selected, jobs]);
 
+  /**
+   * Opening a failing job is what acknowledges its failure: the sidebar stops
+   * counting it until the job fails again, because what the daemon remembers
+   * is the run, not the job. Keyed on the run rather than on the job, so a
+   * failure that lands while the detail is already open is acknowledged too —
+   * the user is looking straight at it.
+   */
+  const lastRunStartedAt = selected?.recentRuns[0]?.startedAt ?? null;
+  const lastRunExitCode = selected?.recentRuns[0]?.exitCode ?? null;
+  useEffect(() => {
+    if (pane.kind !== "view" || selectedId === null) return;
+    if (lastRunStartedAt === null || lastRunExitCode === null || lastRunExitCode === 0) return;
+    void (async function acknowledgeFailure() {
+      try {
+        await acknowledge({ id: selectedId });
+        refreshFailureAlert();
+      } catch (caught) {
+        // Nothing the user asked for failed; the count simply stands until the
+        // sidebar's own poll, or the next time the job is opened.
+        console.warn(`[launchd-jobs] could not acknowledge ${selectedId}: ${errorText(caught)}`);
+      }
+    })();
+  }, [acknowledge, pane.kind, selectedId, lastRunStartedAt, lastRunExitCode]);
+
   const showList = !compact || pane.kind === "empty";
   const showPane = !compact || pane.kind !== "empty";
 
@@ -924,6 +950,8 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
             return next;
           });
           setPane({ kind: "empty" });
+          // Its failure went with it; the sidebar should not keep counting it.
+          refreshFailureAlert();
           showNotice({ tone: "info", text: `Deleted "${selected.name}".` });
         }}
         onNotice={showNotice}

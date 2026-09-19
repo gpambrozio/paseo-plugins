@@ -7,6 +7,23 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here 
 registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
 pin and a line to read before you move.
 
+## [0.4.0] — 2026-09-18
+
+### Added
+
+- **The sidebar tells you when a job is failing.** "Scheduled jobs" becomes "Scheduled jobs (2
+  failing)" with a crossed-out calendar icon, so a job that broke overnight is visible without
+  opening anything. A job counts as failing when its most recent run ended with a non-zero exit
+  code.
+
+  Opening the job clears it from the count; there is nothing to dismiss. The alert returns if the
+  job fails again, and a job whose next run succeeds drops out on its own. The count is checked
+  about once a minute, so the sidebar can be a minute behind a failure that has just happened.
+
+  If you use Paseo with more than one host, the count belongs to whichever host the app lists
+  first, and a host still on an older version of this plugin will keep the row showing the plain
+  "Scheduled jobs" — update it everywhere.
+
 ## [0.3.0] — 2026-09-08
 
 ### Added

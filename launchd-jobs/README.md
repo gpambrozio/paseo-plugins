@@ -93,6 +93,21 @@ no workspace open there is nowhere to run it, and the button says so — **Refre
 
 **Run now** asks launchd to start the job immediately. It does not change the schedule.
 
+## When a job fails
+
+A job that fails at three in the morning is worth knowing about without going looking, so the
+sidebar says so: **Scheduled jobs** becomes **Scheduled jobs (2 failing)**, and its icon changes to
+a crossed-out calendar. A job counts as failing when its most recent run ended with a non-zero exit
+code, which is the same thing the list shows as **Failed (exit N)**.
+
+Opening the job clears it from the count — that is all it takes, there is nothing to dismiss. The
+alert comes back if the job fails again, because what is remembered is the run you saw, not the
+job. A job whose next run succeeds drops out of the count on its own.
+
+The count is checked about once a minute, whether or not the surface is open, so the sidebar can be
+a minute behind a failure that has just happened. Opening the surface and pressing **Refresh** shows
+the truth immediately.
+
 ## Removing
 
 Deleting a job in the surface unloads it, deletes the plist, and deletes its log and history.
@@ -107,6 +122,15 @@ launchd's, not Paseo's. Delete the jobs first, or delete the plists by hand and 
   A daemon started over SSH with no GUI session may not be able to load agents into it.
 - Six-field cron expressions with seconds are refused; launchd has no seconds field. Use a fixed
   interval instead.
+- **With more than one Paseo host, the sidebar row belongs to one of them.** The app merges the
+  entry contributed by every host into a single row and takes its label and icon from whichever
+  host it lists first, so the count you see is that host's jobs, and a host still running an older
+  version of this plugin pins the row to a plain "Scheduled jobs" with no count at all. Clicking the
+  row still opens the host you were last on. Update the plugin everywhere, and read the count as
+  belonging to one machine.
+- The sidebar's failing count only knows about runs that finished badly. A job launchd has quietly
+  stopped scheduling — one shown as **Not loaded** — is not counted, because finding that out means
+  asking launchd about every job once a minute.
 - What launchd reports — whether a job is running, its process id, its spawn count — comes from
   `launchctl print`, whose output is prose. If a macOS release rewords it, those facts go blank
   until the parser is updated; the run history and the log do not depend on it.

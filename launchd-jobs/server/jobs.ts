@@ -111,6 +111,10 @@ function namesPath(): string {
   return join(dataDir(), "jobs.json");
 }
 
+function acksPath(): string {
+  return join(dataDir(), "acknowledged.json");
+}
+
 function isMissing(error: unknown): boolean {
   return (error as { code?: string }).code === "ENOENT";
 }
@@ -238,6 +242,43 @@ async function readNames(): Promise<NameFile> {
 async function writeNames(file: NameFile): Promise<void> {
   await mkdir(dataDir(), { recursive: true });
   await writeFile(namesPath(), `${JSON.stringify(file, null, 2)}\n`, "utf8");
+}
+
+// ---------------------------------------------------------------------------
+// Acknowledged failures
+//
+// The sidebar's alert is derived from the history files, with one thing added
+// that they cannot hold: whether the user has already seen a failure. That is
+// the second file the plugin owns, slug to the `startedAt` of the failing run
+// that was acknowledged. Remembering the run rather than the job is what makes
+// the alert come back when the job fails again.
+
+interface AckFile {
+  acknowledged: Record<string, string>;
+}
+
+async function readAcks(): Promise<AckFile> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(acksPath(), "utf8"));
+    if (typeof parsed === "object" && parsed !== null && "acknowledged" in parsed) {
+      const entries = (parsed as { acknowledged: unknown }).acknowledged;
+      if (typeof entries === "object" && entries !== null) {
+        const clean: Record<string, string> = {};
+        for (const [slug, startedAt] of Object.entries(entries as Record<string, unknown>)) {
+          if (typeof startedAt === "string") clean[slug] = startedAt;
+        }
+        return { acknowledged: clean };
+      }
+    }
+  } catch (error) {
+    if (!isMissing(error)) console.warn(`[launchd-jobs] ignoring unreadable ${acksPath()}: ${String(error)}`);
+  }
+  return { acknowledged: {} };
+}
+
+async function writeAcks(file: AckFile): Promise<void> {
+  await mkdir(dataDir(), { recursive: true });
+  await writeFile(acksPath(), `${JSON.stringify(file, null, 2)}\n`, "utf8");
 }
 
 // ---------------------------------------------------------------------------
@@ -701,6 +742,11 @@ export async function deleteJobHandler(input: { id: string }): Promise<Record<st
   const names = await readNames();
   delete names.names[input.id];
   await writeNames(names);
+  const acks = await readAcks();
+  if (input.id in acks.acknowledged) {
+    delete acks.acknowledged[input.id];
+    await writeAcks(acks);
+  }
   return {};
 }
 
@@ -735,4 +781,57 @@ export async function readJobLogHandler(input: { id: string }): Promise<{ text: 
   const path = logPath(input.id);
   const tail = await readTail(path, LOG_TAIL_BYTES);
   return { ...tail, path };
+}
+
+/**
+ * Which jobs are failing and unacknowledged. Deliberately free of `launchctl`:
+ * the sidebar polls this whether or not the surface is open, and everything it
+ * needs is the last line of each history file. A job launchd has quietly
+ * stopped scheduling therefore does not show up here — the surface's own status
+ * column is where that is visible.
+ */
+export async function readJobHealthHandler(): Promise<{
+  supported: boolean;
+  failing: { id: string; name: string }[];
+}> {
+  if (process.platform !== "darwin") return { supported: false, failing: [] };
+  const [slugs, names, acks] = await Promise.all([listSlugs(), readNames(), readAcks()]);
+  const checked = await Promise.all(
+    slugs.map(async function check(slug): Promise<{ id: string; name: string } | null> {
+      const last = (await readRuns(slug))[0];
+      if (last === undefined || last.exitCode === 0) return null;
+      if (acks.acknowledged[slug] === last.startedAt) return null;
+      return { id: slug, name: names.names[slug] ?? slug };
+    }),
+  );
+  const failing: { id: string; name: string }[] = [];
+  for (const entry of checked) {
+    if (entry !== null) failing.push(entry);
+  }
+  return { supported: true, failing };
+}
+
+/**
+ * Remembers that the user has seen this job's latest run. A job whose latest
+ * run succeeded loses its entry instead of gaining one, so acknowledging is
+ * never what makes a later failure silent. Entries for jobs that no longer
+ * exist are dropped on the way past.
+ */
+export async function acknowledgeJobHandler(input: { id: string }): Promise<Record<string, never>> {
+  assertSupported();
+  await assertKnown(input.id);
+  const [last, acks, slugs] = await Promise.all([
+    readRuns(input.id).then((runs) => runs[0]),
+    readAcks(),
+    listSlugs(),
+  ]);
+  const known = new Set(slugs);
+  const next: Record<string, string> = {};
+  for (const [slug, startedAt] of Object.entries(acks.acknowledged)) {
+    if (known.has(slug)) next[slug] = startedAt;
+  }
+  if (last === undefined || last.exitCode === 0) delete next[input.id];
+  else next[input.id] = last.startedAt;
+  await writeAcks({ acknowledged: next });
+  return {};
 }
