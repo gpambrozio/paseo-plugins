@@ -151,3 +151,33 @@ export const readJobLog = defineRpc({
     path: z.string(),
   }),
 });
+
+/**
+ * The cheap health check behind the sidebar's failure count. `jobs.list` asks
+ * launchctl about every label and tails every history file; this reads only the
+ * last line of each history and answers a count, because the sidebar asks for
+ * it on a timer whether or not the surface is open.
+ *
+ * A job is failing when its most recent recorded run exited non-zero and that
+ * run has not been acknowledged.
+ */
+export const readJobHealth = defineRpc({
+  name: "jobs.health",
+  input: z.object({}),
+  output: z.object({
+    /** False off macOS; the sidebar then stops asking. */
+    supported: z.boolean(),
+    failing: z.array(z.object({ id: z.string(), name: z.string() })),
+  }),
+});
+
+/**
+ * Marks a job's latest failure as seen, which is what opening it in the surface
+ * does. The alert comes back the next time the job fails, because what is
+ * remembered is the run, not the job.
+ */
+export const acknowledgeJob = defineRpc({
+  name: "jobs.acknowledge",
+  input: z.object({ id: z.string() }),
+  output: z.object({}),
+});

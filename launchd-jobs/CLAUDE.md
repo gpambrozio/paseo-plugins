@@ -11,11 +11,12 @@ compile time. This file covers only what is specific to `launchd-jobs`.
 
 | File              | What it owns                                                                     |
 | ----------------- | -------------------------------------------------------------------------------- |
-| `index.client.tsx` / `index.server.ts`        | Wiring only — binds the seven RPC contracts and registers the sidebar surface.  |
+| `index.client.tsx` / `index.server.ts`        | Wiring only — binds the nine RPC contracts and registers the surface.           |
 | `shared/jobs.ts`  | The zod contracts, and the `Job` shape both halves agree on.                     |
 | `server/jobs.ts`  | Every `launchctl` and `plutil` call, the plist writer, the runner, logs, history. |
 | `client/jobs.tsx` | The surface: the list, the detail pane, and the create/edit form.                |
 | `client/log-follow.ts` | Follow mode: the `tail -f` terminal behind the log pane's live view.        |
+| `client/failure-alert.ts` | The sidebar item, and the failing count in its title and icon.           |
 | `shared/cron.ts`         | Unsuffixed, in both bundles: cron ⇄ `StartCalendarInterval`, and the sentences.  |
 | `shared/cron.test.ts`    | The only tests. `npm test`.                                                      |
 | `README.md`       | What a job is to a user, and what launchd does and does not promise.             |
@@ -28,6 +29,10 @@ each `jobs.list`: the plists under the label prefix, `launchctl print` per label
 `launchctl print-disabled` once, and the tail of each job's history file. The one file the plugin
 owns is `jobs.json`, mapping slug to display name, because a name like "Nightly backup" does not
 survive being made into a label.
+
+The second file it owns is `acknowledged.json`, slug to the `startedAt` of the failing run the user
+has already seen, because that is the one fact the history files cannot hold — see *The sidebar's
+failing count* below.
 
 That is why there is no drift problem to solve. A plist edited by hand is what the list shows;
 `fromCalendarEntries` turns its entries back into an expression when they form one, and
@@ -132,6 +137,53 @@ Switching jobs and leaving the surface both tear down. While following, the log 
 re-reading the file on `lastFinished` and hides the Refresh button — the tail is already ahead of
 anything a re-read would find, and two writers to one box only ever look broken.
 
+## The sidebar's failing count
+
+The sidebar row is how a job that failed at 3am reaches the user, and `client/failure-alert.ts`
+owns it — the registration, not just the count. **`PluginSidebarContribution` is a static record**,
+`{ id, title, icon, surface }`, in the pinned 0.8 and still in 0.9: no badge, no count, no colour,
+and no callback the host re-reads. The only way to change what the row says is to unregister the
+contribution and register it again, which is why the `addSidebarItem` call moved out of
+`index.client.tsx` and into the module that watches for failures.
+
+Removing and adding happen in the same synchronous step, and that is load-bearing in both
+directions. Registering the id twice throws `Duplicate sidebar item`, so the old one has to go
+first; and the host publishes a new snapshot on each call, so the only reason the row does not
+blink out is that React schedules rather than renders between them. Keep those two lines adjacent.
+Re-registering also pushes the item to the end of the host's list, which is invisible here because
+this plugin contributes exactly one.
+
+**With two hosts, one of them owns the row.** `groupPluginSidebarContributions`
+(`packages/app/src/plugins/sidebar-groups.ts` in the app) merges every host's contribution under
+`<pluginId>/sidebar/<itemId>`; the first host to arrive sets `title` and `icon`, and later hosts are
+appended to `targets` with their own title and icon **discarded**. Order is `PluginRegistry.publish`
+sorting installations by `` `${serverId}/${id}` ``, so the owner is whichever opaque server id sorts
+first — not the host being viewed, and not the one with the newest bundle. A host still running an
+older `launchd-jobs` therefore pins the row to the static label and no count appears anywhere, which
+is exactly how this landed the first time it was tried on a two-host setup. There is no API for
+reaching another host's plugin, so the count is one machine's and the README says so.
+
+`jobs.health` is a separate contract from `jobs.list` because of *when* it is asked: the poll runs
+whether or not the surface is open, once a minute, in every connected client. So it touches no
+`launchctl` at all — it globs the prefix, reads the last line of each history file, and answers a
+count. The cost of that is real and deliberate: a job launchd has quietly stopped scheduling is
+**not** counted, because noticing that means `launchctl print` per label per minute. The README says
+so under Limitations.
+
+**Acknowledgement is per run, not per job.** `acknowledged.json` remembers the `startedAt` of the
+failure that was seen, so the next failure alerts again with no expiry to tune and no state to
+clear. Opening a job's detail is what acknowledges it — the surface's effect keys on the run's
+`startedAt`, so a failure landing while the detail is already open is acknowledged too, which is
+correct: the user is looking straight at it. A job whose latest run *succeeded* loses its entry
+rather than gaining one, so acknowledging can never silence a later failure. Entries for jobs that
+no longer exist are pruned on every write, and `deleteJobHandler` drops its own.
+
+`refreshFailureAlert` is the surface's way of telling the alert to re-ask now instead of within the
+minute, a module-scope binding lent by `startFailureAlert` the way `herald` lends `openSettings`.
+It is called after an acknowledgement and after a delete, not on every list refresh — the 15-second
+list poll doubling as a health poll would be twice the traffic for a count that changes hourly at
+most.
+
 ## Checking the server half against reality
 
 Everything `server/jobs.ts` imports from `shared/jobs.ts` is `import type`, so it transpiles to a
@@ -152,5 +204,14 @@ launchd. Name the test job so it is obviously one, and make sure the script dele
 by hand with `launchctl bootout gui/$UID/<label>` and `rm`. A job left behind from a scratch
 `PASEO_HOME` shows as unmanaged in the real plugin, because its runner path differs.
 
+`readJobHealthHandler` and `acknowledgeJobHandler` are cheaper to check than that, and the check is
+worth doing because nothing else proves the alert is right: they create no job and load nothing into
+launchd. Copy the real `runs/*.jsonl` into a scratch `PASEO_HOME`, edit the last line of one to a
+non-zero `exitCode`, and call them there. `listSlugs` still reads the **real** `~/Library/LaunchAgents`
+— which is what makes the slugs and `assertKnown` work — while every write lands in the scratch
+directory.
+
 There is no harness for the surface. A clean typecheck and a clean
-`paseo plugin reload launchd-jobs` prove `client/jobs.tsx` compiles and loads, nothing more.
+`paseo plugin reload launchd-jobs` prove `client/jobs.tsx` compiles and loads, nothing more. The
+sidebar's title and icon are not covered by either: only opening the app shows whether the row
+actually repainted.
