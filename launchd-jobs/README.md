@@ -18,6 +18,13 @@ truth, and the surface reads them back on every refresh.
 ## Install
 
 ```bash
+paseo plugin install npm:@gpambrozio/paseo-launchd-jobs
+```
+
+That is the shortest route on **Paseo 0.9 or newer**, which installs plugins straight from npm; add
+`@<version>` to pin one. On 0.8, install from this repository instead:
+
+```bash
 paseo plugin add gpambrozio/paseo-plugins --path launchd-jobs
 ```
 

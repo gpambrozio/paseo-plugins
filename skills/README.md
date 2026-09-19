@@ -13,10 +13,17 @@ Requires the [Paseo](https://paseo.sh) CLI and a running daemon, both **0.8.0 or
 as the app you view the panel in, which checks the version itself.
 
 ```bash
+paseo plugin install npm:@gpambrozio/paseo-skills
+```
+
+That is the shortest route on **Paseo 0.9 or newer**, which installs plugins straight from npm; add
+`@<version>` to pin one. On 0.8, install from this repository instead:
+
+```bash
 paseo plugin add gpambrozio/paseo-plugins --path skills
 ```
 
-This repository holds three plugins, hence `--path`. The daemon clones it under `$PASEO_HOME/plugins`
+This repository holds five plugins, hence `--path`. The daemon clones it under `$PASEO_HOME/plugins`
 and runs no package manager — the plugin is source only, and everything it imports at runtime the
 host provides. Pin a release with `--ref <tag>`; later, `paseo plugin status` and
 `paseo plugin update skills` follow the branch.

@@ -1,8 +1,29 @@
 {
-  "name": "paseo-skills",
-  "private": true,
-  "version": "0.1.1",
+  "name": "@gpambrozio/paseo-skills",
+  "version": "0.1.2",
+  "description": "Paseo plugin: lists the skills an agent can use, shows where each comes from, renders its SKILL.md, and invokes it",
   "license": "MIT",
+  "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/skills",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gpambrozio/paseo-plugins.git",
+    "directory": "skills"
+  },
+  "type": "module",
+  "files": [
+    "paseo-plugin.json",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/",
+    "CHANGELOG.md",
+    "!**/*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"

@@ -32,11 +32,18 @@ No accounts, keys or logins. The plugin only reads public price lists.
 ## Install
 
 ```bash
+paseo plugin install npm:@gpambrozio/paseo-model-pricing
+```
+
+That is the shortest route on **Paseo 0.9 or newer**, which installs plugins straight from npm; add
+`@<version>` to pin one. On 0.8, install from this repository instead:
+
+```bash
 paseo plugin add gpambrozio/paseo-plugins --path model-pricing
 ```
 
-Pin a release with `--ref model-pricing/v<version>`. To hack on it, clone the repository and
-`paseo plugin install "$PWD"` from this folder after `npm install` and `npm run typecheck`.
+Pin a repository install with `--ref model-pricing/v<version>`. To hack on it, clone the repository
+and `paseo plugin install "$PWD"` from this folder after `npm install` and `npm run typecheck`.
 
 ## Settings
 
