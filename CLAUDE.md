@@ -249,8 +249,26 @@ nothing changes for someone who re-pins. The only dependency that ships is `@get
 
 **The "Latest" badge is repo-wide and arbitrary.** GitHub designates exactly one non-draft,
 non-prerelease release as latest across the whole repository, and passing `--latest=false` to every
-release does not clear it — it leaves the flag wherever GitHub put it, currently `skills/v0.1.0`.
-There is no per-directory latest. Ignore the badge rather than trying to manage it.
+release does not clear it — it leaves the flag wherever GitHub put it, which is whichever release
+was cut most recently. There is no per-directory latest. Ignore the badge rather than trying to
+manage it, and do not bother correcting which release is wearing it.
+
+## Listing on paseo.cafe
+
+A new plugin here is listed in the community directory at [paseo.cafe](https://paseo.cafe) as well
+as released. It is unofficial — not run by, endorsed by, or affiliated with Paseo. The listing is
+*generated from this repo*: description, version, licence, screenshots and a limitations excerpt are
+all read from the plugin's own folder, so submitting is one small file opened as a PR against
+[`paseo-cafe/paseo-cafe`](https://github.com/paseo-cafe/paseo-cafe) and nothing here is written
+twice. All five plugins are listed, submitted as `gpambrozio`.
+
+**Read the current instructions before submitting, and do not follow a remembered shape — including
+the shape of the entries already there.** The required fields, the validation and the CI behind them
+move often enough that anything copied into this file would be wrong within months. Start at
+<https://paseo.cafe/submit>, which has a prefilled "create this file on GitHub" button, and the
+*Submitting a plugin* section of that repository's `README.md`. That repository's own
+`registry:validate` script is what actually decides, so run it against the new entry before opening
+the PR rather than trusting it to look right.
 
 ## skills
 
