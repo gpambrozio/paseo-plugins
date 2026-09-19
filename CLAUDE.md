@@ -204,6 +204,30 @@ not be in the tarball, and the plugin fails to load with no clue why.
 
 There is no build step. Paseo compiles the TypeScript itself, so the package is sources.
 
+**Reachable code may import only what the host provides, and `@getpaseo/client` is not on that
+list.** The daemon's runtime-boundary plugin resolves every import reachable from an entry, type
+imports included, and fails the *install* when one is missing — `Could not resolve type
+dependency`. A directory or Git install hides this completely, because `npm install` in the folder
+has already put the whole SDK on disk; `--omit=dev` on an npm install has not.
+`server/sdk-types.ts` imports `@getpaseo/client` in all five and is fine only because nothing
+imports *it*. When reachable code
+needs a Paseo type, take it from the SDK — `herald/server/paseo-api.ts` derives `PaseoApi` as
+`PluginHandlerContext["paseo"]` rather than adding a dependency. Herald shipped 0.2.1 and 0.2.2
+broken this way and no typecheck, test or `npm pack` noticed. **The only thing that catches it is
+installing the published package**, against a throwaway home so the user's own daemon is untouched:
+
+```bash
+mkdir -p /tmp/paseo-check
+printf '%s' '{"version":1,"daemon":{"listen":"127.0.0.1:6799"},"pluginsEnabled":true}' \
+  > /tmp/paseo-check/config.json
+paseo daemon run --home /tmp/paseo-check &          # never restart the real one
+paseo plugin install npm:@gpambrozio/paseo-<id> --home /tmp/paseo-check
+paseo plugin ls --home /tmp/paseo-check             # want: status running
+```
+
+Every plugin here is installed from a *directory* pointing at a working clone, so installing one
+over itself on the real daemon would replace that with an npm copy. Use the throwaway home.
+
 **Publishing is npm trusted publishing (OIDC), so there is no npm token anywhere** — not in the
 repo, not in a secret. `.github/workflows/publish.yml` asks GitHub for a short-lived identity token
 via `permissions: id-token: write`, and each package names *that file, by path* as its trusted

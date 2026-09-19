@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.2.3] — 2026-09-19
+
+### Fixed
+
+- **Installs from npm.** The npm install added in 0.2.1 never actually worked for Herald: it
+  failed while being built, complaining about a missing dependency, and the plugin did not
+  install at all. Installing from the repository was unaffected, and so was every version
+  already running.
+
 ## [0.2.2] — 2026-09-19
 
 ### Fixed
