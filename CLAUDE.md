@@ -27,10 +27,10 @@ path on every start, so moving this clone means reinstalling every plugin in it.
 cd skills          # or github-board, launchd-jobs, herald, model-pricing
 npm install
 npm run typecheck  # every plugin
-npm test           # every plugin but github-board, which defines no test script
+npm test           # every plugin
 ```
 
-Single test (every plugin but github-board, vitest):
+Single test (vitest, every plugin):
 
 ```bash
 npm test -- server/resolve/frontmatter.test.ts   # one file
@@ -218,8 +218,12 @@ them structurally: `herald/server/host-types.ts` takes `PaseoApi` from `PluginHa
 0.2.1, 0.2.2 and 0.2.3 broken this way and no typecheck, test or `npm pack` noticed — 0.2.3
 because the build stops at the *first* unresolved import, so the second one only appeared once the
 first was fixed. Fixing one and re-installing is the loop; do not assume one error means one bug.
-**The only thing that catches any of it is installing the published package**, against a throwaway
-home so the user's own daemon is untouched:
+`server/host-imports.test.ts` is the guard, duplicated in all five: it walks the graph from the
+entry points and fails on any crossing that is not host-injected, a Node builtin, or a real runtime
+`dependency`. It is why `github-board` has a test script at all. It cannot prove the install
+works — only the daemon resolving the real tree does that — so **before publishing anything whose
+imports moved, install the published package**, against a throwaway home so the user's own daemon
+is untouched:
 
 ```bash
 mkdir -p /tmp/paseo-check
