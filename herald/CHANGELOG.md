@@ -3,9 +3,18 @@
 Notable changes to `herald`. The other plugins in this repository version separately.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the version numbers
-follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing here is published to a
-registry: `paseo plugin add` follows a branch unless you pin `--ref <tag>`, so a version is a tag to
-pin and a line to read before you move.
+follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version is published to npm
+as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
+read before you move.
+
+## [0.2.1] — 2026-09-19
+
+### Added
+
+- **Installs from npm.** On Paseo 0.9 and newer,
+  `paseo plugin install npm:@gpambrozio/paseo-herald` fetches the plugin from the npm
+  registry — no clone, no repository path to remember. Installing from this repository keeps
+  working, and nothing about what the plugin does has changed.
 
 ## [0.2.0] — 2026-09-17
 

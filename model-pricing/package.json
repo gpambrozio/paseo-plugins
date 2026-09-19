@@ -1,17 +1,36 @@
 {
-  "name": "paseo-model-pricing",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@gpambrozio/paseo-model-pricing",
+  "version": "0.1.1",
+  "description": "Paseo plugin: a sidebar table of what every model costs, across Anthropic, OpenAI, Fireworks AI, Ollama Cloud and OpenRouter",
+  "license": "MIT",
+  "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/model-pricing",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gpambrozio/paseo-plugins.git",
+    "directory": "model-pricing"
+  },
   "type": "module",
+  "files": [
+    "paseo-plugin.json",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/",
+    "CHANGELOG.md",
+    "!**/*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": {
-    "@getpaseo/plugin": "0.8.0"
-  },
   "devDependencies": {
     "@getpaseo/client": "0.8.0",
+    "@getpaseo/plugin": "0.8.0",
     "@getpaseo/protocol": "0.8.0",
     "@types/node": "^26.5.0",
     "@types/react": "~19.2.0",

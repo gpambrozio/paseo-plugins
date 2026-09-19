@@ -40,10 +40,17 @@ composer sits below it.](docs/timeline-card.png)
 ## Install
 
 ```bash
+paseo plugin install npm:@gpambrozio/paseo-herald
+```
+
+That is the shortest route on **Paseo 0.9 or newer**, which installs plugins straight from npm; add
+`@<version>` to pin one. On 0.8, install from this repository instead:
+
+```bash
 paseo plugin add gpambrozio/paseo-plugins --path herald
 ```
 
-Pin a release with `--ref herald/v<version>`. To hack on it, clone the repository and
+Pin a repository install with `--ref herald/v<version>`. To hack on it, clone the repository and
 `paseo plugin install "$PWD"` from this folder after `npm install` and `npm run typecheck`.
 
 ## Settings

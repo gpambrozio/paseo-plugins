@@ -8,16 +8,32 @@ Plugins for [Paseo](https://paseo.sh). One folder per plugin, each self-containe
 | [`github-board/`](github-board) | `github-board` | A sidebar board of open issues, draft PRs, open PRs, and discussions — yours, plus whatever is open on the repos you own — in four columns. |
 | [`launchd-jobs/`](launchd-jobs) | `launchd-jobs` | Schedules shell commands through launchd on the daemon's Mac — a cron expression or an interval, run whether or not Paseo is open, with run history and logs. macOS only. |
 | [`herald/`](herald) | `herald` | A sidebar panel of every agent waiting on you — a question, a permission, a finished turn — each with a one-sentence summary a helper agent wrote, and the Paseo app speaks that sentence when it happens. |
+| [`model-pricing/`](model-pricing) | `model-pricing` | One sidebar table of what every model costs, across Anthropic, OpenAI, Fireworks AI, Ollama Cloud and OpenRouter, with the context window and capabilities beside each price. |
 
 ## Install
 
-Plugins install individually — there is no repo-wide install:
+Plugins install individually — there is no repo-wide install. On **Paseo 0.9 or
+newer**, each one is an npm package:
+
+```bash
+paseo plugin install npm:@gpambrozio/paseo-skills
+paseo plugin install npm:@gpambrozio/paseo-github-board
+paseo plugin install npm:@gpambrozio/paseo-launchd-jobs
+paseo plugin install npm:@gpambrozio/paseo-herald
+paseo plugin install npm:@gpambrozio/paseo-model-pricing
+```
+
+Add `@<version>` to install an exact one. npm is only how the daemon fetches the
+files; nothing else about the plugin changes.
+
+On Paseo 0.8, install from this repository instead:
 
 ```bash
 paseo plugin add gpambrozio/paseo-plugins --path skills
 paseo plugin add gpambrozio/paseo-plugins --path github-board
 paseo plugin add gpambrozio/paseo-plugins --path launchd-jobs
 paseo plugin add gpambrozio/paseo-plugins --path herald
+paseo plugin add gpambrozio/paseo-plugins --path model-pricing
 ```
 
 The daemon clones this repo under `$PASEO_HOME/plugins` and runs no package
@@ -40,7 +56,8 @@ the daemon loads each plugin from that path every time it starts. Moving this
 repo means reinstalling every plugin you installed from it.
 
 The daemon needs `"pluginsEnabled": true` in its `config.json`, and Paseo
-**0.5.0-beta or newer**; earlier versions have no `paseo plugin` command.
+**0.8.0 or newer** — every plugin here declares that, and an older daemon
+refuses to load them rather than degrading.
 
 ## Layout
 

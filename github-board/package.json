@@ -1,16 +1,35 @@
 {
-  "name": "paseo-github-board",
-  "version": "0.6.0",
-  "private": true,
+  "name": "@gpambrozio/paseo-github-board",
+  "version": "0.6.1",
+  "description": "Paseo plugin: a GitHub sidebar board of your issues, draft and open pull requests, and discussions",
+  "license": "MIT",
+  "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/github-board",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gpambrozio/paseo-plugins.git",
+    "directory": "github-board"
+  },
   "type": "module",
+  "files": [
+    "paseo-plugin.json",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/",
+    "CHANGELOG.md",
+    "!**/*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@getpaseo/plugin": "0.8.0"
-  },
   "devDependencies": {
     "@getpaseo/client": "0.8.0",
+    "@getpaseo/plugin": "0.8.0",
     "@getpaseo/protocol": "0.8.0",
     "@types/node": "^26.5.0",
     "@types/react": "~19.2.0",

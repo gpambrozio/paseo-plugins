@@ -177,6 +177,24 @@ version-sniffing fallbacks: a client old enough to lack `props.navigation` is a 
 evaluate the bundle at all, so the prop is always there in practice even though it is typed
 optional.
 
+### npm packages
+
+All five plugins publish to npm under the `@gpambrozio` scope as `@gpambrozio/paseo-<id>`, which is
+how Paseo 0.9 installs them: the daemon writes a throwaway `package.json`, runs `npm install
+--ignore-scripts --legacy-peer-deps --omit=dev`, and loads the plugin out of `node_modules`. **That
+means `devDependencies` and `peerDependencies` are never installed on a user's machine, and npm
+lifecycle scripts never run.** Everything these plugins import at runtime the host provides, so
+every dependency is a devDependency and `dependencies` stays empty; anything moved into
+`dependencies` is downloaded onto every user's daemon for nothing.
+
+`files` in each `package.json` is what ships — the manifest, the two entries, `client/`, `server/`,
+`shared/`, the changelog, minus `**/*.test.ts`. npm adds `README.md` and `LICENSE` on its own, which
+is why each plugin folder carries its own copy of the repo's MIT `LICENSE`. **Run `npm pack
+--dry-run` before publishing**; a new top-level directory is invisible to `files` and simply will
+not be in the tarball, and the plugin fails to load with no clue why.
+
+There is no build step. Paseo compiles the TypeScript itself, so the package is sources.
+
 ### The SDK dependency
 
 All five plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
@@ -215,9 +233,8 @@ subdirectory invisible to `tsc` is the failure mode that made that necessary.
 ## Releases
 
 Each plugin versions on its own: a `version` in its `package.json`, a matching `## [x.y.z]` heading
-in its `CHANGELOG.md`, and a tag. Nothing is published to a registry — `paseo plugin add` follows a
-branch unless the user pins `--ref <tag>` — so a release is exactly two things to a user, a tag to
-pin and an entry to read before they move.
+in its `CHANGELOG.md`, a published npm package, and a tag. A release is three things to a user — a
+version to install, a tag to pin, and an entry to read before they move.
 
 **Tags are namespaced per plugin**: `skills/v0.1.0`, `github-board/v0.6.0`, `launchd-jobs/v0.3.0`,
 `herald/v0.1.0`.
@@ -226,10 +243,17 @@ plugins sit at whatever in-between state they were in. That is harmless, because
 `(repo, ref, path)` and `--path` decides which folder the daemon loads — the other two are never
 read. It is also why a bare `v0.6.0` would be a lie about the other two. Never cut one.
 
-**When a version bump merges to `main`, cut that plugin's release** — only the one whose `version`
-changed. Nothing in CI does this, and nothing in CI checked the merge either: this repo has no
-workflows, so run `npm run typecheck` in the plugin folder first, and `npm test` where there is
-one.
+**When a version bump merges to `main`, publish that plugin to npm and then cut its release** —
+only the one whose `version` changed, and in that order, because paseo.cafe reads the npm version
+and fails the listing when npm lags the repository. Nothing in CI does this, and nothing in CI
+checked the merge either: this repo has no workflows, so run `npm run typecheck` in the plugin
+folder first, and `npm test` where there is one.
+
+```bash
+cd <plugin>
+npm pack --dry-run     # read the file list before every publish
+npm publish            # publishConfig pins the registry and public access
+```
 
 ```bash
 gh release create "<plugin>/v<version>" --target <merge-commit> \
@@ -239,13 +263,13 @@ gh release create "<plugin>/v<version>" --target <merge-commit> \
 The notes are the plugin's install line followed by its top changelog section verbatim:
 
 ```bash
-paseo plugin add gpambrozio/paseo-plugins --path <plugin> --ref <plugin>/v<version>
+paseo plugin install npm:@gpambrozio/paseo-<plugin>@<version>
 ```
 
 **What earns a version** is what a user of the plugin can observe, which is the same bar the
-changelog entry has to clear. A dev-dependency bump earns neither: `vitest` and `@types/node` are
-devDependencies in all five plugins and reach no bundle, so there is no line worth reading and
-nothing changes for someone who re-pins. The only dependency that ships is `@getpaseo/plugin`.
+changelog entry has to clear. A dev-dependency bump earns neither: every dependency in all five
+plugins is a devDependency and reaches no bundle, so there is no line worth reading and nothing
+changes for someone who re-pins.
 
 **The "Latest" badge is repo-wide and arbitrary.** GitHub designates exactly one non-draft,
 non-prerelease release as latest across the whole repository, and passing `--latest=false` to every
@@ -260,7 +284,10 @@ as released. It is unofficial — not run by, endorsed by, or affiliated with Pa
 *generated from this repo*: description, version, licence, screenshots and a limitations excerpt are
 all read from the plugin's own folder, so submitting is one small file opened as a PR against
 [`paseo-cafe/paseo-cafe`](https://github.com/paseo-cafe/paseo-cafe) and nothing here is written
-twice. All five plugins are listed, submitted as `gpambrozio`.
+twice. All five plugins are listed, submitted as `gpambrozio`, and each entry declares its
+`package` so that 0.9 installs it from npm — the registry's CI checks that the published package
+carries the same plugin id *and the same version* as the folder here, which is the other reason to
+publish before tagging.
 
 **Read the current instructions before submitting, and do not follow a remembered shape — including
 the shape of the entries already there.** The required fields, the validation and the CI behind them
