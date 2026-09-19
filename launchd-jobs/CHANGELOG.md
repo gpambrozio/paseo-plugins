@@ -7,6 +7,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-launchd-jobs` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [0.4.2] — 2026-09-19
+
+### Fixed
+
+- **Loads on Paseo 0.8 again.** 0.8 rejects any manifest key it does not recognise, and the
+  previous release added one, so the plugin refused to load there at all. On 0.9 and newer nothing
+  was wrong and nothing changes now.
+
 ## [0.4.1] — 2026-09-19
 
 ### Added

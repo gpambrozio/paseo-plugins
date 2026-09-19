@@ -1,6 +1,6 @@
 {
   "name": "@gpambrozio/paseo-model-pricing",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Paseo plugin: a sidebar table of what every model costs, across Anthropic, OpenAI, Fireworks AI, Ollama Cloud and OpenRouter",
   "license": "MIT",
   "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/model-pricing",

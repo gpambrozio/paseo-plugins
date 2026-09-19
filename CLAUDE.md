@@ -171,6 +171,15 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
 migration guide — adding the field is part of migrating, not a substitute for it. All five plugins
 here declare `>=0.8.0`.
 
+**The manifest may only carry what the *oldest* declared version accepts.** `PluginManifestSchema`
+is `.strict()` in every Paseo, so a key one version added is a load failure on every version before
+it — not a warning, not an ignored field. 0.9 added `description`, which the app shows in its
+plugins list; adding it here while `requirements.paseo` still says `>=0.8.0` broke all five on 0.8,
+and paseo.cafe's admission scan is what caught it, because it allows the key for an npm source
+(0.9-only by construction) and rejects it for a Git one. Either the key goes or the floor rises;
+the floor is load-bearing, so the key went. Check a new manifest key against the tag named in
+`requirements.paseo` before adding it.
+
 The daemon checks the range before installing or loading, and **each connected app checks it against
 its own version** before evaluating client code. That second check is what retired this repo's
 version-sniffing fallbacks: a client old enough to lack `props.navigation` is a client too old to

@@ -1,6 +1,6 @@
 {
   "name": "@gpambrozio/paseo-github-board",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Paseo plugin: a GitHub sidebar board of your issues, draft and open pull requests, and discussions",
   "license": "MIT",
   "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/github-board",

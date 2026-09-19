@@ -1,6 +1,5 @@
 {
   "id": "herald",
-  "description": "Speaks one sentence when an agent needs you, and lists what is waiting",
   "requirements": {
     "paseo": ">=0.8.0"
   }
