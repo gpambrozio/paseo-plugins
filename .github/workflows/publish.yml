@@ -87,7 +87,6 @@ jobs:
         working-directory: ${{ steps.target.outputs.plugin }}
         run: npm run typecheck
 
-      # github-board defines no test script, which --if-present tolerates.
       - name: Test
         working-directory: ${{ steps.target.outputs.plugin }}
         run: npm run test --if-present
