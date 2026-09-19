@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
-import type { PaseoApi } from "./paseo-api";
+import type { PaseoApi } from "./host-types";
 import type {
   PluginHookAgent,
   PluginHookContext,
   PluginLifecycleEvents,
   PluginLifecycleRegistration,
 } from "@getpaseo/plugin/server";
-import type { AgentPermissionRequest, AgentTimelineItem } from "@getpaseo/protocol/agent-types";
+import type { AgentPermissionRequest, AgentTimelineItem } from "./host-types";
 
 import { DEFAULT_CONFIG, DEFAULT_SUMMARY_PROMPT, type AttentionEntry, type HeraldConfig } from "../shared/herald";
 import { registerHooks, type HookDeps } from "./hooks";

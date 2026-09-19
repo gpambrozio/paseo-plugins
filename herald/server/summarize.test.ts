@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PaseoAgentHandle } from "@getpaseo/client";
-import type { PaseoApi } from "./paseo-api";
+import type { PaseoApi } from "./host-types";
 
 import { DEFAULT_SUMMARY_PROMPT } from "../shared/herald";
 import {

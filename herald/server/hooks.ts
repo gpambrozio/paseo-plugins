@@ -15,7 +15,7 @@
  *    the agent move on: a new turn, the permission answered, the agent
  *    archived. Paseo's own attention flag decides what the panel *lists*.
  */
-import type { PaseoApi } from "./paseo-api";
+import type { PaseoApi } from "./host-types";
 import type {
   PluginHookAgent,
   PluginHookContext,

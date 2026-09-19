@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PaseoApi } from "./paseo-api";
+import type { PaseoApi } from "./host-types";
 
 import type { AttentionEntry } from "../shared/herald";
 import { HERALD_CARD_KIND, HERALD_CARD_VERSION } from "../shared/timeline";

@@ -204,17 +204,22 @@ not be in the tarball, and the plugin fails to load with no clue why.
 
 There is no build step. Paseo compiles the TypeScript itself, so the package is sources.
 
-**Reachable code may import only what the host provides, and `@getpaseo/client` is not on that
-list.** The daemon's runtime-boundary plugin resolves every import reachable from an entry, type
-imports included, and fails the *install* when one is missing — `Could not resolve type
-dependency`. A directory or Git install hides this completely, because `npm install` in the folder
-has already put the whole SDK on disk; `--omit=dev` on an npm install has not.
-`server/sdk-types.ts` imports `@getpaseo/client` in all five and is fine only because nothing
-imports *it*. When reachable code
-needs a Paseo type, take it from the SDK — `herald/server/paseo-api.ts` derives `PaseoApi` as
-`PluginHandlerContext["paseo"]` rather than adding a dependency. Herald shipped 0.2.1 and 0.2.2
-broken this way and no typecheck, test or `npm pack` noticed. **The only thing that catches it is
-installing the published package**, against a throwaway home so the user's own daemon is untouched:
+**Reachable code may import only what the host provides, and neither `@getpaseo/client` nor
+`@getpaseo/protocol` is on that list.** The daemon's runtime-boundary plugin resolves every import
+reachable from an entry, type imports included, and fails the *install* when one is missing:
+`Could not resolve type dependency`. A directory or Git install never shows it, because
+`npm install` in the folder has already put the whole SDK on disk and `--omit=dev` on an npm
+install has not — `server/sdk-types.ts` imports `@getpaseo/client` in all five and is fine only
+because nothing imports *it*.
+
+When reachable code needs a Paseo type, project it out of `@getpaseo/plugin`, which re-declares
+them structurally: `herald/server/host-types.ts` takes `PaseoApi` from `PluginHandlerContext` and
+`AgentTimelineItem` and `AgentPermissionRequest` from `PluginLifecycleEvents`. Herald shipped
+0.2.1, 0.2.2 and 0.2.3 broken this way and no typecheck, test or `npm pack` noticed — 0.2.3
+because the build stops at the *first* unresolved import, so the second one only appeared once the
+first was fixed. Fixing one and re-installing is the loop; do not assume one error means one bug.
+**The only thing that catches any of it is installing the published package**, against a throwaway
+home so the user's own daemon is untouched:
 
 ```bash
 mkdir -p /tmp/paseo-check

@@ -7,6 +7,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.2.4] — 2026-09-19
+
+### Fixed
+
+- **Installs from npm — verified this time.** 0.2.3 fixed one missing dependency and left a second
+  one behind, so the install still failed the same way. Both are gone, and the published package was
+  installed on a real daemon to prove it rather than reasoned about.
+
 ## [0.2.3] — 2026-09-19
 
 ### Fixed
