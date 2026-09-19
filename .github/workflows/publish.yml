@@ -1,0 +1,97 @@
+# Publishes one plugin to npm when its release is published.
+#
+# Authentication is npm trusted publishing (OIDC) — there is no NPM_TOKEN secret, and
+# `id-token: write` below is what stands in for one. Each package names this file as its
+# trusted publisher on npmjs.com, so renaming or moving it breaks every publish until the
+# five packages are reconfigured.
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: Plugin to publish, at the version in its package.json
+        required: true
+        type: choice
+        options:
+          - skills
+          - github-board
+          - launchd-jobs
+          - herald
+          - model-pricing
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the plugin from the release tag
+        id: target
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          CHOICE: ${{ inputs.plugin }}
+        run: |
+          set -euo pipefail
+          if [ -n "$CHOICE" ]; then
+            plugin="$CHOICE"
+          else
+            plugin="${TAG%%/*}"
+            if [ "$plugin" = "$TAG" ]; then
+              echo "::error::Tag '$TAG' is not <plugin>/v<version>. Tags here are namespaced per plugin; a bare v<version> would be a lie about the other four."
+              exit 1
+            fi
+          fi
+          case "$plugin" in
+            skills|github-board|launchd-jobs|herald|model-pricing) ;;
+            *) echo "::error::'$plugin' is not a plugin in this repository"; exit 1 ;;
+          esac
+          echo "plugin=$plugin" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      # Trusted publishing needs npm 11.5.1 or newer; pinning to latest keeps that true
+      # whatever setup-node happens to ship.
+      - name: Use an npm that speaks OIDC
+        run: npm install -g npm@latest
+
+      - name: Check the release tag against package.json
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          PLUGIN: ${{ steps.target.outputs.plugin }}
+        run: |
+          set -euo pipefail
+          tagged="${TAG##*/v}"
+          declared="$(node -p "require('./$PLUGIN/package.json').version")"
+          if [ "$tagged" != "$declared" ]; then
+            echo "::error::$TAG does not match $PLUGIN/package.json, which says $declared"
+            exit 1
+          fi
+
+      - name: Install
+        working-directory: ${{ steps.target.outputs.plugin }}
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: ${{ steps.target.outputs.plugin }}
+        run: npm run typecheck
+
+      # github-board defines no test script, which --if-present tolerates.
+      - name: Test
+        working-directory: ${{ steps.target.outputs.plugin }}
+        run: npm run test --if-present
+
+      - name: Publish
+        working-directory: ${{ steps.target.outputs.plugin }}
+        run: npm publish
