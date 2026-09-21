@@ -1,12 +1,34 @@
-# Publishes one plugin to npm when its release is published.
+# Publishes a plugin to npm and cuts its release.
+#
+# Three ways in, one path out:
+#
+# - **A version bump merged to `main`** is the normal one. Every push to `main` is checked for a
+#   plugin whose `package.json` version has no `<plugin>/v<version>` tag yet; each one is published
+#   and then released, with notes built from its own changelog. Nothing to run by hand and nothing
+#   to remember, which is the point — a bump that merged and was then forgotten used to leave the
+#   registry a version behind the repository with nothing saying so.
+# - **A release published by hand**, for a tag somebody cut themselves.
+# - **`workflow_dispatch`**, which takes a plugin by name and publishes whatever version its
+#   `package.json` declares. This is how a failed publish is re-run.
 #
 # Authentication is npm trusted publishing (OIDC) — there is no NPM_TOKEN secret, and
-# `id-token: write` below is what stands in for one. Each package names this file as its
-# trusted publisher on npmjs.com, so renaming or moving it breaks every publish until the
-# five packages are reconfigured.
+# `id-token: write` below is what stands in for one. Each package names *this file, by path* as its
+# trusted publisher on npmjs.com, so renaming or moving it breaks every publish until all five
+# packages are reconfigured. It is also why `npm publish` cannot move to a second workflow or into
+# a reusable one: npm is matching on the filename, and what it matches for a reusable workflow is
+# not worth finding out the hard way.
+#
+# **The push path cuts the release itself rather than leaving that to the `release` trigger**, and
+# that is not a stylistic choice. A release created with the default `GITHUB_TOKEN` does not start
+# a workflow run — GitHub suppresses it so workflows cannot trigger themselves — so a workflow that
+# merely created the release would publish nothing at all, and nothing would say so. Doing both
+# here also fixes the old ordering: npm first, the release second, so a failed publish can no
+# longer leave a release pointing at a version npm does not have.
 name: Publish to npm
 
 on:
+  push:
+    branches: [main]
   release:
     types: [published]
   workflow_dispatch:
@@ -22,36 +44,100 @@ on:
           - herald
           - model-pricing
 
-permissions:
-  contents: read
-  id-token: write
+# Granted per job instead. Only the publishing job needs to write anything, and only it needs a
+# token at all.
+permissions: {}
+
+# Two pushes landing together would otherwise both see the same missing tag. Never
+# `cancel-in-progress`: the thing being cancelled would be a half-finished publish.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PLUGINS: skills github-board launchd-jobs herald model-pricing
 
 jobs:
-  publish:
+  plan:
+    name: Decide what to publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      plugins: ${{ steps.pick.outputs.plugins }}
     steps:
-      - name: Resolve the plugin from the release tag
-        id: target
+      # Tags are the whole input on the push path, so the full history is needed rather than the
+      # single commit a default checkout brings.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Pick the plugins
+        id: pick
         env:
+          EVENT: ${{ github.event_name }}
           TAG: ${{ github.event.release.tag_name }}
           CHOICE: ${{ inputs.plugin }}
         run: |
           set -euo pipefail
-          if [ -n "$CHOICE" ]; then
-            plugin="$CHOICE"
-          else
-            plugin="${TAG%%/*}"
-            if [ "$plugin" = "$TAG" ]; then
-              echo "::error::Tag '$TAG' is not <plugin>/v<version>. Tags here are namespaced per plugin; a bare v<version> would be a lie about the other four."
-              exit 1
-            fi
-          fi
-          case "$plugin" in
-            skills|github-board|launchd-jobs|herald|model-pricing) ;;
-            *) echo "::error::'$plugin' is not a plugin in this repository"; exit 1 ;;
+          case "$EVENT" in
+            workflow_dispatch)
+              chosen="$CHOICE"
+              ;;
+            release)
+              chosen="${TAG%%/*}"
+              if [ "$chosen" = "$TAG" ]; then
+                echo "::error::Tag '$TAG' is not <plugin>/v<version>. Tags here are namespaced per plugin; a bare v<version> would be a lie about the other four."
+                exit 1
+              fi
+              ;;
+            *)
+              # Every plugin whose declared version has no tag yet.
+              #
+              # Keyed on the tag rather than on what this push happened to change, which buys two
+              # things: a bump that merged while this workflow was broken is still picked up by the
+              # next push to land, and running the same commit twice does nothing twice.
+              chosen=""
+              for plugin in $PLUGINS; do
+                version="$(node -p "require('./$plugin/package.json').version")"
+                if git rev-parse -q --verify "refs/tags/$plugin/v$version" >/dev/null; then
+                  continue
+                fi
+                echo "$plugin $version is not tagged; releasing it."
+                chosen="$chosen $plugin"
+              done
+              ;;
           esac
-          echo "plugin=$plugin" >> "$GITHUB_OUTPUT"
+          for plugin in $chosen; do
+            case " $PLUGINS " in
+              *" $plugin "*) ;;
+              *) echo "::error::'$plugin' is not a plugin in this repository"; exit 1 ;;
+            esac
+          done
+          plugins="$(printf '%s\n' $chosen | jq -Rsc 'split("\n") | map(select(. != ""))')"
+          echo "plugins=$plugins" >> "$GITHUB_OUTPUT"
+          echo "Publishing: $plugins" >> "$GITHUB_STEP_SUMMARY"
 
+  publish:
+    name: ${{ matrix.plugin }}
+    needs: plan
+    if: needs.plan.outputs.plugins != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      # The release and its tag are created here, on the push path.
+      contents: write
+      # Stands in for the npm token this repository deliberately does not have.
+      id-token: write
+    strategy:
+      # Two plugins can bump in one merge, and they are separate packages that happen to have
+      # travelled together — one failing must not cancel the other's publish.
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJSON(needs.plan.outputs.plugins) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.plugin }}
+    steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
@@ -65,32 +151,97 @@ jobs:
       - name: Use an npm that speaks OIDC
         run: npm install -g npm@latest
 
+      - name: Read the version
+        id: version
+        run: |
+          set -euo pipefail
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "package=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
+
       - name: Check the release tag against package.json
         if: github.event_name == 'release'
         env:
           TAG: ${{ github.event.release.tag_name }}
-          PLUGIN: ${{ steps.target.outputs.plugin }}
+          PLUGIN: ${{ matrix.plugin }}
+          DECLARED: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           tagged="${TAG##*/v}"
-          declared="$(node -p "require('./$PLUGIN/package.json').version")"
-          if [ "$tagged" != "$declared" ]; then
-            echo "::error::$TAG does not match $PLUGIN/package.json, which says $declared"
+          if [ "$tagged" != "$DECLARED" ]; then
+            echo "::error::$TAG does not match $PLUGIN/package.json, which says $DECLARED"
             exit 1
           fi
 
+      # A release is three things to a user: a version to install, a tag to pin, and an entry to
+      # read before they move. The first two are automatic now, so this is where the third is
+      # checked — a bump with no changelog section fails here rather than shipping notes that say
+      # nothing.
+      - name: Build the release notes from the changelog
+        id: notes
+        env:
+          PLUGIN: ${{ matrix.plugin }}
+          PACKAGE: ${{ steps.version.outputs.package }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes="$RUNNER_TEMP/notes-$PLUGIN.md"
+          {
+            echo '```bash'
+            echo "paseo plugin install npm:$PACKAGE@$VERSION"
+            echo '```'
+            echo
+            awk -v heading="## [$VERSION]" '
+              index($0, heading) == 1 { found = 1; print; next }
+              found && /^## \[/ { exit }
+              found { print }
+            ' CHANGELOG.md
+          } > "$notes"
+          if ! grep -q "^## \[$VERSION\]" "$notes"; then
+            echo "::error::$PLUGIN/CHANGELOG.md has no '## [$VERSION]' section. A release is a version to install and an entry to read; this one would have nothing to read."
+            exit 1
+          fi
+          echo "path=$notes" >> "$GITHUB_OUTPUT"
+
       - name: Install
-        working-directory: ${{ steps.target.outputs.plugin }}
         run: npm ci
 
       - name: Typecheck
-        working-directory: ${{ steps.target.outputs.plugin }}
         run: npm run typecheck
 
       - name: Test
-        working-directory: ${{ steps.target.outputs.plugin }}
         run: npm run test --if-present
 
-      - name: Publish
-        working-directory: ${{ steps.target.outputs.plugin }}
-        run: npm publish
+      - name: Publish to npm
+        env:
+          PACKAGE: ${{ steps.version.outputs.package }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # A publish that succeeded and then failed to cut its release would otherwise wedge here
+          # for good: the tag is still missing, so the next push tries again, and npm refuses a
+          # version it already has. Skipping lets the run carry on and create the release.
+          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+            echo "npm already has $PACKAGE@$VERSION; leaving it alone."
+            exit 0
+          fi
+          npm publish
+
+      - name: Cut the release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PLUGIN: ${{ matrix.plugin }}
+          VERSION: ${{ steps.version.outputs.version }}
+          NOTES: ${{ steps.notes.outputs.path }}
+        run: |
+          set -euo pipefail
+          tag="$PLUGIN/v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag already exists; nothing to cut."
+            exit 0
+          fi
+          # The tag names this merge commit, at which the other four plugins sit in whatever
+          # in-between state they were in. That is harmless: an install is (repo, ref, path), and
+          # --path decides which folder the daemon reads.
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$PLUGIN $VERSION" --notes-file "$NOTES"

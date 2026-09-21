@@ -299,28 +299,56 @@ plugins sit at whatever in-between state they were in. That is harmless, because
 `(repo, ref, path)` and `--path` decides which folder the daemon loads — the other two are never
 read. It is also why a bare `v0.6.0` would be a lie about the other two. Never cut one.
 
-**When a version bump merges to `main`, cut that plugin's release** — only the one whose `version`
-changed. Cutting it is the whole job: publishing the npm package is
-`.github/workflows/publish.yml`, which fires on `release: published`, reads the plugin out of the
-tag, refuses a tag whose version disagrees with `package.json`, typechecks, tests, and publishes.
+**Merging the version bump to `main` is the whole job.** `.github/workflows/publish.yml` runs on
+every push to `main`, looks for a plugin whose `package.json` version has no `<plugin>/v<version>`
+tag, and for each one typechecks, tests, publishes to npm and *then* cuts the release — notes built
+from the plugin's own changelog, install line and all. Nothing is cut by hand any more.
+
+**So the merge is the release.** Everything that used to happen between merging and releasing has
+to happen before merging instead: the by-hand checks a plugin's own AGENTS.md lists, and a look at
+the panel, because there is no harness for plugin UI and no chance to look afterwards. Merge the
+bump when you are ready to ship it, not when the code is right.
+
+Three properties worth knowing, all of them deliberate:
+
+- **It keys on the tag, not on the diff.** A bump that merged while the workflow was broken is
+  picked up by the next push to land, and re-running the same commit does nothing twice.
+- **npm first, the release second.** A failed publish now leaves no release at all, rather than a
+  release pointing at a version npm does not have — and paseo.cafe reads the npm version, so that
+  used to fail the listing's validation until somebody noticed.
+- **A missing changelog section fails the run.** A release is a version to install, a tag to pin
+  and an entry to read; the first two are automatic now, so the third is checked rather than
+  assumed.
+
+**Nothing checks a pull request**, so run `npm run typecheck` and `npm test` in the plugin folder
+before merging. The publish run repeats both for the plugin it is releasing, which means a broken
+bump fails loudly instead of shipping — but it fails *after* the merge, where it is somebody's
+problem rather than the PR's.
+
+Two ways in by hand remain. `workflow_dispatch` takes a plugin by name and publishes whatever
+version its `package.json` declares, which is how a failed publish is re-run. And a release
+published by hand still publishes, for a tag somebody cut themselves:
 
 ```bash
 gh release create "<plugin>/v<version>" --target <merge-commit> \
   --title "<plugin> <version>" --notes-file <notes>
 ```
 
-Watch it with `gh run watch`, because a failed publish leaves a release pointing at a version npm
-does not have — and paseo.cafe reads the npm version, so the listing fails validation until it
-does.
-Re-run a failed one with `workflow_dispatch`, which takes the plugin by name and publishes whatever
-version `package.json` declares. Nothing in CI checks the *merge*, so still run `npm run typecheck`
-in the plugin folder before it, and `npm test` where there is one.
-
-The notes are the plugin's install line followed by its top changelog section verbatim:
+where the notes are the plugin's install line followed by its top changelog section verbatim —
+exactly what the push path generates:
 
 ```bash
 paseo plugin install npm:@gpambrozio/paseo-<plugin>@<version>
 ```
+
+**`npm publish` cannot move out of `publish.yml`**, into a second workflow or a reusable one: each
+package names that file *by path* as its trusted publisher, and npm matches on the filename. That
+constraint is also why the push path cuts the release itself instead of leaving it to the `release`
+trigger — **a release created with the default `GITHUB_TOKEN` does not start a workflow run**,
+GitHub suppresses it so workflows cannot trigger themselves, so a workflow that only created the
+release would publish nothing and say nothing about it.
+
+Watch a merge with `gh run watch` until you trust it.
 
 **What earns a version** is what a user of the plugin can observe, which is the same bar the
 changelog entry has to clear. A dev-dependency bump earns neither: every dependency in all five
