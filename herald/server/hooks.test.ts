@@ -142,7 +142,30 @@ describe("registerHooks", () => {
       provider: "claude/claude-haiku-4-5",
       timeoutMs: 90_000,
       prompt: DEFAULT_SUMMARY_PROMPT,
+      deleteHelper: true,
     });
+  });
+
+  it("passes the user's choice about keeping helper sessions to the summariser", async () => {
+    const config: HeraldConfig = { ...DEFAULT_CONFIG, cleanup: { deleteHelpers: false } };
+    const { summarize, emit } = setup({}, config);
+    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await settle();
+    expect(summarize.mock.calls[0]?.[1]).toMatchObject({ deleteHelper: false });
+  });
+
+  it("remembers the helper it created, so the sweep does not delete one mid-sentence", async () => {
+    const liveHelpers = new Set<string>();
+    const { emit } = setup({
+      liveHelpers,
+      summarize: vi.fn(async (_request: SummaryRequest, deps: SummarizerDeps) => {
+        deps.onHelperCreated?.("h1");
+        return { text: "Summary.", model: "m" };
+      }),
+    });
+    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await settle();
+    expect(liveHelpers.has("h1")).toBe(true);
   });
 
   it("puts a card in the transcript when recorded and again when the summary lands", async () => {

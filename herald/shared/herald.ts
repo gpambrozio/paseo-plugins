@@ -181,6 +181,16 @@ export const DEFAULT_SUMMARIZER = {
   prompt: DEFAULT_SUMMARY_PROMPT,
 };
 
+/**
+ * Every summary is written by a helper agent, and an agent is a session in the
+ * user's history whether it is archived or not. Deleting it once the sentence
+ * is written is the default; keeping it is for reading what the helper was
+ * actually asked when a summary comes out wrong.
+ */
+export const DEFAULT_CLEANUP = {
+  deleteHelpers: true,
+};
+
 export const DEFAULT_ANNOUNCE: Record<AnnounceKey, boolean> = {
   question: true,
   plan: true,
@@ -213,12 +223,18 @@ export const HeraldConfigSchema = z.object({
       error: z.boolean().default(true),
     })
     .default(DEFAULT_ANNOUNCE),
+  cleanup: z
+    .object({
+      deleteHelpers: z.boolean().default(DEFAULT_CLEANUP.deleteHelpers),
+    })
+    .default(DEFAULT_CLEANUP),
 });
 export type HeraldConfig = z.infer<typeof HeraldConfigSchema>;
 
 export const DEFAULT_CONFIG: HeraldConfig = {
   summarizer: { ...DEFAULT_SUMMARIZER },
   announce: { ...DEFAULT_ANNOUNCE },
+  cleanup: { ...DEFAULT_CLEANUP },
 };
 
 export const readConfig = defineRpc({

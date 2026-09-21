@@ -342,7 +342,7 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
           info={
             <Text style={styles.note}>
               Each summary is one short turn of a helper agent on the daemon, placed under the agent it
-              describes and archived when it finishes. A small, fast model is plenty for one sentence.
+              describes. A small, fast model is plenty for one sentence.
             </Text>
           }
         >
@@ -381,6 +381,26 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
             }}
             theme={theme}
             compact={layout.compact}
+          />
+        </SettingsSection>
+        <SettingsSection
+          title="Helper sessions"
+          info={
+            <Text style={styles.note}>
+              A helper agent is a session like any other, so every summary would otherwise leave one
+              behind in your history. Herald deletes each one as its sentence is written, and clears any
+              left over shortly after the daemon starts.
+            </Text>
+          }
+        >
+          <SettingsSwitch
+            label="Delete the helper when it is done"
+            hint="Off keeps every helper session, so you can read what it was asked and what it answered."
+            value={config?.cleanup.deleteHelpers ?? true}
+            disabled={config === null}
+            onValueChange={(value) => {
+              if (config !== null) void saveConfig({ ...config, cleanup: { ...config.cleanup, deleteHelpers: value } });
+            }}
           />
         </SettingsSection>
         <SettingsSection

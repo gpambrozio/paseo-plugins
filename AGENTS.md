@@ -411,9 +411,10 @@ Watches every agent through the server lifecycle hooks and has a short-lived hel
 spoken sentence about what the agent needs; the app speaks it and a sidebar panel lists it. Three
 constraints shape it, all in `herald/AGENTS.md`: a hook has 30 seconds and a summary does not fit, so
 summaries are detached from the handler; the helper is a visible agent that fires this plugin's own
-hooks and is recognised by title as well as id; and the app cannot run `say`, so the daemon renders
-the sentence with it and the client plays the bytes through the browser's audio element, with the Web
-Speech API as the fallback — desktop and browser only, since nothing in the 0.8 plugin API plays audio
+hooks, is recognised by title as well as id, and — since the plugin API has no hard delete — is
+removed afterwards by shelling out to the `paseo` CLI; and the app cannot run `say`, so the daemon
+renders the sentence with it and the client plays the bytes through the browser's audio element, with
+the Web Speech API as the fallback — desktop and browser only, since nothing in the 0.8 plugin API plays audio
 on a phone.
 
 ## model-pricing

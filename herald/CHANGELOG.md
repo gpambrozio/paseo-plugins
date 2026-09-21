@@ -7,6 +7,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.3.0] — 2026-09-21
+
+### Added
+
+- **Summary helpers no longer pile up in your history.** Each summary is written by a short-lived
+  helper agent, and every one of them used to stay behind as a session you never asked for. Herald
+  now deletes each helper the moment its sentence is written, and clears any that were left over
+  shortly after the daemon starts — including everything that accumulated before this release. A
+  summary still being written is never touched.
+- **A switch to keep them anyway**, under Settings › Plugins › Herald › Summaries. Turn *Delete the
+  helper when it is done* off when a summary comes out wrong and you want to read what the helper
+  was actually asked. It is on by default.
+
+### Changed
+
+- Herald now needs the `paseo` command on the daemon's `PATH`, which is where it normally is. It is
+  used only to delete the helpers; without it they simply pile up as before, and nothing else
+  changes.
+
 ## [0.2.4] — 2026-09-19
 
 ### Fixed
