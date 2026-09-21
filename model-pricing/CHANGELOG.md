@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-model-pricing` and tagged here, so a version is something to install and a
 line to read before you move.
 
+## [0.2.0] — 2026-09-21
+
+### Added
+
+- **Every row is a link.** Press a model — a row on a wide panel, a card on a narrow one — and its
+  provider's own page for that model opens in your browser, so the description, the licence and the
+  vendor's own price are one press away from the table. Anthropic, OpenAI, Fireworks AI, Ollama
+  Cloud and OpenRouter all have one. A handful of models their vendors have not published a page
+  for open the provider's model list instead.
+
 ## [0.1.2] — 2026-09-19
 
 ### Fixed

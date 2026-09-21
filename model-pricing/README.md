@@ -84,6 +84,9 @@ what you can see: switching a provider off or typing in the search box moves the
 multiple of a price that is not on screen would not mean anything. Models that are genuinely free
 say **Free** rather than `0.0×`.
 
+Press a row — or a card, on a narrow window — and the provider's own page for that model opens in
+your browser, where the description, the licence and the vendor's own price live.
+
 On a phone or a narrow window the ten columns become one card per model — the same information, laid
 out to be read rather than scanned across.
 
@@ -108,5 +111,8 @@ with a note saying so and how old they are, and the other source's rows are unaf
   column implies if you use prompt caching heavily.
 - **A model that appears twice is not a bug.** With OpenRouter on, a model sold both directly and
   through the gateway is two rows with two prices, which is usually the comparison you wanted.
+- **A model's link is worked out from its name**, because no catalog publishes one. It is right for
+  every model in the table today, but a provider that retires a page or files a new model somewhere
+  unexpected can leave a row pointing at a page that no longer exists.
 - **"Ollama" here means Ollama Cloud**, the hosted models with real per-token prices — not the
   models pulled onto your own machine, which cost nothing to run and are not listed.
