@@ -17,7 +17,7 @@
  * loop binding's final value.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import {
@@ -29,9 +29,11 @@ import {
   rowKey,
   UNKNOWN,
 } from "../shared/format";
+import { modelPageUrl } from "../shared/model-links";
 import type { PriceRow } from "../shared/pricing";
 import { pickAccent, providerById, providerLabel, type ProviderAccent } from "../shared/providers";
 import type { Sort, SortKey, TableRow } from "../shared/sort";
+import { openExternalUrl } from "./web";
 
 interface Column {
   label: string;
@@ -280,6 +282,50 @@ function providerAccent(theme: PluginTheme, providerId: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Opening a model's page
+
+/**
+ * A row is a link to the vendor's own page for that model, and the *whole* row
+ * is the target rather than the name alone — the grid is already ten columns
+ * wide on a desktop and a card on a phone, and neither has room for a link
+ * affordance that earns its space.
+ *
+ * `modelPageUrl` derives that URL from the model id, because neither upstream
+ * publishes one; when it cannot, the row is a plain `View` again and presses
+ * nowhere. That matters more than it sounds: a row that looks pressable and
+ * opens a 404 is worse than a row that does not look pressable.
+ *
+ * No async arrow in the handler — `openExternalUrl` is deliberately synchronous
+ * and swallows its own promise, because Hermes evaluates an async arrow in the
+ * eval'd client bundle to `undefined`.
+ */
+function ModelLink({
+  row,
+  style,
+  styles,
+  children,
+}: {
+  row: PriceRow;
+  style: object;
+  styles: Styles;
+  children: ReactNode;
+}) {
+  const url = modelPageUrl(row);
+  if (url === null) return <View style={style}>{children}</View>;
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel={`${row.name} on ${providerLabel(row.providerId)}`}
+      accessibilityHint="Opens this model's page in your browser"
+      onPress={() => openExternalUrl(url)}
+      style={({ pressed }) => [style, pressed ? styles.pressed : null]}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // The wide table
 
 export function TableHeader({
@@ -347,7 +393,7 @@ const justifyEnd = { justifyContent: "flex-end" as const };
 export function TableBodyRow({ entry, styles, theme }: { entry: TableRow; styles: Styles; theme: PluginTheme }) {
   const { row } = entry;
   return (
-    <View style={styles.row}>
+    <ModelLink row={row} style={styles.row} styles={styles}>
       <View style={[styles.accent, { backgroundColor: providerAccent(theme, row.providerId) }]} />
       <View style={styles.rowCells}>
         <Cell flex={COLUMNS[0]?.flex ?? 3} style={styles.cellName} value={row.name} styles={styles} />
@@ -382,7 +428,7 @@ export function TableBodyRow({ entry, styles, theme }: { entry: TableRow; styles
           styles={styles}
         />
       </View>
-    </View>
+    </ModelLink>
   );
 }
 
@@ -422,7 +468,7 @@ export function PricingCard({ entry, styles, theme }: { entry: TableRow; styles:
   ].filter((flag): flag is string => flag !== null);
 
   return (
-    <View style={styles.card}>
+    <ModelLink row={row} style={styles.card} styles={styles}>
       <View style={[styles.accent, { backgroundColor: providerAccent(theme, row.providerId) }]} />
       <View style={styles.cardBody}>
         <View style={styles.cardTop}>
@@ -450,7 +496,7 @@ export function PricingCard({ entry, styles, theme }: { entry: TableRow; styles:
           </View>
         )}
       </View>
-    </View>
+    </ModelLink>
   );
 }
 

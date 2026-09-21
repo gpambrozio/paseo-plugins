@@ -19,6 +19,7 @@ compile time. This file covers only what is specific to `model-pricing`.
 | `shared/settings.ts`         | The host settings document: providers, the blend weight, the tool-call filter.            |
 | `shared/format.ts`           | Every number the table prints, and the relative-cost ranking. Pure.                       |
 | `shared/sort.ts`             | The column comparator. In `shared/` so it can be tested without a renderer.               |
+| `shared/model-links.ts`      | Model id → the vendor's page for it. Pure, and the Fireworks owner exceptions.            |
 | `server/normalize.ts`        | Each upstream's JSON → `PriceRow[]`. Pure, defensive, skips rather than throws.           |
 | `server/sources.ts`          | The two HTTP fetches, `fetch` injected. ETag revalidation for models.dev.                 |
 | `server/cache.ts`            | `$PASEO_HOME/plugins/model-pricing/<source>.json`, TTL and ETag.                          |
@@ -26,6 +27,7 @@ compile time. This file covers only what is specific to `model-pricing`.
 | `client/pricing.tsx`         | The surface: header, legend, search, the module-scope cache, the filter/sort pipeline.    |
 | `client/table.tsx`           | The wide table, the compact card, the sort comparator, and every style the surface uses.  |
 | `client/settings-screen.tsx` | Settings › Plugins › Model pricing.                                                       |
+| `client/web.ts`              | `openExternalUrl`, the only browser global this plugin touches.                           |
 | `server/*.test.ts`, `shared/*.test.ts` | The tests. `npm test`.                                                         |
 
 `client/table.tsx` holds no logic worth testing on purpose: the comparator moved to
@@ -96,6 +98,42 @@ models. The one thing a row may not lack is a price — a row with no price cann
 
 A malformed *model* is skipped; only a malformed *document* throws. With 7,850 models in the
 catalog, one upstream typo must not empty the table.
+
+## Nobody publishes a link either
+
+Same shape as the prices: **neither upstream carries a URL for a model.** models.dev has a `doc`
+per *provider* and nothing per model, and OpenRouter's `links` are API paths. So every link in
+`shared/model-links.ts` is derived from the model id, and each rule was taken by checking it
+against the live site — the whole Anthropic, OpenAI and Ollama Cloud catalogs answered 200 under
+these on 2026-09-21, and a bogus slug 404s on all three, so the check is real:
+
+| Provider | Rule |
+| --- | --- |
+| Anthropic | `platform.claude.com/docs/en/models/<slug>/overview`, slug = id minus `claude-` minus a `-YYYYMMDD` pin. Both strips are needed. |
+| OpenAI | `developers.openai.com/api/docs/models/<slug>`, slug = id minus a `-YYYY-MM-DD` snapshot date — a snapshot is documented on its base model's page. |
+| Ollama Cloud | `ollama.com/library/<name>`, name = id minus `:tag`. Some tags resolve as URLs and some do not; the library page lists them all. |
+| OpenRouter | `openrouter.ai/<id>`. The id *is* the path — never encode it, the slash and the `~` are part of it. |
+| Fireworks AI | See below. |
+
+Two things follow. **A derived link is best effort**: a vendor that undocuments a model breaks one
+and nothing here notices — `gpt-5.3-codex-spark` had no page on the day this was written and gets a
+link that 404s, because the next undocumented model will be a different one. And `null` means *no
+rule*, not *may have moved*; the table leaves a `null` row unpressable, since a row that looks
+pressable and opens a 404 is worse than one that does not.
+
+**Fireworks is the exception, and it is a list rather than a rule.** Its pages are
+`/models/<owner>/<slug>` and the owner is not in the id:
+`accounts/fireworks/models/deepseek-v4p1-flash` is filed under `deepseek-ai/`, while
+`deepseek-v4-pro` — same vendor, same family — is under `fireworks/`. Of the 316 model pages listed
+on fireworks.ai on 2026-09-21, 304 were `fireworks/`, so `FIREWORKS_OWNERS` carries the twelve that
+are not — the whole site's exceptions, not just the ones models.dev prices today, so a model the
+catalog picks up later is already right. **That map goes stale silently.** A model added under a
+new owner links to a 404 until it is listed; re-take it by scraping the hrefs off
+`fireworks.ai/models`, which embeds the whole catalog. The dozen `accounts/fireworks/routers/…`
+aliases have no page at all and get the models list filtered to the name instead.
+
+The whole row is the link, not the name: ten columns on a desktop and a card on a phone, and
+neither has room for an affordance that earns its space.
 
 ## The relative column is a setting, not a formula
 
@@ -204,6 +242,8 @@ What it cannot cover, check by hand after `paseo plugin reload model-pricing`:
    back: the sort and the search text should still be there, and the table should paint without a
    spinner.
 6. Check a narrow window for the card layout, and switch theme.
+7. Press a row on each provider and check the page that opens is that model's. On the desktop app
+   it must land in the OS browser, not a bare child window — that is what `client/web.ts` is for.
 
 To check the server half against reality rather than fixtures, write a throwaway `*.tmp.test.ts` that
 builds a `PricingCache` on a `mkdtemp` directory, calls `createPricingHandler` with the real deps,
