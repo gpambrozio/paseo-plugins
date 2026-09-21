@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -7,11 +7,11 @@ Plugins for [Paseo](https://paseo.sh), one self-contained folder per plugin: `sk
 unsandboxed — the server half runs next to the daemon with its files, processes, and credentials;
 the client half runs inside the Paseo app.
 
-Each plugin has its own `CLAUDE.md` for what only that plugin does — `skills/CLAUDE.md` before
-touching skill discovery, `github-board/CLAUDE.md` before touching the `gh` queries or the board's
-caching, `launchd-jobs/CLAUDE.md` before touching anything that calls `launchctl` or writes a
-plist, `herald/CLAUDE.md` before touching the lifecycle hooks or the summary helper,
-`model-pricing/CLAUDE.md` before touching where a price comes from or how it is cached. This file
+Each plugin has its own `AGENTS.md` for what only that plugin does — `skills/AGENTS.md` before
+touching skill discovery, `github-board/AGENTS.md` before touching the `gh` queries or the board's
+caching, `launchd-jobs/AGENTS.md` before touching anything that calls `launchctl` or writes a
+plist, `herald/AGENTS.md` before touching the lifecycle hooks or the summary helper,
+`model-pricing/AGENTS.md` before touching where a price comes from or how it is cached. This file
 is only what they share.
 
 ## There is no workspace root
@@ -381,7 +381,7 @@ it. **Never write to `~/.claude`.**
 
 Watches every agent through the server lifecycle hooks and has a short-lived helper agent write a
 spoken sentence about what the agent needs; the app speaks it and a sidebar panel lists it. Three
-constraints shape it, all in `herald/CLAUDE.md`: a hook has 30 seconds and a summary does not fit, so
+constraints shape it, all in `herald/AGENTS.md`: a hook has 30 seconds and a summary does not fit, so
 summaries are detached from the handler; the helper is a visible agent that fires this plugin's own
 hooks and is recognised by title as well as id; and the app cannot run `say`, so the daemon renders
 the sentence with it and the client plays the bytes through the browser's audio element, with the Web
@@ -392,7 +392,7 @@ on a phone.
 
 A sidebar table of what every model costs, across Anthropic, OpenAI, Fireworks AI, Ollama Cloud and
 OpenRouter, with a settings screen choosing which of them are fetched and shown. The shape is forced
-by one fact, recorded in `model-pricing/CLAUDE.md`: **nobody sells a pricing API**. Anthropic's,
+by one fact, recorded in `model-pricing/AGENTS.md`: **nobody sells a pricing API**. Anthropic's,
 OpenAI's and Fireworks' own `GET /v1/models` each want a key and return no prices, so four of the
 five providers are read from the community `models.dev` catalog and only OpenRouter publishes its
 own. Prices are normalized to `PriceRow` *before* anything is cached, because models.dev answers

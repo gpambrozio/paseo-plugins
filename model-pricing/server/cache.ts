@@ -3,7 +3,7 @@
  * that source's rows, when they were fetched, and its ETag.
  *
  * This is the daemon's own store rather than a settings document because the
- * handler has to *read* it — the rule in the root CLAUDE.md. What it is not is
+ * handler has to *read* it — the rule in the root AGENTS.md. What it is not is
  * a second copy of the user's preferences: which providers to fetch arrives in
  * the RPC, so nothing here needs to know what the user picked.
  *

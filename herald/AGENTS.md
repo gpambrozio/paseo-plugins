@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
 A Paseo plugin that adds a **Herald** sidebar surface: every agent waiting on the user, each with a
 one-sentence summary written by a short-lived helper agent, and speaks that sentence on the device
 running the app when the event happens.
 
-The repo root `CLAUDE.md` covers what every plugin here shares: the per-folder npm layout, the
+The repo root `AGENTS.md` covers what every plugin here shares: the per-folder npm layout, the
 typecheck/reload loop, the client/server bundle split, and the constraints nothing catches at
 compile time. This file covers only what is specific to `herald`.
 

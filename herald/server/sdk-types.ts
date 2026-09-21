@@ -14,7 +14,7 @@
  * - types degraded   → the access is `any`, no error → TS2578 "Unused
  *                      '@ts-expect-error' directive" → fail
  *
- * This replaces the throwaway file the root CLAUDE.md used to ask contributors
+ * This replaces the throwaway file the root AGENTS.md used to ask contributors
  * to write by hand. It is type-only, so it contributes nothing to either bundle.
  */
 import type { PaseoAgentHandle } from "@getpaseo/client";

@@ -3,7 +3,7 @@
  *
  * Every value here is one the *app* reads — which providers to draw, how to
  * weight the relative-cost column, whether to hide models that cannot call
- * tools. The daemon reads none of them, which by the rule in the root CLAUDE.md
+ * tools. The daemon reads none of them, which by the rule in the root AGENTS.md
  * is exactly what makes a settings document the right store rather than a file
  * under `$PASEO_HOME/plugins/model-pricing/`.
  *

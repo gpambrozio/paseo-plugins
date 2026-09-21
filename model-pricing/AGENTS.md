@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
 A Paseo plugin that adds a **Model pricing** sidebar surface: one sortable table of what every model
 on the enabled providers costs, ranked against the cheapest one on screen, plus a settings screen
 choosing which providers are fetched and shown.
 
-The repo root `CLAUDE.md` covers what every plugin here shares: the per-folder npm layout, the
+The repo root `AGENTS.md` covers what every plugin here shares: the per-folder npm layout, the
 typecheck/reload loop, the client/server bundle split, and the constraints nothing catches at
 compile time. This file covers only what is specific to `model-pricing`.
 
@@ -161,7 +161,7 @@ neighbours; `withAlpha` derives separators from `foregroundMuted`.
 ## Provider colours are a palette, and that is on purpose
 
 **`shared/providers.ts` is the one place here that does not take a colour from `theme.colors`**, and
-it is a considered exception to the root CLAUDE.md's rule rather than an oversight. That rule's
+it is a considered exception to the root AGENTS.md's rule rather than an oversight. That rule's
 stated reason is that an invented *token name* resolves to `undefined` at runtime; a hex string is
 not a token name, and `withAlpha` already computes colour strings in this repo and in launchd-jobs.
 

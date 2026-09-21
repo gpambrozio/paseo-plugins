@@ -67,7 +67,7 @@ const EMPTY_LAUNCH: LaunchDefaults = {
  * The four column ids, as a *historical* constant rather than an import of
  * `COLUMN_IDS`. Everything this module takes from `shared/board` is an
  * `import type` so the server half still transpiles and runs standalone (see
- * CLAUDE.md), and this reads a file format frozen by what older versions wrote
+ * AGENTS.md), and this reads a file format frozen by what older versions wrote
  * — so it should not track a schema that may yet gain a column.
  */
 const LEGACY_PROMPT_KEYS: readonly (keyof PromptSet)[] = [

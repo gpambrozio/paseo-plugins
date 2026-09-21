@@ -1,9 +1,9 @@
-# CLAUDE.md
+# AGENTS.md
 
 A Paseo plugin that adds a **Scheduled jobs** sidebar surface: shell commands on a cron expression
 or a fixed interval, written as LaunchAgents and run by launchd on the daemon machine.
 
-The repo root `CLAUDE.md` covers what every plugin here shares: the per-folder npm layout, the
+The repo root `AGENTS.md` covers what every plugin here shares: the per-folder npm layout, the
 typecheck/reload loop, the client/server bundle split, and the constraints nothing catches at
 compile time. This file covers only what is specific to `launchd-jobs`.
 

@@ -1,10 +1,10 @@
-# CLAUDE.md
+# AGENTS.md
 
 A Paseo plugin that adds a **GitHub** sidebar surface: open issues, draft pull requests, open pull
 requests, and discussions, in four columns — what the signed-in user wrote, plus what is open on the
 repositories they own, plus what is assigned to them anywhere.
 
-The repo root `CLAUDE.md` covers what every plugin here shares: the per-folder npm layout, the
+The repo root `AGENTS.md` covers what every plugin here shares: the per-folder npm layout, the
 typecheck/reload loop, the client/server bundle split, and the constraints nothing catches at
 compile time. This file covers only what is specific to `github-board`.
 
@@ -703,7 +703,7 @@ stays a banner for the same reason, being a state rather than an event.
 ## Settings and caching
 
 **Two stores, split on which side has to read the value.** The rule and its rationale are in the
-root `CLAUDE.md`; this is where the line falls here.
+root `AGENTS.md`; this is where the line falls here.
 
 | Where | What | Why there |
 | --- | --- | --- |

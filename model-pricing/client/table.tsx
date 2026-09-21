@@ -65,7 +65,7 @@ const COLUMNS: readonly Column[] = [
 
 /**
  * Every colour comes from `theme.colors`; the only eleven tokens that exist are
- * the ones named in the root CLAUDE.md, and any other name is `undefined` at
+ * the ones named in the root AGENTS.md, and any other name is `undefined` at
  * runtime. Separators and hover tints are those same tokens at reduced alpha.
  */
 export function useStyles({ theme, layout }: { theme: PluginTheme; layout: { compact: boolean; platform: string } }) {

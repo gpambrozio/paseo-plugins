@@ -28,7 +28,7 @@ export type SourceId = (typeof SOURCE_IDS)[number];
  * variant.
  *
  * **This is the one place in the plugin that does not take a colour from
- * `theme.colors`, and it is deliberate.** The root CLAUDE.md's rule exists
+ * `theme.colors`, and it is deliberate.** The root AGENTS.md's rule exists
  * because an invented *token name* resolves to `undefined` at runtime; these
  * are not token names. The reason a token will not do the job:
  *

@@ -49,7 +49,7 @@ const ENTRY_POINTS = [
   "index.client.tsx",
 ];
 
-/** What the host injects. See "Plugin architecture" in the root CLAUDE.md. */
+/** What the host injects. See "Plugin architecture" in the root AGENTS.md. */
 const HOST_MODULES = new Set([
   "react",
   "react-native",

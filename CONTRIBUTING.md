@@ -61,7 +61,7 @@ a process; every crossing is a `defineRpc` contract.
 
 ## The rules a compiler won't catch
 
-These have each broken a plugin at runtime. `CLAUDE.md` in the repo root has the full list; the ones
+These have each broken a plugin at runtime. `AGENTS.md` in the repo root has the full list; the ones
 that bite most often:
 
 - **No async arrow functions in client-bundle code.** The app `eval`s the client bundle, and on iOS

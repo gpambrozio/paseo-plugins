@@ -1,6 +1,6 @@
 /**
  * Every browser global this plugin touches, in the one module the root
- * CLAUDE.md allows them in. Each export declares the narrow shape of the
+ * AGENTS.md allows them in. Each export declares the narrow shape of the
  * globals it uses, gates on `Platform.OS`, and gives native the alternative or
  * a no-op — so the rest of `client/` never reaches for `window` and typechecks
  * without the DOM library.

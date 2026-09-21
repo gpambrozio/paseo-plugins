@@ -6,7 +6,7 @@
  * renderer registers against them, so they are the only thing tying the two
  * together — a mismatch is not a compile error, it is a row that renders as
  * nothing. That makes them exactly the case for a shared *runtime* module:
- * `shared/board.ts` is `import type`-only to the server (see CLAUDE.md), so a
+ * `shared/board.ts` is `import type`-only to the server (see AGENTS.md), so a
  * constant declared there would have to be duplicated on the daemon side and
  * could then drift.
  *

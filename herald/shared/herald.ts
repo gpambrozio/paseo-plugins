@@ -2,7 +2,7 @@
  * The contracts both halves agree on: what one "needs you" entry looks like,
  * the RPC that lists them, and the daemon-side configuration document.
  *
- * Which side owns a value follows the rule in the root CLAUDE.md — the side that
+ * Which side owns a value follows the rule in the root AGENTS.md — the side that
  * has to *read* it. Everything in `HeraldConfigSchema` is read by the daemon's
  * hooks (which events to summarise, which model writes the summary), so it
  * lives in the daemon's own file behind two RPCs. How the summary is *spoken*
