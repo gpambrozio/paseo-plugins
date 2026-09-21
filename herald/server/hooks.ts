@@ -55,6 +55,12 @@ export interface HookDeps {
   now?: () => Date;
   /** How many helpers may be writing at once; more agents than this wait their turn. */
   maxConcurrent?: number;
+  /**
+   * Every helper this process has seen, newest last and capped. Shared with the
+   * load-time sweep in `index.server.ts` as the set it may not delete: the ones
+   * still writing a summary are by definition the most recent entries.
+   */
+  liveHelpers?: Set<string>;
 }
 
 /** A second `turn_ended` for the same turn inside this window is a repeat, not a new turn. */
@@ -97,7 +103,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     // answers with may predate it.
     return generationOf(agentId) !== generation ? true : running;
   }
-  const helpers = new Set<string>();
+  const helpers = deps.liveHelpers ?? new Set<string>();
   const recentTurns = new Map<string, number>();
   const interruptedAt = new Map<string, number>();
   /**
@@ -131,6 +137,20 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     if (resolvedRequests.size > 1000) {
       const oldest = resolvedRequests.values().next();
       if (!oldest.done) resolvedRequests.delete(oldest.value);
+    }
+  }
+
+  /**
+   * An id is normally dropped when `agent.archived` arrives — but a *deleted*
+   * helper fires no such event, and the daemon deletes one per summary when the
+   * user has asked it to. So the set is capped the way `resolvedRequests` is.
+   * The oldest goes first, and a helper still writing is always the newest.
+   */
+  function rememberHelper(helperId: string): void {
+    helpers.add(helperId);
+    if (helpers.size > 1000) {
+      const oldest = helpers.values().next();
+      if (!oldest.done) helpers.delete(oldest.value);
     }
   }
 
@@ -226,7 +246,8 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
             provider: config.summarizer.provider,
             timeoutMs: config.summarizer.timeoutMs,
             prompt: config.summarizer.prompt,
-            onHelperCreated: (helperId) => helpers.add(helperId),
+            deleteHelper: config.cleanup.deleteHelpers,
+            onHelperCreated: rememberHelper,
           },
         );
       } catch (error) {
@@ -268,7 +289,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
 
   const unsubscribers = [
     server.on("agent.created", (event) => {
-      if (event.agent.title === HELPER_TITLE) helpers.add(event.agent.id);
+      if (event.agent.title === HELPER_TITLE) rememberHelper(event.agent.id);
     }),
 
     server.on("agent.permission_requested", async (event, context) => {

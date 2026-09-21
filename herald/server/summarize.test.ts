@@ -177,6 +177,49 @@ describe("summarize", () => {
     expect(helper.archive).toHaveBeenCalled();
   });
 
+  it("deletes the helper when the config asks, without archiving it too", async () => {
+    const { paseo, helper } = fakePaseo({
+      status: "idle",
+      final: null,
+      error: null,
+      lastMessage: '{"speech":"Done."}',
+    });
+    const deleteAgent = vi.fn(async () => {});
+    await summarize(request, { paseo, provider: "p/m", timeoutMs: 1000, deleteHelper: true, deleteAgent });
+    // Fire-and-forget: the sentence does not wait on a child process.
+    await vi.waitFor(() => expect(deleteAgent).toHaveBeenCalledWith("h1"));
+    expect(helper.archive).not.toHaveBeenCalled();
+  });
+
+  it("archives a helper whose delete failed, so it does not sit in the subagent track", async () => {
+    const { paseo, helper } = fakePaseo({ status: "timeout", final: null, error: null, lastMessage: null });
+    const deleteAgent = vi.fn(async () => {
+      throw new Error("Cannot connect to daemon");
+    });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        summarize(request, { paseo, provider: "p/m", timeoutMs: 1000, deleteHelper: true, deleteAgent }),
+      ).rejects.toThrow("status timeout");
+      await vi.waitFor(() => expect(helper.archive).toHaveBeenCalled());
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it("leaves the helper alone when deleting is switched off", async () => {
+    const { paseo, helper } = fakePaseo({
+      status: "idle",
+      final: null,
+      error: null,
+      lastMessage: '{"speech":"Done."}',
+    });
+    const deleteAgent = vi.fn(async () => {});
+    await summarize(request, { paseo, provider: "p/m", timeoutMs: 1000, deleteAgent });
+    expect(deleteAgent).not.toHaveBeenCalled();
+    expect(helper.archive).not.toHaveBeenCalled();
+  });
+
   it("refuses an agent without a workspace", async () => {
     const { paseo, create } = fakePaseo(null);
     await expect(

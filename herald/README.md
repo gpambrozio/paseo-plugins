@@ -35,7 +35,9 @@ composer sits below it.](docs/timeline-card.png)
   carry the text there.
 - Summaries are written by a helper agent through whichever provider you pick, Claude Haiku 4.5 by
   default. Each event is one short turn of that model; the helper appears briefly under the agent it
-  describes and is archived when it finishes.
+  describes and is deleted once its sentence is written, so it leaves nothing in your history.
+- The `paseo` command, on the daemon's `PATH`. It is what deletes the helpers, and it is the only
+  thing Herald needs it for — without it, helper sessions simply pile up.
 
 ## Install
 
@@ -64,9 +66,10 @@ Center, or the settings screen itself.
   Accessibility › Spoken Content. These are shared by every device connected to the daemon, and each
   device follows its own switch. *Mute here* in the panel silences just the device you are on until
   the app restarts.
-- **Summaries** — the model that writes them, the prompt they are written from, and which kinds of
-  event are announced: questions, plan approvals, tool permissions, finished turns, errors. A kind
-  that is switched off still appears in the panel, without a summary and without being spoken.
+- **Summaries** — the model that writes them, the prompt they are written from, whether the helper
+  sessions are deleted, and which kinds of event are announced: questions, plan approvals, tool
+  permissions, finished turns, errors. A kind that is switched off still appears in the panel,
+  without a summary and without being spoken.
 
 ### The prompt
 
@@ -93,6 +96,16 @@ prompt back, and an empty prompt is the default one.
 The default prompt ends by asking for a small JSON object, which is what Herald reads the sentence
 out of. You can drop that — Herald then speaks whatever the model replies, trimmed to the first 45
 words — but the result is less predictable, so the editor says so.
+
+## Helper sessions
+
+A helper agent is a session like any other, so left alone every summary would put one in your
+history. Herald deletes each one the moment its sentence is written, and shortly after the daemon
+starts it clears any that were left over — the ones from before you upgraded, and any orphaned by a
+plugin reload or a daemon that stopped mid-summary. A summary still being written is never touched.
+
+Turn *Delete the helper when it is done* off under **Summaries** to keep them instead, which is worth
+doing when a summary comes out wrong and you want to read what the helper was actually asked.
 
 ## What the helper sees
 

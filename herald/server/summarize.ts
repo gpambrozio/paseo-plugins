@@ -8,9 +8,13 @@
  * this plugin's own hooks. `HELPER_TITLE` is one of the two things
  * `server/hooks.ts` uses to recognise and ignore it; the id reported through
  * `onHelperCreated` is the other.
+ *
+ * Visible also means it stays in the user's history, which is why `retire`
+ * deletes it outright when the config asks — see `server/cleanup.ts`.
  */
 import type { PaseoApi } from "./host-types";
 import { DEFAULT_SUMMARY_PROMPT, type AttentionReason, type PromptPlaceholder } from "../shared/herald";
+import { HELPER_LABELS, deleteAgent } from "./cleanup";
 import { displayName, firstWords, plainText } from "./timeline";
 
 export const HELPER_TITLE = "Herald summary";
@@ -38,6 +42,10 @@ export interface SummarizerDeps {
   prompt?: string;
   /** Called as soon as the helper exists, before its first turn can end. */
   onHelperCreated?: (helperId: string) => void;
+  /** Delete the helper when it is done, rather than leaving an archived session behind. */
+  deleteHelper?: boolean;
+  /** How to delete it. The real one shells out to the `paseo` CLI; tests pass their own. */
+  deleteAgent?: (agentId: string) => Promise<void>;
 }
 
 export interface Summary {
@@ -179,6 +187,33 @@ export function parseSummaryText(lastMessage: string | null): string {
   return firstWords(unfenced, 45);
 }
 
+/** Enough of a helper to put it away. Projected rather than imported: see `host-types`. */
+interface RetirableHelper {
+  id: string;
+  archive: () => Promise<unknown>;
+}
+
+/**
+ * The helper's last rites, fire-and-forget: nothing the caller wants is still
+ * coming from it, and the summary should not wait on a child process.
+ *
+ * A delete covers an archive — the CLI interrupts the agent first — so it is
+ * tried on its own, and the archive is what happens when it is switched off or
+ * fails. `archive` is true only where the daemon has not already done it:
+ * `autoArchive` fires on a finished turn and on nothing else.
+ */
+async function retire(helper: RetirableHelper, deps: SummarizerDeps, archive: boolean): Promise<void> {
+  if (deps.deleteHelper === true) {
+    try {
+      await (deps.deleteAgent ?? deleteAgent)(helper.id);
+      return;
+    } catch (error) {
+      console.error(`[herald] could not delete summary helper ${helper.id}:`, error);
+    }
+  }
+  if (archive) await helper.archive().catch(() => {});
+}
+
 export async function summarize(request: SummaryRequest, deps: SummarizerDeps): Promise<Summary> {
   if (request.agent.workspaceId === null) {
     throw new Error("The agent has no workspace, so there is nowhere to place a summary helper.");
@@ -191,7 +226,7 @@ export async function summarize(request: SummaryRequest, deps: SummarizerDeps): 
     autoArchive: true,
     outputSchema: SUMMARY_OUTPUT_SCHEMA as unknown as Record<string, unknown>,
     prompt: buildPrompt(request, deps.prompt),
-    labels: { "herald.role": "summarizer" },
+    labels: HELPER_LABELS,
   });
   deps.onHelperCreated?.(helper.id);
   try {
@@ -213,11 +248,14 @@ export async function summarize(request: SummaryRequest, deps: SummarizerDeps): 
     if (result.status !== "idle") {
       throw new Error(result.error ?? `The summary agent ended with status ${result.status}.`);
     }
-    return { text: parseSummaryText(result.lastMessage), model: deps.provider };
+    const summary = { text: parseSummaryText(result.lastMessage), model: deps.provider };
+    // The turn finished, so autoArchive has it; only a delete is left to do.
+    void retire(helper, deps, false);
+    return summary;
   } catch (error) {
     // autoArchive only fires on a finished turn; a helper that timed out or
     // was denied is still there and has to be put away by hand.
-    void helper.archive().catch(() => {});
+    void retire(helper, deps, true);
     throw error;
   }
 }

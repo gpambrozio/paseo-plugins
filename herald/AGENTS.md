@@ -21,6 +21,7 @@ compile time. This file covers only what is specific to `herald`.
 | `client/timeline-card.tsx`   | Draws that card, with a Play button that speaks the sentence again.                     |
 | `server/hooks.ts`            | Lifecycle events → store entries; helper recognition; turn dedupe; the summary queue.  |
 | `server/summarize.ts`        | One helper per summary: the prompt template, structured output, cleanup on failure.     |
+| `server/cleanup.ts`          | The `paseo` CLI: deleting one helper by id, and sweeping the rest by label.             |
 | `server/store.ts`            | One entry per agent, mirrored to `attention.json`.                                     |
 | `server/liveness.ts`         | Asks the daemon whether each entry's agent is still open before the list goes out.     |
 | `server/workspaces.ts`       | The workspace title an entry is named by, cached; agents are usually untitled.         |
@@ -60,6 +61,52 @@ the old process may still be finishing. **Do not rename the title without checki
 
 `autoArchive` fires only on a finished turn. A helper that timed out or asked for a permission is
 archived by hand in `summarize`, otherwise it sits in the subagent track forever.
+
+## Visible also means it stays, so it is deleted
+
+An archived agent is still a session in the user's history, and there is one per summary. The plugin
+API has no hard delete — `PaseoAgentHandle` offers `archive()` and `detach()` and nothing else — so
+`server/cleanup.ts` shells out to the **`paseo` CLI**, which plugin code may do because it runs
+unsandboxed beside the daemon. `paseo delete <id>` interrupts the agent and removes it, which is why
+`retire` in `summarize` tries the delete *instead of* the archive and falls back to archiving only
+when the delete is switched off or fails.
+
+`config.cleanup.deleteHelpers` is the switch, on by default.
+
+Two callers, because one id is not enough:
+
+- **`summarize` deletes the helper it just used**, by id. Precise, and it can never hit a summary
+  still being written.
+- **`index.server.ts` sweeps by label**, once, `SWEEP_DELAY_MS` after load — for the helpers no id
+  survived for: the backlog from before any of this existed, and whatever a plugin reload or a
+  stopped daemon orphaned mid-summary. The delay is not cosmetic: this plugin is loaded *by* the
+  daemon and the CLI has to connect *to* it, so a sweep that ran at contribution time would meet a
+  daemon that is not listening yet and give up for the life of the process.
+
+Three things about the sweep are load-bearing:
+
+- **`paseo ls` pages** — twenty agents at a time — so one pass is not the backlog. `sweepHelpers`
+  asks again until a page holds nothing it may delete, and gives up after `MAX_SWEEP_PASSES` rather
+  than trusting the daemon to run out. A pass that deleted *nothing* also ends it, or a page of ids
+  that all refuse to delete would be re-read to the limit.
+- **`keep` is the hooks' helper set**, handed in from `index.server.ts` as `liveHelpers`, so the
+  sweep cannot delete a helper mid-sentence. That is the one thing the equivalent shell loop
+  (`paseo ls --label herald.role=summarizer -q | xargs -n1 paseo delete`) gets wrong.
+- **`-q` prints short ids, `--json` prints full ones.** The sweep reads `--json`; `paseo delete`
+  accepts either, but a prefix is a prefix.
+
+A **deleted** agent fires no `agent.archived`, which is what used to drop its id from the hooks'
+`helpers` set. `rememberHelper` therefore caps that set the way `resolvedRequests` is capped —
+oldest out first, and a helper still writing is always the newest. Do *not* "fix" the growth by
+forgetting the id when the summary settles: the id is how a helper whose title the hook never saw is
+recognised, and `server/hooks.test.ts` proves it.
+
+The CLI is found once per process by walking `PATH` and then `~/.local/bin`, `/usr/local/bin` and
+`/opt/homebrew/bin`. Not finding it is not fatal — it throws, the sweep logs once and the per-helper
+deletes log per helper, and everything else about the plugin carries on.
+
+To check it against a live daemon rather than fakes, write a throwaway `*.tmp.test.ts` calling
+`listHelperIds` and `sweepHelpers` against the real `~/.paseo`, read what it prints, then delete it.
 
 ## The prompt is a template the user owns
 
@@ -340,3 +387,5 @@ cover, check by hand after `paseo plugin reload herald`:
    announced" and no helper is created.
 5. Edit the summary prompt — "Answer in French" is enough — and trigger an event: the next sentence
    follows it. *Restore the default* and *Save* puts it back.
+6. `paseo ls -a -g --label herald.role=summarizer -q` after a few summaries: empty. Switch *Delete
+   the helper when it is done* off, trigger one more, and the helper is there.
