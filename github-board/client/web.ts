@@ -1,36 +1,16 @@
 /**
- * Every browser global this plugin touches, in the one module 0.8 allows them
- * in. Each export declares the narrow shape of the globals it uses, gates on
- * `Platform.OS`, and gives native the alternative or a no-op — so the rest of
- * `client/` never reaches for `window` or `document` and typechecks without the
- * DOM library.
+ * Every browser global this plugin touches, in the one module the plugin API
+ * allows them in. Each export declares the narrow shape of the globals it uses,
+ * gates on `Platform.OS`, and gives native the alternative or a no-op — so the
+ * rest of `client/` never reaches for `window` or `document` and typechecks
+ * without the DOM library.
+ *
+ * Opening a URL used to live here too, on a hand-found desktop bridge. Paseo
+ * 0.9 exports `openExternalUrl` from `@getpaseo/plugin/client`, which reaches
+ * the same platform opener as a supported API, so the rest of `client/` imports
+ * that directly and this module is down to one export.
  */
-import { Linking, Platform } from "react-native";
-
-/**
- * `Linking.openURL` is `window.open` on the desktop renderer, and the main
- * Electron window installs no window-open handler, so a card click lands in a
- * bare child window instead of the browser. The desktop preload exposes the
- * same opener Paseo's own links go through, which hands the URL to the OS
- * browser as a normal tab. Mobile and plain web have no bridge and keep
- * `Linking`, which already opens a tab there.
- */
-interface DesktopOpenerBridge {
-  readonly opener?: { readonly openUrl?: (url: string) => Promise<void> };
-}
-
-export function openExternalUrl(url: string): void {
-  const openUrl = (globalThis as { paseoDesktop?: DesktopOpenerBridge }).paseoDesktop?.opener
-    ?.openUrl;
-  if (typeof openUrl !== "function") {
-    void Linking.openURL(url);
-    return;
-  }
-  void openUrl(url).catch((error: unknown) => {
-    console.warn("[github-board] desktop opener refused the URL, falling back", error);
-    void Linking.openURL(url);
-  });
-}
+import { Platform } from "react-native";
 
 /** Only what this module reads off the web globals; the DOM library stays off. */
 interface WebGlobals {

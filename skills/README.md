@@ -9,7 +9,7 @@ its running session reports.
 
 ## Install
 
-Requires the [Paseo](https://paseo.sh) CLI and a running daemon, both **0.8.0 or newer** — as well
+Requires the [Paseo](https://paseo.sh) CLI and a running daemon, both **0.9.0 or newer** — as well
 as the app you view the panel in, which checks the version itself.
 
 ```bash
@@ -17,7 +17,7 @@ paseo plugin install npm:@gpambrozio/paseo-skills
 ```
 
 That is the shortest route on **Paseo 0.9 or newer**, which installs plugins straight from npm; add
-`@<version>` to pin one. On 0.8, install from this repository instead:
+`@<version>` to pin one. On 0.8, install the last release that supported it from this repository instead:
 
 ```bash
 paseo plugin add gpambrozio/paseo-plugins --path skills

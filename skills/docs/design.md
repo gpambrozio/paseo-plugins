@@ -56,7 +56,7 @@ likely to be an unlabelled skill than a session control, and that bucketing them
 empty the skills section for any provider that omits the field.
 
 **The reported list needs a daemon that has `agent.commands()`.** It shipped in Paseo
-`0.7.0-beta.2`, which `requirements.paseo: ">=0.8.0"` now guarantees. The structural check remains
+`0.7.0-beta.2`, which `requirements.paseo: ">=0.9.0"` now guarantees. The structural check remains
 because the `paseo` object comes from the daemon's bundled client rather than this project's types.
 
 **Disabled Codex skills appear.** Codex disables a skill without deleting it through

@@ -22,7 +22,7 @@ paseo plugin install npm:@gpambrozio/paseo-launchd-jobs
 ```
 
 That is the shortest route on **Paseo 0.9 or newer**, which installs plugins straight from npm; add
-`@<version>` to pin one. On 0.8, install from this repository instead:
+`@<version>` to pin one. On 0.8, install the last release that supported it from this repository instead:
 
 ```bash
 paseo plugin add gpambrozio/paseo-plugins --path launchd-jobs
@@ -37,7 +37,7 @@ npm run typecheck
 paseo plugin install "$PWD"
 ```
 
-Requires **Paseo 0.8.0 or newer**, on the computer running the daemon and on whatever you view the
+Requires **Paseo 0.9.0 or newer**, on the computer running the daemon and on whatever you view the
 surface on. Both check the version themselves, so an older one reports the plugin as incompatible
 rather than half working.
 

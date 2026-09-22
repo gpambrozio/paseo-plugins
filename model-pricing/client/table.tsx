@@ -17,6 +17,7 @@
  * loop binding's final value.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
+import { openExternalUrl } from "@getpaseo/plugin/client";
 import { useMemo, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 
@@ -33,7 +34,6 @@ import { modelPageUrl } from "../shared/model-links";
 import type { PriceRow } from "../shared/pricing";
 import { pickAccent, providerById, providerLabel, type ProviderAccent } from "../shared/providers";
 import type { Sort, SortKey, TableRow } from "../shared/sort";
-import { openExternalUrl } from "./web";
 
 interface Column {
   label: string;
@@ -295,9 +295,9 @@ function providerAccent(theme: PluginTheme, providerId: string): string {
  * nowhere. That matters more than it sounds: a row that looks pressable and
  * opens a 404 is worse than a row that does not look pressable.
  *
- * No async arrow in the handler — `openExternalUrl` is deliberately synchronous
- * and swallows its own promise, because Hermes evaluates an async arrow in the
- * eval'd client bundle to `undefined`.
+ * The handler is a plain arrow that `void`s the opener's promise, never an
+ * async one: Hermes evaluates an async arrow in the eval'd client bundle to
+ * `undefined`, and a press would die instead of opening anything.
  */
 function ModelLink({
   row,
@@ -317,7 +317,9 @@ function ModelLink({
       accessibilityRole="link"
       accessibilityLabel={`${row.name} on ${providerLabel(row.providerId)}`}
       accessibilityHint="Opens this model's page in your browser"
-      onPress={() => openExternalUrl(url)}
+      onPress={() => {
+        void openExternalUrl(url);
+      }}
       style={({ pressed }) => [style, pressed ? styles.pressed : null]}
     >
       {children}

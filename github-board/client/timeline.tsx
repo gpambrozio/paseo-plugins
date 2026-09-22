@@ -8,13 +8,12 @@
  * is the boundary. A row that fails it renders as nothing, which is the same
  * outcome as never having appended one.
  */
-import type { PluginTimelineItemProps } from "@getpaseo/plugin/client";
+import { openExternalUrl, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import type { BoardTimelineItem } from "../shared/board";
-import { openExternalUrl } from "./web";
 
 /**
  * Enough labels to characterise the card, not enough to wrap the row twice.
@@ -78,7 +77,14 @@ export function BoardTimelineCard({
       style={styles.card}
       accessibilityRole="link"
       accessibilityLabel={`${repository} #${number}: ${title}`}
-      onPress={() => openExternalUrl(url)}
+      /**
+       * A plain arrow that `void`s the opener's promise, never an async one:
+       * Hermes evaluates an async arrow in the eval'd client bundle to
+       * `undefined`, and the card would stop opening anything.
+       */
+      onPress={() => {
+        void openExternalUrl(url);
+      }}
     >
       <View style={styles.header}>
         <Icon name="Github" size={14} color={theme.colors.foregroundMuted} />

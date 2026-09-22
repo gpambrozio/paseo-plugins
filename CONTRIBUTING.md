@@ -40,7 +40,7 @@ Two things worth knowing:
 - **A failed reload stays failed.** Paseo does not restore the previous code. Check the logs.
 - **Never restart the daemon** to pick up a change. It manages the user's running agents.
 
-The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.8.0 or newer** — the
+The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.9.0 or newer** — the
 app too, which checks the plugin's `requirements.paseo` against its own version.
 
 ## Client and server are separate bundles
@@ -75,7 +75,8 @@ that bite most often:
   `statusSuccess`, `statusWarning`, `statusDanger`. Anything else renders undefined.
 - **Browser globals live only in `client/web.ts`.** No `tsconfig` here has `DOM` in `lib`, so
   `document` and `window` are type errors by default; that one module declares what it uses and
-  gates each export on `Platform.OS`.
+  gates each export on `Platform.OS`. Opening a URL is not one of them — use `openExternalUrl` from
+  `@getpaseo/plugin/client`, and `void` its promise rather than making the handler async.
 - **Relative imports are extensionless** — `./frontmatter`, not `./frontmatter.js`.
 - **A surface is unmounted when the user navigates away.** Anything that should survive the round
   trip lives in a module-scope variable the component reads on mount.

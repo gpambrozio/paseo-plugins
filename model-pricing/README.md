@@ -24,7 +24,7 @@ coloured strip at its left edge matching its platform.](docs/screenshot.png)
 
 ## What you need
 
-- Paseo 0.8.0 or newer, with plugins enabled.
+- Paseo 0.9.0 or newer, with plugins enabled.
 - Network access from the daemon machine to `models.dev` and `openrouter.ai`.
 
 No accounts, keys or logins. The plugin only reads public price lists.
@@ -36,7 +36,7 @@ paseo plugin install npm:@gpambrozio/paseo-model-pricing
 ```
 
 That is the shortest route on **Paseo 0.9 or newer**, which installs plugins straight from npm; add
-`@<version>` to pin one. On 0.8, install from this repository instead:
+`@<version>` to pin one. On 0.8, install the last release that supported it from this repository instead:
 
 ```bash
 paseo plugin add gpambrozio/paseo-plugins --path model-pricing
