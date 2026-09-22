@@ -2503,7 +2503,9 @@ function SendDialog({
 
         {/* Its own row, out-stacking the scrim so its popover stays clickable. */}
         <View style={[styles.controlRow, topRowPicker ? styles.controlRowRaised : null]}>
-          {choices.length > 1 ? (
+          {/* Kept while another host is chosen even if it has since gone
+              offline and left the menu, so there is still a way back. */}
+          {choices.length > 1 || target !== hostId ? (
             <ControlChip
               styles={styles}
               label={targetLabel}

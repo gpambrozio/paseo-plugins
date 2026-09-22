@@ -402,8 +402,10 @@ option deliberately — thinking levels belong to the model, so the new one take
 
 **The host is a picker only when there is a choice.** `useHosts()` lists every host the app is
 configured with; `hostChoices` keeps the board's own and whichever others are `online`, and the chip
-leads the top row only when that leaves more than one. An offline host is left out rather than
-drawn disabled, because `getPaseoClient` refuses it and the popover has no way to say why. The
+leads the top row only when that leaves more than one — or when another host is already chosen, so
+a chosen host that drops offline, and out of the menu, still leaves a way back. An offline host is
+left out rather than drawn disabled, because `getPaseoClient` refuses it and the popover has no way
+to say why. The
 board itself never moves: its `gh` is the surface's daemon, and switching *that* is still the
 surface header's `PluginHostSwitcher`.
 
