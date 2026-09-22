@@ -7,6 +7,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-github-board` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [0.8.0] — 2026-09-22
+
+### Added
+
+- **Send a card to another computer.** When the Paseo app is connected to more than one computer,
+  the Send to chat dialog now lets you pick which one the agent runs on — the board's own, or any
+  other that is online, whether or not this plugin is installed there. The models on offer are that
+  computer's, and once the agent starts you land on it there. Two things are narrower than on the
+  board's own computer: the repository has to be the main remote of a project on the other one (a
+  fork that only keeps it as a second remote is not found), and the conversation starts without the
+  card at the top of it, so the issue is only as present as your message makes it.
+
 ## [0.7.0] — 2026-09-22
 
 ### Added
