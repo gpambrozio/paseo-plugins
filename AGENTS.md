@@ -48,8 +48,8 @@ paseo plugin logs skills          # load errors and stderr
   basename. The ids are `skills`, `github-board`, `launchd-jobs`, `herald`, and `model-pricing`.
 - **A failed reload stays failed.** Paseo does not restore the previous code.
 - **Never restart the daemon** — it manages the user's running agents.
-- The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.8.0 or newer**. All
-  five plugins declare `requirements.paseo: ">=0.8.0"`; on an older daemon they do not degrade,
+- The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.9.0 or newer**. All
+  five plugins declare `requirements.paseo: ">=0.9.0"`; on an older daemon they do not degrade,
   they refuse to load. There are no version fallbacks left in this repo — see *Versions* below for
   why the app-side check made them unnecessary.
 - There is no harness for plugin UI. A clean typecheck and a clean reload prove a `client/` change
@@ -137,9 +137,18 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
 - **Browser globals live only in `client/web.ts`.** No `tsconfig` here has `"DOM"` in `lib`, so
   `document` and `window` are type errors everywhere by default. That one module declares the narrow
   shape of each global it uses, gates every export on `Platform.OS`, and gives native the
-  alternative or a no-op — see `github-board/client/web.ts`, which owns both the desktop URL opener
-  (`Linking.openURL` is `window.open` on the desktop renderer, which opens a bare child window) and
-  the document-level pointer tracking the detail panel's resize handle needs on web.
+  alternative or a no-op — see `github-board/client/web.ts`, which owns the document-level pointer
+  tracking the detail panel's resize handle needs on web.
+- **Opening a URL is not one of those globals any more.** `openExternalUrl` from
+  `@getpaseo/plugin/client` reaches the same platform opener Paseo's own links go through, on every
+  platform. It used to be hand-rolled in two copies of `client/web.ts`, because `Linking.openURL` is
+  `window.open` on the desktop renderer and lands in a bare child window; both are gone. It answers
+  with a promise, so a press handler `void`s it rather than awaiting — never an async arrow. The
+  in-app alternative is `navigation.openBrowser`, which opens a tab *inside* a workspace and is
+  **Electron-only**: the host leaves it `undefined` on web, iOS and Android and does not fall back,
+  so anything drawn for it has to disappear there. It takes a `workspaceId` and is the one piece of
+  navigation a timeline item cannot reach — `PluginTimelineItemProps` carries no `navigation` at
+  all, unlike surfaces and panels.
 - **Plugin Command Center items are pinned below file results.** The host hardcodes their group
   rank, so single-word keywords get buried by filename matches.
 - **A surface is unmounted when the user navigates away** — to a workspace, an agent, anywhere —
@@ -169,16 +178,17 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
 `paseo-plugin.json` carries `requirements.paseo`, an npm semver range. **A missing
 `requirements.paseo` means `<0.8.0`**, so 0.8 rejects the plugin outright with a link to the
 migration guide — adding the field is part of migrating, not a substitute for it. All five plugins
-here declare `>=0.8.0`.
+here declare `>=0.9.0`.
 
 **The manifest may only carry what the *oldest* declared version accepts.** `PluginManifestSchema`
 is `.strict()` in every Paseo, so a key one version added is a load failure on every version before
 it — not a warning, not an ignored field. 0.9 added `description`, which the app shows in its
-plugins list; adding it here while `requirements.paseo` still says `>=0.8.0` broke all five on 0.8,
+plugins list; adding it here while `requirements.paseo` still said `>=0.8.0` broke all five on 0.8,
 and paseo.cafe's admission scan is what caught it, because it allows the key for an npm source
-(0.9-only by construction) and rejects it for a Git one. Either the key goes or the floor rises;
-the floor is load-bearing, so the key went. Check a new manifest key against the tag named in
-`requirements.paseo` before adding it.
+(0.9-only by construction) and rejects it for a Git one. Either the key goes or the floor rises —
+the key went first, and the floor rose later, when `openExternalUrl` and `navigation.openBrowser`
+made 0.9 worth requiring; `description` came back in the same change. Check a new manifest key
+against the tag named in `requirements.paseo` before adding it.
 
 The daemon checks the range before installing or loading, and **each connected app checks it against
 its own version** before evaluating client code. That second check is what retired this repo's
@@ -254,7 +264,9 @@ cost per plugin, not per release.
 ### The SDK dependency
 
 All five plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
-the daemon runs — `0.8.0` at the time of writing. `skills` used to ship a hand-written
+the daemon runs — `0.9.0` at the time of writing. Pin it *exactly*: `npm install --save-dev` writes
+a caret, and a range here is the same bet on an unreleased shape that the prerelease trap below
+describes. `skills` used to ship a hand-written
 `paseo-plugin.d.ts` shim instead; it was deleted in the 0.8 migration, because every new host API
 had to be hand-declared into it before it could be used.
 
@@ -389,7 +401,7 @@ need the `SKILL.md` itself. Entries bundled inside an agent binary live on no sc
 they come from `agent.commands()` instead and get their own sections, carrying a name, a
 description, and an argument hint but no path and no body. That method shipped in Paseo
 `0.7.0-beta.2`; `server/resolve/reported.ts` feature-detects it, which is now belt and braces — the
-manifest already requires 0.8 — but costs nothing and documents the dependency.
+manifest already requires 0.9 — but costs nothing and documents the dependency.
 `server/skills.ts` dispatches on `agent.provider`; only `claude` and `codex` resolve, everything
 else reports unsupported.
 

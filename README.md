@@ -26,7 +26,7 @@ paseo plugin install npm:@gpambrozio/paseo-model-pricing
 Add `@<version>` to install an exact one. npm is only how the daemon fetches the
 files; nothing else about the plugin changes.
 
-On Paseo 0.8, install from this repository instead:
+On Paseo 0.8, install the last release that supported it from this repository instead:
 
 ```bash
 paseo plugin add gpambrozio/paseo-plugins --path skills
@@ -56,7 +56,7 @@ the daemon loads each plugin from that path every time it starts. Moving this
 repo means reinstalling every plugin you installed from it.
 
 The daemon needs `"pluginsEnabled": true` in its `config.json`, and Paseo
-**0.8.0 or newer** — every plugin here declares that, and an older daemon
+**0.9.0 or newer** — every plugin here declares that, and an older daemon
 refuses to load them rather than degrading.
 
 ## Layout

@@ -7,6 +7,24 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-github-board` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [0.7.0] — 2026-09-22
+
+### Added
+
+- **The issue opens beside the agent.** Send a card to chat and the issue, pull request or
+  discussion now opens as a tab in the same workspace the agent was just started in, so the thread
+  you are asking about sits next to the conversation about it instead of in a window outside Paseo.
+  The tab belongs to the workspace, so it is still there when you come back to it later. You still
+  land on the agent, as before. This needs the desktop app — on the web and on a phone there is no
+  in-app browser, and sending a card behaves exactly as it did.
+- **A one-line description of the plugin**, shown next to it in Paseo's plugins list, so it is
+  clear what it does without opening it.
+
+### Changed
+
+- **Paseo 0.9 or newer is now required.** On 0.8 this version will not load. Staying on 0.8 means
+  staying on the previous release, which keeps working.
+
 ## [0.6.2] — 2026-09-19
 
 ### Fixed

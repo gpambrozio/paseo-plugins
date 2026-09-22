@@ -24,7 +24,7 @@ compile time. This file covers only what is specific to `github-board`.
 | `client/markdown.tsx`      | The renderer for an item's Markdown body; only the detail panel uses it.    |
 | `client/html.tsx`          | Rewrites the HTML in a body into Markdown before the renderer parses it.    |
 | `client/timeline.tsx`      | The card rendering the row a send appends to the new agent's transcript.    |
-| `client/web.ts`            | Every browser global this plugin touches: the desktop URL opener and the drag's document listeners. |
+| `client/web.ts`            | The one browser global this plugin touches: the drag's document listeners. |
 | `README.md`                | What the board shows a user, and which query backs each column.             |
 
 ## Checking a `gh` query against reality
@@ -512,6 +512,32 @@ written with, so a shape change is a **version bump plus a second renderer**, no
 opens that agent's tab, because it runs the app's own `navigateToAgent` against the host rendering
 the surface. No route, no platform branch, no reload.
 
+**The card opens as a browser tab in that same workspace first.**
+`navigation.openBrowser({ url, workspaceId })` puts the issue, pull request or discussion the agent
+was just told to work on beside the transcript, instead of in a window outside Paseo — and because a
+browser tab is workspace state, it is still there on the way back. `workspaceId` comes off the
+`board.send-to-chat` result, which has always carried it and never read it until now. `serverId` is
+omitted on purpose: it defaults to the surface's own selected host, which is the daemon that just
+created the workspace, and that is the only host this surface can reach anyway.
+
+**Order is load-bearing.** Both calls focus what they open, so the browser goes first and
+`openAgent` last, which keeps the user landing exactly where they landed before. The tab is created
+either way.
+
+**`openBrowser` is Electron-only and nothing is drawn for it.** The host leaves it `undefined` on
+web, iOS and Android — there is no in-app browser there, and
+[getpaseo/paseo#4972](https://github.com/getpaseo/paseo/pull/4972) deliberately does not fall back
+to an external one. Because this is an optional call in a handler rather than an affordance, those
+platforms simply send the card and land on the agent as they always did; there is no button to hide
+and no compact layout to check. It is also the one piece of navigation `client/timeline.tsx` cannot
+reach — `PluginTimelineItemProps` extends `PluginHostProps`, not the navigable one, so a timeline
+card has no `navigation` at all and keeps `openExternalUrl`.
+
+**There is no toggle for it.** Sending a card is already an explicit act that creates a workspace
+and an agent; opening the thing you asked about alongside them is part of that act rather than a
+preference. If it ever needs one, it is drawn-only and client-read, so it belongs in the display
+settings document with the repository filter and the panel width — not in the daemon's file.
+
 **It runs in the client bundle, and that is the point.** The server half lives next to the daemon,
 which on a remote host is a different machine from the one the user is looking at — a link opened
 there would surface on the wrong screen.
@@ -525,7 +551,7 @@ synthesized `popstate` on web, with a `location.assign` reload if neither took.
 
 That fallback was live because the gate was the **app's** version, not the daemon's — measured on
 2026-08-31 against a single 0.7.0-beta.3 daemon, desktop navigated and the phone did not, since the
-mobile app ships on its own cadence. `requirements.paseo: ">=0.8.0"` closed it: each app checks the
+mobile app ships on its own cadence. `requirements.paseo: ">=0.9.0"` closed it: each app checks the
 range against its own version before evaluating this bundle, so a client too old to pass the prop is
 a client that never runs this code. The `undefined` branch now does nothing beyond leaving the
 success toast standing, which already names the workspace.

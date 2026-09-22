@@ -51,7 +51,7 @@ entries there exist because a reviewer proved the code was wrong about the real 
   Block scalar content is literal YAML, quotes included; stripping them corrupts real skills.
 - **`agent.commands()` is detected structurally, not trusted from the types.** The `paseo` object
   comes from the daemon's bundled client, not this folder's `node_modules`, so what the types
-  declare and what the object has are two different questions. `requirements.paseo: ">=0.8.0"` now
+  declare and what the object has are two different questions. `requirements.paseo: ">=0.9.0"` now
   guarantees a daemon well past the `0.7.0-beta.2` that added the method, so `supportsCommands()` in
   `server/resolve/reported.ts` is belt and braces rather than load-bearing — but it costs one
   `typeof` and it documents that the boundary is a runtime one. Keep it.

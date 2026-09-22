@@ -1,4 +1,10 @@
-import { type PluginSurfaceProps, useRpc, usePaseo, useSettings } from "@getpaseo/plugin/client";
+import {
+  openExternalUrl,
+  type PluginSurfaceProps,
+  useRpc,
+  usePaseo,
+  useSettings,
+} from "@getpaseo/plugin/client";
 import {
   Icon,
   Modal,
@@ -13,7 +19,6 @@ import {
   Easing,
   Image,
   Keyboard,
-  Linking,
   PanResponder,
   Platform,
   Pressable,
@@ -63,7 +68,21 @@ import {
   normalizePrompts,
   promptSettings,
 } from "../shared/settings";
-import { openExternalUrl, trackPointerOnDocument } from "./web";
+import { trackPointerOnDocument } from "./web";
+
+/**
+ * The host's own external opener, wrapped so a press handler stays synchronous.
+ *
+ * `openExternalUrl` answers with a promise, and every caller here is either a
+ * press handler or `MarkdownBody`'s `onOpenLink`, neither of which wants
+ * anything back. Wrapping once keeps the `void` in one place instead of at five
+ * call sites, and keeps every one of them a plain arrow rather than an async
+ * one — Hermes evaluates an async arrow in the eval'd client bundle to
+ * `undefined`.
+ */
+function openLink(url: string): void {
+  void openExternalUrl(url);
+}
 /**
  * The four columns in display order, with the label the settings view gives
  * each one. Declared here rather than read off the board so the settings view
@@ -2744,7 +2763,7 @@ function RemoteImage({
   if (error !== null) {
     return (
       <Text style={styles.mdParagraph}>
-        <Text accessibilityRole="link" style={styles.mdLink} onPress={() => openExternalUrl(url)}>
+        <Text accessibilityRole="link" style={styles.mdLink} onPress={() => openLink(url)}>
           [image: {label}]
         </Text>
         <Text style={styles.imageCaption}> — {error}</Text>
@@ -2764,7 +2783,7 @@ function RemoteImage({
     <Pressable
       accessibilityRole="imagebutton"
       accessibilityLabel={`${label}, opens on GitHub`}
-      onPress={() => openExternalUrl(url)}
+      onPress={() => openLink(url)}
     >
       <View style={[styles.imageFrame, { aspectRatio: image.width / image.height }]}>
         <Image
@@ -3145,7 +3164,7 @@ function ItemDetailPanel({
             accessibilityRole="link"
             accessibilityLabel={`Open ${item.repository} #${item.number} on GitHub`}
             style={styles.ghostButton}
-            onPress={() => openExternalUrl(item.url)}
+            onPress={() => openLink(item.url)}
           >
             <Text style={styles.ghostButtonLabel}>Open on GitHub</Text>
           </Pressable>
@@ -3169,7 +3188,7 @@ function ItemDetailPanel({
               <MarkdownBody
                 source={details.body}
                 styles={styles}
-                onOpenLink={openExternalUrl}
+                onOpenLink={openLink}
                 renderImage={renderImage}
               />
             )}
@@ -3228,7 +3247,7 @@ function ItemDetailPanel({
                         <MarkdownBody
                           source={comment.body}
                           styles={styles}
-                          onOpenLink={openExternalUrl}
+                          onOpenLink={openLink}
                           renderImage={renderImage}
                         />
                       )}
@@ -3810,23 +3829,42 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    * on the workspace *and* opens that agent's tab, because it runs the app's own
    * `navigateToAgent` against the host rendering the surface.
    *
-   * The prop is still typed optional because hosts before 0.7.0-beta.3 passed
-   * nothing. This plugin now requires Paseo >=0.8.0, and each app checks that
-   * against its *own* version before it evaluates this bundle, so every client
-   * that can run this code passes it. The `undefined` branch therefore only
-   * leaves the notice standing — which already names the workspace the work went
-   * to — instead of the hand-built `paseo://` route this used to fall back on.
+   * The card itself opens as a browser tab in that same workspace first, so the
+   * issue the agent was just told to work on sits beside the transcript instead
+   * of in a window outside Paseo. First, because both calls focus what they
+   * open and the agent is where the user should land; the browser tab stays in
+   * the workspace either way, which is the point — it is workspace state, so it
+   * is still there on the way back tomorrow.
+   *
+   * `openBrowser` is the only part of this that is desktop-only: the host leaves
+   * it `undefined` on web, iOS and Android, where there is no in-app browser to
+   * open and the PR deliberately does not fall back to an external one. Nothing
+   * is drawn for it, so those platforms simply land on the agent exactly as
+   * before. `serverId` is omitted so the host uses the surface's own selected
+   * host, which is the daemon that just created this workspace.
+   *
+   * `navigation` itself is still typed optional because hosts before
+   * 0.7.0-beta.3 passed nothing. This plugin now requires Paseo >=0.9.0, and
+   * each app checks that against its *own* version before it evaluates this
+   * bundle, so every client that can run this code passes it. The `undefined`
+   * branch therefore only leaves the notice standing — which already names the
+   * workspace the work went to — instead of the hand-built `paseo://` route this
+   * used to fall back on.
    */
   const handleLaunched = useCallback(
     (result: LaunchResult) => {
+      const url = sendTarget?.item.url ?? null;
       setSendTarget(null);
       toast.show(
         `Created “${result.workspaceName}” in ${result.projectName}. Opening it…`,
         { variant: "success" },
       );
+      if (url !== null) {
+        props.navigation?.openBrowser?.({ url, workspaceId: result.workspaceId });
+      }
       props.navigation?.openAgent({ agentId: result.agentId });
     },
-    [props.navigation, toast],
+    [props.navigation, sendTarget, toast],
   );
 
   const applyLogin = useCallback(

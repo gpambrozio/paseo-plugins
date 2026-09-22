@@ -27,7 +27,6 @@ compile time. This file covers only what is specific to `model-pricing`.
 | `client/pricing.tsx`         | The surface: header, legend, search, the module-scope cache, the filter/sort pipeline.    |
 | `client/table.tsx`           | The wide table, the compact card, the sort comparator, and every style the surface uses.  |
 | `client/settings-screen.tsx` | Settings › Plugins › Model pricing.                                                       |
-| `client/web.ts`              | `openExternalUrl`, the only browser global this plugin touches.                           |
 | `server/*.test.ts`, `shared/*.test.ts` | The tests. `npm test`.                                                         |
 
 `client/table.tsx` holds no logic worth testing on purpose: the comparator moved to
@@ -243,7 +242,9 @@ What it cannot cover, check by hand after `paseo plugin reload model-pricing`:
    spinner.
 6. Check a narrow window for the card layout, and switch theme.
 7. Press a row on each provider and check the page that opens is that model's. On the desktop app
-   it must land in the OS browser, not a bare child window — that is what `client/web.ts` is for.
+   it must land in the OS browser as a normal tab, not a bare child window — `openExternalUrl` from
+   `@getpaseo/plugin/client` is what makes that so, and it is the only thing this plugin uses it
+   for.
 
 To check the server half against reality rather than fixtures, write a throwaway `*.tmp.test.ts` that
 builds a `PricingCache` on a `mkdtemp` directory, calls `createPricingHandler` with the real deps,
