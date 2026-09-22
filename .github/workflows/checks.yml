@@ -1,0 +1,105 @@
+# What a pull request has to pass before it can be merged.
+#
+# Until this existed, nothing checked a pull request at all: `publish.yml` runs on pushes to `main`,
+# which is *after* the merge — and since merging a version bump is what releases a plugin here, a
+# broken bump failed loudly in somebody's notifications rather than in the pull request that caused
+# it. The contributing guide asked for a typecheck and a test run by hand, and a human who forgets
+# is a human, not a process.
+#
+# Three jobs, and the third is the one branch protection names:
+#
+# - **Manifests agree** reads the files inside each plugin that have to be kept in step by hand.
+#   No `npm ci` first, because it needs no dependencies and should report before a slower job does.
+# - **One job per plugin**, typechecking and testing it against the tree the lockfile pins.
+# - **Checks passed** exists only so that protection can require a single status whose name never
+#   changes. Requiring the matrix jobs directly would mean editing the branch protection rule every
+#   time a plugin is added or renamed, and a rule naming a job that no longer runs blocks every
+#   merge until somebody notices.
+#
+# This does not replace what `publish.yml` runs at release time. That repeats the typecheck and the
+# tests for the plugin it is publishing, deliberately: this workflow proves the pull request was
+# sound, and the publish job proves the commit it is about to ship still is.
+name: Checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+# A pull request that is pushed to twice does not need the first run's answer.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consistency:
+    name: Manifests agree
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Check every plugin's declarations against each other
+        run: node .github/scripts/check-plugin-consistency.mjs skills github-board launchd-jobs herald model-pricing
+
+  plugin:
+    name: ${{ matrix.plugin }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      # One plugin failing says nothing about the other four, and seeing all five verdicts at once
+      # is worth more than stopping early.
+      fail-fast: false
+      matrix:
+        # Spelled out rather than read from an `env`, because a matrix is evaluated before workflow
+        # env exists. Adding a plugin means editing this list and `publish.yml`'s.
+        plugin: [skills, github-board, launchd-jobs, herald, model-pricing]
+    defaults:
+      run:
+        working-directory: ${{ matrix.plugin }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # `ci`, not `install`: it installs the locked tree and refuses to rewrite the lockfile, so a
+      # lockfile that cannot satisfy `package.json` fails here rather than being quietly fixed.
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # `--if-present` so that a plugin without a test script is not a failure. All five have one.
+      - name: Test
+        run: npm run test --if-present
+
+  checks:
+    name: Checks passed
+    needs: [consistency, plugin]
+    # Without this the job is skipped when something it needs fails, and a skipped required check
+    # leaves the pull request waiting for an answer that will never come.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if anything above did not succeed
+        # `cancelled` and `skipped` count as failures too: neither is evidence that the tree is good,
+        # and treating them as success is how a required check becomes decoration.
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "::error::A check above failed, was cancelled, or was skipped."
+          exit 1
+
+      - name: Say so
+        run: echo "All checks passed." >> "$GITHUB_STEP_SUMMARY"
