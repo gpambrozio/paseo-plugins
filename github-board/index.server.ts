@@ -1,12 +1,14 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 
 import {
+  launchDefaultsHandler,
   listLabelsHandler,
   loadBoardHandler,
   loadCommentsHandler,
   loadImageHandler,
   loadItemHandler,
   legacySettingsTakenHandler,
+  saveLaunchDefaultsHandler,
   saveLoginHandler,
   takeLegacySettingsHandler,
   sendOptionsHandler,
@@ -14,12 +16,14 @@ import {
   toggleLabelHandler,
 } from "./server/board";
 import {
+  launchDefaults,
   listLabels,
   loadBoard,
   loadComments,
   loadImage,
   loadItem,
   legacySettingsTaken,
+  saveLaunchDefaults,
   saveLogin,
   takeLegacySettings,
   sendOptions,
@@ -38,6 +42,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(legacySettingsTaken, legacySettingsTakenHandler);
   server.handle(sendOptions, sendOptionsHandler);
   server.handle(sendToChat, sendToChatHandler);
+  server.handle(launchDefaults, launchDefaultsHandler);
+  server.handle(saveLaunchDefaults, saveLaunchDefaultsHandler);
   server.handle(listLabels, listLabelsHandler);
   server.handle(toggleLabel, toggleLabelHandler);
 

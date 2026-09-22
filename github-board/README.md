@@ -182,6 +182,8 @@ Hover a card and a **Send to chat** button appears in its bottom-right corner.
 It opens a **New workspace** dialog, the same choices Paseo asks for when you
 start a chat yourself:
 
+- **Which computer** it runs on, when the app is connected to more than one — the
+  board's own, or any other that is online. Only shown when there is a choice.
 - **Local** or **New worktree** — a worktree is offered only for git projects.
 - The **agent**, picked the way Paseo picks one: a menu of providers with their
   model counts, then that provider's models behind a back arrow, with a search
@@ -209,9 +211,20 @@ actually offers.
 If no project has a git remote pointing at the repository, the dialog says so
 and creates nothing.
 
-The host is not one of the choices: a plugin surface talks to the daemon it was
-installed on, and the board is that daemon's `gh`. Use the host switcher in the
-surface header to work from another one.
+### Sending to another computer
+
+The board always comes from the computer it is installed on — that is where `gh`
+runs — but the agent does not have to. Pick another computer in the dialog and
+the workspace, the agent and its models are that computer's; the plugin does not
+need to be installed there. Two things work differently:
+
+- **The repository has to be the project's own there.** On the board's computer a
+  card also finds a fork that keeps the repository as a second remote; on
+  another one it only finds a project whose main remote is the card's
+  repository.
+- **The conversation does not open with the card.** Paseo only lets the plugin
+  add it on the board's own computer, so on another one the issue is only as
+  present as your message makes it — the default prompts include its link.
 
 On phones and tablets there is no hover, so the button is always visible.
 
@@ -332,3 +345,6 @@ header tells you nothing about which account you are looking at.
   only if that checkout keeps the upstream as a remote, which `gh repo clone`
   and `gh repo fork` both set up. A project with no remote pointing at the
   card's repository will not match.
+- **Sending to another computer is narrower.** Only a project whose main remote
+  is the card's repository matches there, and the conversation starts without
+  the card at the top of it.
