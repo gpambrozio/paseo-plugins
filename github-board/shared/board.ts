@@ -283,6 +283,30 @@ export const sendToChat = defineRpc({
   }),
 });
 
+export type SendToChatRequest = z.input<typeof sendToChat.input>;
+
+/**
+ * The launch defaults alone, for a card sent to another host. `board.send-options`
+ * answers them together with this daemon's project and refuses when there is
+ * none — which says nothing about whether the other host has one.
+ */
+export const launchDefaults = defineRpc({
+  name: "board.launch-defaults",
+  input: z.object({}),
+  output: LaunchDefaultsSchema,
+});
+
+/**
+ * Saves what a card sent to another host was launched with, so the next card
+ * opens on it. `board.send-to-chat` saves in the same round trip as its own
+ * launch; a launch the app made itself has no round trip to ride on.
+ */
+export const saveLaunchDefaults = defineRpc({
+  name: "board.save-launch-defaults",
+  input: LaunchDefaultsSchema,
+  output: z.object({}),
+});
+
 /**
  * The card that opens the transcript of an agent this board launched.
  *

@@ -1,6 +1,9 @@
 import {
+  getPaseoClient,
   openExternalUrl,
+  type PluginHostSummary,
   type PluginSurfaceProps,
+  useHosts,
   useRpc,
   usePaseo,
   useSettings,
@@ -44,15 +47,18 @@ import type {
   PromptSet,
   PromptSettings,
   RepositoryLabel,
+  SendToChatRequest,
 } from "../shared/board";
 import {
   COLUMN_IDS,
+  launchDefaults,
   listLabels,
   loadBoard,
   loadComments,
   loadImage,
   loadItem,
   legacySettingsTaken,
+  saveLaunchDefaults,
   saveLogin,
   sendOptions,
   takeLegacySettings,
@@ -60,6 +66,7 @@ import {
   toggleLabel,
 } from "../shared/board";
 import { isGitHubImageHost } from "../shared/image-host";
+import { repositoryIdFor, workspaceTitle } from "../shared/launch";
 import { MarkdownBody } from "./markdown";
 import {
   completePrompts,
@@ -1741,7 +1748,7 @@ function resolveConfiguration(
 }
 
 /** Which control's popover is open; only ever one at a time. */
-type PickerId = "isolation" | "model" | "thinking" | "mode";
+type PickerId = "host" | "isolation" | "model" | "thinking" | "mode";
 
 const ISOLATION_CHOICES: readonly Choice[] = [
   { id: "local", label: "Local", description: "Work in the project's own checkout." },
@@ -2074,21 +2081,129 @@ interface LaunchResult {
   workspaceName: string;
   projectName: string;
   agentId: string;
+  /** The host the workspace was created on, for navigation to reach it. */
+  serverId: string;
+  /** That host's name, or null when it is the board's own. */
+  hostLabel: string | null;
+}
+
+/** An API for one host: the board's own from `usePaseo()`, any other from `getPaseoClient`. */
+type HostApi = ReturnType<typeof getPaseoClient>;
+
+/**
+ * Where a card can be sent: the board's own host, and every other host the app
+ * is connected to right now. An offline host is left out rather than listed
+ * disabled — `getPaseoClient` refuses it, and the host menu cannot say why.
+ */
+function hostChoices(hosts: readonly PluginHostSummary[], boardHostId: string): Choice[] {
+  return hosts
+    .filter((host) => host.serverId === boardHostId || host.status === "online")
+    .map((host) => ({
+      id: host.serverId,
+      label: host.label,
+      description: host.serverId === boardHostId ? "This board's host" : null,
+    }));
+}
+
+/**
+ * The project a card belongs to on another host, asked of that host's own
+ * project list. Matched on `projectKey` alone: `board.send-options` falls back
+ * to scanning each checkout's git remotes, but that runs `git` on the board's
+ * daemon, which cannot see another machine's disk. So a fork whose `origin` is
+ * not the card's repository is only found on the board's own host.
+ *
+ * This and `launchOnHost` take the host's id rather than its API and borrow the
+ * API themselves, per call: `getPaseoClient` throws for a host that has gone
+ * offline, and inside an async function that throw is a rejection the dialog
+ * already shows, where in an effect body or a press handler it would escape.
+ */
+async function findProjectOnHost(
+  serverId: string,
+  hostLabel: string,
+  repository: string,
+  url: string,
+): Promise<SendProject> {
+  const repositoryId = repositoryIdFor(repository, url);
+  if (repositoryId === null) {
+    throw new Error(`${repository} has no repository URL to match a project against.`);
+  }
+  const { projects } = await getPaseoClient(serverId).projects.list();
+  const key = `remote:${repositoryId}`;
+  const project = projects.find((entry) => (entry.projectKey ?? "").toLowerCase() === key);
+  if (project === undefined) {
+    throw new Error(
+      `No project on ${hostLabel} has ${repository} as its origin. Add it as a project there, then send this card again.`,
+    );
+  }
+  return {
+    id: project.projectId,
+    name: project.projectDisplayName,
+    rootPath: project.projectRootPath,
+    supportsWorktree: project.projectKind === "git",
+  };
+}
+
+/**
+ * `board.send-to-chat`, run from the app against another host. The workspace
+ * and the agent are created exactly as `sendToChatHandler` creates them — keep
+ * the two in step — and one thing is left out: the timeline row. The daemon
+ * accepts a plugin row only from that plugin's own session, and the app's
+ * connection is not one, so on another host the card survives in the
+ * transcript only as whatever the prompt says.
+ */
+async function launchOnHost(
+  serverId: string,
+  hostLabel: string,
+  project: SendProject,
+  request: SendToChatRequest,
+): Promise<Omit<LaunchResult, "serverId" | "hostLabel">> {
+  const workspace = await getPaseoClient(serverId).workspaces.create({
+    title: workspaceTitle(request.repository, request.number, request.title),
+    firstAgentContext: { prompt: request.prompt, attachments: [] },
+    source:
+      request.isolation === "worktree"
+        ? { kind: "worktree", cwd: project.rootPath, projectId: project.id }
+        : { kind: "directory", path: project.rootPath, projectId: project.id },
+  });
+  const agent = await workspace.agents
+    .create({
+      config: {
+        provider: `${request.provider}/${request.model}`,
+        ...(request.modeId === null ? {} : { modeId: request.modeId }),
+        ...(request.thinkingOptionId === null ? {} : { thinkingOptionId: request.thinkingOptionId }),
+      },
+      prompt: request.prompt,
+    })
+    .catch((cause: unknown) => {
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(
+        `Workspace “${workspace.name ?? project.name}” was created on ${hostLabel}, but the agent could not be started: ${detail}`,
+      );
+    });
+  return {
+    workspaceId: workspace.id,
+    workspaceName: workspace.name ?? project.name,
+    projectName: project.name,
+    agentId: agent.id,
+  };
 }
 
 /**
  * What Paseo's own New workspace screen asks before it starts a chat, for one
- * card: where the workspace is cut, which agent runs it, how hard it thinks,
- * which permission mode it runs under, and the first message.
+ * card: which host it runs on, where the workspace is cut, which agent runs it,
+ * how hard it thinks, which permission mode it runs under, and the first
+ * message.
  *
- * The host is not a choice here. A plugin surface is bound to the daemon that
- * contributed it — `usePaseo()` is that daemon's client and nothing reaches
- * another one — and the board itself is that host's `gh`. Switching hosts is the
- * surface header's job, so the dialog names the host rather than offering it.
+ * The host menu only appears when the app is connected to more than one. The
+ * board's own host goes through the daemon's `board.send-options` and
+ * `board.send-to-chat`, exactly as before; any other goes through
+ * `getPaseoClient`, from the app, because this plugin's RPCs only ever reach the
+ * board's daemon. The board itself stays that daemon's `gh` either way.
  */
 function SendDialog({
   item,
   initialPrompt,
+  hostId,
   hostLabel,
   styles,
   accentColor,
@@ -2098,6 +2213,8 @@ function SendDialog({
   item: BoardItem;
   /** The card's prompt template, already rendered. The user may rewrite it. */
   initialPrompt: string;
+  /** The board's own host, which `usePaseo()` and this plugin's RPCs reach. */
+  hostId: string;
   hostLabel: string;
   styles: Styles;
   accentColor: string;
@@ -2105,9 +2222,22 @@ function SendDialog({
   onLaunched: (result: LaunchResult) => void;
 }) {
   const paseo = usePaseo();
+  const hosts = useHosts();
   const loadOptions = useRpc(sendOptions);
+  const loadDefaults = useRpc(launchDefaults);
+  const rememberDefaults = useRpc(saveLaunchDefaults);
   const launch = useRpc(sendToChat);
   const toast = useToast();
+
+  /** The host the card is sent to. The board's own until the user picks another. */
+  const [target, setTarget] = useState(hostId);
+  const choices = useMemo(() => hostChoices(hosts, hostId), [hosts, hostId]);
+  // From `hosts` rather than `choices`, so a chosen host that has just gone
+  // offline still reads by its name rather than its id.
+  const targetLabel =
+    target === hostId
+      ? hostLabel
+      : (hosts.find((host) => host.serverId === target)?.label ?? target);
 
   const [prompt, setPrompt] = useState(initialPrompt);
   const [project, setProject] = useState<SendProject | null>(null);
@@ -2165,10 +2295,24 @@ function SendDialog({
     [busy, initialPrompt, onCancel, picker, prompt, toast],
   );
 
-  // Which project this card belongs to, and what the last send was set to.
+  // Which project this card belongs to on the chosen host, and what the last
+  // send was set to. Choosing another host reloads it, the way reopening the
+  // dialog would.
   useEffect(() => {
     let cancelled = false;
-    loadOptions({ repository: item.repository, url: item.url })
+    const options =
+      target === hostId
+        ? loadOptions({ repository: item.repository, url: item.url })
+        : Promise.all([
+            findProjectOnHost(target, targetLabel, item.repository, item.url),
+            loadDefaults({}),
+          ]).then(([found, saved]) => ({
+            project: found,
+            // As `board.send-options` does it: a worktree preference must not
+            // survive into a project that has no worktrees to offer.
+            defaults: found.supportsWorktree ? saved : { ...saved, isolation: "local" as const },
+          }));
+    options
       .then((result) => {
         if (cancelled) return;
         setProject(result.project);
@@ -2181,18 +2325,26 @@ function SendDialog({
     return () => {
       cancelled = true;
     };
-  }, [item.repository, item.url, loadOptions]);
+  }, [hostId, item.repository, item.url, loadDefaults, loadOptions, target, targetLabel]);
 
   /**
    * The snapshot is taken against the project's checkout rather than the
    * daemon's cwd, because a provider can offer different models per directory —
-   * the same reason Paseo's own composer passes one.
+   * the same reason Paseo's own composer passes one. It is the chosen host's
+   * snapshot: another machine has its own providers installed.
    */
   const cwd = project?.rootPath ?? null;
   useEffect(() => {
     if (cwd === null) return undefined;
+    let api: HostApi;
+    try {
+      api = target === hostId ? paseo : getPaseoClient(target);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      return undefined;
+    }
     let cancelled = false;
-    paseo.providers
+    api.providers
       .snapshot({ cwd })
       .then((snapshot) => {
         if (!cancelled) setEntries(snapshot.entries);
@@ -2203,7 +2355,7 @@ function SendDialog({
     // Discovery is lazy on the daemon, so a provider still loading when the
     // snapshot was taken arrives later as an update rather than as a second
     // reply. An update for another directory is not ours to adopt.
-    const unsubscribe = paseo.providers.subscribe((update) => {
+    const unsubscribe = api.providers.subscribe((update) => {
       if (cancelled) return;
       if (update.cwd !== undefined && update.cwd !== cwd) return;
       setEntries(update.entries);
@@ -2212,7 +2364,7 @@ function SendDialog({
       cancelled = true;
       unsubscribe();
     };
-  }, [cwd, paseo]);
+  }, [cwd, hostId, paseo, target]);
 
   const providers = useMemo(() => (entries === null ? null : readProviders(entries)), [entries]);
 
@@ -2254,14 +2406,33 @@ function SendDialog({
     [providers],
   );
 
+  /**
+   * The project and the providers belong to the host they were read from, so
+   * both are cleared in the same update that changes it — a render with the new
+   * host and the old project would snapshot one machine's directory on another.
+   * The configuration is kept, and re-settled against the new host's providers
+   * when they land, so a model both machines offer stays picked.
+   */
+  const selectHost = useCallback(
+    (id: string) => {
+      setPicker(null);
+      if (id === target) return;
+      setTarget(id);
+      setProject(null);
+      setEntries(null);
+      setError(null);
+    },
+    [target],
+  );
+
   const send = useCallback(() => {
-    if (configuration === null || busy) return;
+    if (configuration === null || project === null || busy) return;
     const text = prompt.trim();
     if (text === "") return;
     setBusy(true);
     setError(null);
     setPicker(null);
-    launch({
+    const request: SendToChatRequest = {
       repository: item.repository,
       number: item.number,
       title: item.title,
@@ -2276,26 +2447,54 @@ function SendDialog({
       model: configuration.model,
       modeId: configuration.modeId,
       thinkingOptionId: configuration.thinkingOptionId,
-    })
-      .then(onLaunched)
-      .catch((cause: unknown) => {
-        // Left open on failure, with everything still typed in: the workspace
-        // may or may not exist, but the user's prompt certainly should not be
-        // thrown away.
-        setBusy(false);
-        setError(cause instanceof Error ? cause.message : String(cause));
-      });
-  }, [busy, configuration, isolation, item, launch, onLaunched, prompt]);
+    };
+    const launched: Promise<LaunchResult> =
+      target === hostId
+        ? launch(request).then((result) => ({ ...result, serverId: hostId, hostLabel: null }))
+        : launchOnHost(target, targetLabel, project, request).then((result) => {
+            // The daemon saves its own sends' defaults in the same round trip;
+            // this one it only hears about afterwards. Not fatal: the agent is
+            // already running, and a lost preference costs the next card a pick.
+            rememberDefaults({ ...configuration, isolation }).catch((cause: unknown) => {
+              console.warn("[github-board] could not save the launch defaults", cause);
+            });
+            return { ...result, serverId: target, hostLabel: targetLabel };
+          });
+    launched.then(onLaunched).catch((cause: unknown) => {
+      // Left open on failure, with everything still typed in: the workspace
+      // may or may not exist, but the user's prompt certainly should not be
+      // thrown away.
+      setBusy(false);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    });
+  }, [
+    busy,
+    configuration,
+    hostId,
+    isolation,
+    item,
+    launch,
+    onLaunched,
+    project,
+    prompt,
+    rememberDefaults,
+    target,
+    targetLabel,
+  ]);
 
-  const ready = configuration !== null && project !== null && prompt.trim() !== "";
+  // `providers` too: after a host switch the configuration is the old host's
+  // until the new snapshot lands and re-settles it.
+  const ready =
+    configuration !== null && project !== null && providers !== null && prompt.trim() !== "";
   const thinkingOptions = model?.thinkingOptions ?? [];
   const modes = provider?.modes ?? [];
+  const topRowPicker = picker === "host" || picker === "isolation";
 
   return (
     <Modal title="New workspace" open onOpenChange={requestClose}>
       <Modal.Content contentContainerStyle={styles.dialogBody}>
         <Text style={styles.subtle} numberOfLines={1}>
-          {hostLabel}
+          {targetLabel}
           {project === null ? "" : ` · ${project.name}`}
         </Text>
         <Text style={styles.modalBody} numberOfLines={2}>
@@ -2303,9 +2502,15 @@ function SendDialog({
         </Text>
 
         {/* Its own row, out-stacking the scrim so its popover stays clickable. */}
-        <View
-          style={[styles.controlRow, picker === "isolation" ? styles.controlRowRaised : null]}
-        >
+        <View style={[styles.controlRow, topRowPicker ? styles.controlRowRaised : null]}>
+          {choices.length > 1 ? (
+            <ControlChip
+              styles={styles}
+              label={targetLabel}
+              disabled={busy}
+              onPress={() => togglePicker("host")}
+            />
+          ) : null}
           <ControlChip
             styles={styles}
             label={isolation === "worktree" ? "New worktree" : "Local"}
@@ -2314,6 +2519,15 @@ function SendDialog({
             disabled={project === null || !project.supportsWorktree}
             onPress={() => togglePicker("isolation")}
           />
+          {picker === "host" ? (
+            <ChoicePopover
+              styles={styles}
+              direction="down"
+              options={choices}
+              selectedId={target}
+              onSelect={selectHost}
+            />
+          ) : null}
           {picker === "isolation" ? (
             <ChoicePopover
               styles={styles}
@@ -2357,9 +2571,7 @@ function SendDialog({
           />
         )}
 
-        <View
-          style={[styles.controlRow, picker === "isolation" ? null : styles.controlRowRaised]}
-        >
+        <View style={[styles.controlRow, topRowPicker ? null : styles.controlRowRaised]}>
           <ControlChip
             styles={styles}
             label={
@@ -3827,7 +4039,9 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    *
    * `navigation` is the host's own agent navigation, so `openAgent` alone lands
    * on the workspace *and* opens that agent's tab, because it runs the app's own
-   * `navigateToAgent` against the host rendering the surface.
+   * `navigateToAgent`. Both calls carry the `serverId` the workspace was created
+   * on, which is what takes the user across to another host when the card was
+   * sent there; for the board's own host it is the one they would default to.
    *
    * The card itself opens as a browser tab in that same workspace first, so the
    * issue the agent was just told to work on sits beside the transcript instead
@@ -3840,8 +4054,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
    * it `undefined` on web, iOS and Android, where there is no in-app browser to
    * open and the PR deliberately does not fall back to an external one. Nothing
    * is drawn for it, so those platforms simply land on the agent exactly as
-   * before. `serverId` is omitted so the host uses the surface's own selected
-   * host, which is the daemon that just created this workspace.
+   * before.
    *
    * `navigation` itself is still typed optional because hosts before
    * 0.7.0-beta.3 passed nothing. This plugin now requires Paseo >=0.9.0, and
@@ -3855,14 +4068,21 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     (result: LaunchResult) => {
       const url = sendTarget?.item.url ?? null;
       setSendTarget(null);
-      toast.show(
-        `Created “${result.workspaceName}” in ${result.projectName}. Opening it…`,
-        { variant: "success" },
-      );
+      const where =
+        result.hostLabel === null
+          ? result.projectName
+          : `${result.projectName} on ${result.hostLabel}`;
+      toast.show(`Created “${result.workspaceName}” in ${where}. Opening it…`, {
+        variant: "success",
+      });
       if (url !== null) {
-        props.navigation?.openBrowser?.({ url, workspaceId: result.workspaceId });
+        props.navigation?.openBrowser?.({
+          url,
+          workspaceId: result.workspaceId,
+          serverId: result.serverId,
+        });
       }
-      props.navigation?.openAgent({ agentId: result.agentId });
+      props.navigation?.openAgent({ agentId: result.agentId, serverId: result.serverId });
     },
     [props.navigation, sendTarget, toast],
   );
@@ -4110,6 +4330,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
           key={sendTarget.item.id}
           item={sendTarget.item}
           initialPrompt={sendTarget.prompt}
+          hostId={props.host.id}
           hostLabel={props.host.label}
           styles={styles}
           accentColor={props.theme.colors.accent}

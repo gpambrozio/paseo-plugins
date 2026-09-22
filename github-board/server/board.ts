@@ -16,12 +16,14 @@ import type {
   LinkedIssue,
   PromptSet,
   PromptSettings,
+  launchDefaults,
   legacySettingsTaken,
   listLabels,
   loadBoard,
   loadComments,
   loadImage,
   loadItem,
+  saveLaunchDefaults,
   saveLogin,
   sendOptions,
   sendToChat,
@@ -29,6 +31,7 @@ import type {
   toggleLabel,
 } from "../shared/board";
 import { isGitHubImageHost } from "../shared/image-host";
+import { repositoryIdFor, workspaceTitle } from "../shared/launch";
 // A value import, unlike everything taken from `../shared/board`: the row this
 // module writes has to carry the same key the client renderer registers, and
 // `shared/timeline` imports nothing, so the standalone transpile still runs.
@@ -1457,24 +1460,6 @@ async function readProjects(paseo: PaseoApi): Promise<ProjectRecord[]> {
 }
 
 /**
- * A repository's identity as both a project key and a git remote spell it:
- * `<host>/<owner>/<name>`, lowercased. The host comes from the item's own URL
- * rather than a hardcoded `github.com`, so a GitHub Enterprise card matches the
- * enterprise project and not a same-named repository on github.com.
- */
-function repositoryIdFor(repository: string, url: string): string | null {
-  if (!repository.includes("/")) return null;
-  let host: string;
-  try {
-    host = new URL(url).host;
-  } catch {
-    return null;
-  }
-  if (host === "") return null;
-  return `${host}/${repository}`.toLowerCase();
-}
-
-/**
  * Normalises any git remote URL to the same `<host>/<owner>/<name>` form,
  * covering the scp-like `git@host:owner/name.git` that `new URL` cannot parse
  * alongside the `https://` and `ssh://` spellings.
@@ -1607,9 +1592,6 @@ async function findProject(
   return fresh.byRepositoryId.get(repositoryId);
 }
 
-/** Workspace titles are capped at the same length the daemon caps agent titles. */
-const MAX_TITLE_CHARS = 200;
-
 /**
  * The project one card can be sent to, or a refusal that says what to do about
  * it. Both handlers below start here, so "no project" reads the same whether
@@ -1657,6 +1639,17 @@ export async function sendOptionsHandler(
   };
 }
 
+export async function launchDefaultsHandler(): Promise<z.input<typeof launchDefaults.output>> {
+  return (await readSettings()).launch;
+}
+
+export async function saveLaunchDefaultsHandler(
+  launch: z.output<typeof saveLaunchDefaults.input>,
+): Promise<z.input<typeof saveLaunchDefaults.output>> {
+  await updateSettings({ launch });
+  return {};
+}
+
 export async function sendToChatHandler(
   {
     repository,
@@ -1679,7 +1672,6 @@ export async function sendToChatHandler(
     throw new Error(`${project.displayName} is not a git checkout, so it cannot be worktreed.`);
   }
 
-  const trimmed = title.trim();
   /**
    * `firstAgentContext` is passed here and *only* here, because this handler
    * really does create the agent it promises. The daemon reads it two ways: as
@@ -1687,9 +1679,12 @@ export async function sendToChatHandler(
    * which flips the new workspace to an optimistic `running`. A caller that
    * passes it and then creates nothing leaves a workspace spinning until it
    * settles on `done`.
+   *
+   * `launchOnHost` in `client/board.tsx` makes the same two calls against
+   * another host; keep the two in step.
    */
   const workspace = await paseo.workspaces.create({
-    title: (trimmed === "" ? `${repository} #${number}` : trimmed).slice(0, MAX_TITLE_CHARS),
+    title: workspaceTitle(repository, number, title),
     firstAgentContext: { prompt, attachments: [] },
     source:
       isolation === "worktree"

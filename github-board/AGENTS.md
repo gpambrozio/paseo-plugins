@@ -13,11 +13,12 @@ compile time. This file covers only what is specific to `github-board`.
 | File                       | What it owns                                                                |
 | -------------------------- | --------------------------------------------------------------------------- |
 | `index.client.tsx`         | Client wiring — the surface, the sidebar item, the settings screen, two Command Center items, the timeline renderer. |
-| `index.server.ts`          | Server wiring — the nine RPC contracts and the two settings documents.      |
+| `index.server.ts`          | Server wiring — every RPC contract and the two settings documents.          |
 | `shared/board.ts`          | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `shared/settings.ts`       | The two host-stored settings documents, the default prompts, and `normalizePrompts`. |
 | `shared/image-host.ts`     | Which image hosts the daemon fetches for the app; used by both halves.      |
 | `shared/timeline.ts`       | The `kind`/`version` keying the timeline row; a *runtime* import on both sides. |
+| `shared/launch.ts`         | A card's repository id and its workspace title, for both launch paths; a *runtime* import on both sides. |
 | `server/board.ts`          | Every `gh` subprocess, the daemon's own settings file, and the server-side board cache. |
 | `client/board.tsx`         | The surface: columns, cards, the detail panel, the repository filter, the send dialog, and the client cache. |
 | `client/settings-screen.tsx` | The Settings → Plugins frame around the same editor the gear button opens. |
@@ -36,15 +37,16 @@ The server half is checkable on its own, though: everything it imports from `sha
 `import type`, so it transpiles to a module with no runtime dependency beyond Node built-ins.
 
 ```bash
-npx tsc server/board.ts shared/image-host.ts shared/timeline.ts --module esnext --target es2022 \
-  --moduleResolution bundler --outDir /tmp/gbcheck --skipLibCheck --types node --ignoreConfig
+npx tsc server/board.ts shared/image-host.ts shared/timeline.ts shared/launch.ts --module esnext \
+  --target es2022 --moduleResolution bundler --outDir /tmp/gbcheck --skipLibCheck --types node \
+  --ignoreConfig
 # then call loadBoardHandler from a throwaway .mjs in that directory, and delete it after
 ```
 
-`server/board.ts` imports `../shared/image-host` and `../shared/timeline` at runtime, which is why
-both files are passed to `tsc` too; add the `.js` extension to those two imports in the emitted
-`server/board.js` before running it — the bundler resolves extensionless imports, plain Node does
-not.
+`server/board.ts` imports `../shared/image-host`, `../shared/timeline` and `../shared/launch` at
+runtime, which is why those files are passed to `tsc` too; add the `.js` extension to those three
+imports in the emitted `server/board.js` before running it — the bundler resolves extensionless
+imports, plain Node does not.
 
 Run it with `PASEO_HOME` pointed at a scratch directory so a throwaway never writes the real
 `settings.json`.
@@ -372,7 +374,8 @@ Every card carries a **Send to chat** button, bottom-right, revealed on hover. I
 dialog — Paseo's own New workspace screen, narrowed to one card — and the dialog does the work:
 `board.send-options` finds the project, `usePaseo().providers` fills the pickers, and
 `board.send-to-chat` creates the workspace, creates the agent in it, and sends the prompt as its
-first message. The client then routes the app to the new workspace.
+first message. The client then routes the app to the new workspace. That is the board's own host;
+a card sent to another one takes a different path, in *Sending to another host* below.
 
 ### The dialog
 
@@ -397,10 +400,12 @@ the host still offers it and falls back to the host's own default otherwise, so 
 an uninstalled provider degrades instead of failing the send. Picking a new model drops the thinking
 option deliberately — thinking levels belong to the model, so the new one takes its own default.
 
-**The host is not a picker.** A surface is bound to the daemon that contributed it: `usePaseo()` is
-that daemon's client (`surface-runtime.ts`), the board's `gh` runs there, and nothing in the plugin
-API reaches another host. Switching hosts is the surface header's own `PluginHostSwitcher`. The
-dialog names the host instead of offering it.
+**The host is a picker only when there is a choice.** `useHosts()` lists every host the app is
+configured with; `hostChoices` keeps the board's own and whichever others are `online`, and the chip
+leads the top row only when that leaves more than one. An offline host is left out rather than
+drawn disabled, because `getPaseoClient` refuses it and the popover has no way to say why. The
+board itself never moves: its `gh` is the surface's daemon, and switching *that* is still the
+surface header's `PluginHostSwitcher`.
 
 **It is the host's `Modal`**, which is a bottom sheet on compact layouts and a centred dialog
 otherwise. Paseo owns the frame, the backdrop, the header, the safe-area clearance and every
@@ -437,7 +442,7 @@ dialog. Three things make that work inside a modal card:
 - **They are anchored to their row, not to their chip.** Anchoring to the chip would need the chip's
   offset inside the card, and a menu that opens past the card's right edge is clipped outright on
   Android. The row's left edge is always inside the card.
-- **Direction keeps them in the card.** The top row (isolation) opens down over the prompt, the
+- **Direction keeps them in the card.** The top row (host, isolation) opens down over the prompt, the
   bottom row (model, thinking, mode) opens up over it, and `maxHeight` is sized so neither leaves the
   card. The list inside needs `flexShrink: 1` or it overflows that cap instead of scrolling.
 - **`zIndex`, twice.** `cardScrim` (1) catches the press that dismisses an open popover before it
@@ -506,19 +511,70 @@ Three things about it are deliberate:
 only fields there the launch itself never reads. A row already written carries the version it was
 written with, so a shape change is a **version bump plus a second renderer**, not an edit.
 
+### Sending to another host
+
+Picking another host in the dialog routes around this plugin's daemon entirely, because nothing
+else can reach that host: `useRpc` and `server.handle` only ever connect the app to the board's own
+daemon, and the plugin need not be installed on the other one. What does reach it is
+`getPaseoClient(serverId)` (Paseo 0.9, [getpaseo/paseo#4971](https://github.com/getpaseo/paseo/pull/4971)),
+which borrows the app's own connection to that host and hands back the ordinary `PaseoApi` —
+projects, workspaces, agents, providers, not plugin RPC. So the dialog does, from the app, what the
+two handlers do on the daemon:
+
+| Board's own host | Another host |
+| --- | --- |
+| `board.send-options` | `findProjectOnHost` plus `board.launch-defaults` |
+| `usePaseo().providers` | `getPaseoClient(target).providers` |
+| `board.send-to-chat` | `launchOnHost`, then `board.save-launch-defaults` |
+
+The board's own host deliberately keeps the daemon path, rather than everything going through
+`getPaseoClient`, because that path is strictly better where it is available — and the other column
+is where it is not:
+
+- **The project is matched on `projectKey` alone.** The fallback that scans every checkout's
+  `git remote -v` runs `git` on the board's daemon, which cannot see another machine's disk. So a
+  fork whose `origin` is not the card's repository is found only on the board's own host.
+- **There is no timeline row.** The daemon accepts a `type: "plugin"` append only from that plugin's
+  own session — "Only plugin sessions can append plugin timeline items" — and the app's connection
+  is not one. The card survives in that transcript only as whatever the prompt says.
+- **The defaults need their own round trip.** They live in the board daemon's file, so
+  `board.launch-defaults` reads them without a project (which `board.send-options` refuses to
+  answer without) and `board.save-launch-defaults` writes them after the launch works. The save is
+  not fatal, for the same reason the timeline append is not: the agent is already running.
+
+`launchOnHost` makes the same two SDK calls as `sendToChatHandler`, with the same
+`firstAgentContext` and the same `provider/model` spelling; keep the two in step. What they can
+share is in `shared/launch.ts` — `repositoryIdFor` and `workspaceTitle`. The calls themselves stay
+duplicated because a shared module cannot name `PaseoApi`: the SDK's root export, the only one
+`shared/` may import, does not carry it.
+
+`findProjectOnHost` and `launchOnHost` take the host's *id* and call `getPaseoClient` themselves, per
+call, as the reference asks. It throws for a host that has gone offline or been replaced, and
+inside an async function that throw is a rejection the dialog already shows; in an effect body or a
+press handler it would escape instead. The providers effect is the one caller that has to borrow in
+place, so it does so under a `try`.
+
+`selectHost` clears the project and the provider entries **in the same update that changes the
+target**. Clearing them afterwards, in the loading effect, leaves one render with the new host and
+the old project's `cwd`, and the providers effect would snapshot one machine's directory on the
+other. The configuration is kept and re-settled when the new snapshot lands, so a model both
+machines offer stays picked; `ready` waits for `providers` for exactly that window.
+
 ### Selecting the new workspace
 
-`handleLaunched` calls `props.navigation.openAgent({ agentId })`, which lands on the workspace *and*
-opens that agent's tab, because it runs the app's own `navigateToAgent` against the host rendering
-the surface. No route, no platform branch, no reload.
+`handleLaunched` calls `props.navigation.openAgent({ agentId, serverId })`, which lands on the
+workspace *and* opens that agent's tab, because it runs the app's own `navigateToAgent`. No route, no
+platform branch, no reload. `serverId` is whichever host the workspace was created on — the only
+thing that takes the user across to another host, and since
+[getpaseo/paseo#4942](https://github.com/getpaseo/paseo/pull/4942) the navigation accepts it. For the
+board's own host it is the id the navigation would have defaulted to anyway.
 
 **The card opens as a browser tab in that same workspace first.**
 `navigation.openBrowser({ url, workspaceId })` puts the issue, pull request or discussion the agent
 was just told to work on beside the transcript, instead of in a window outside Paseo — and because a
 browser tab is workspace state, it is still there on the way back. `workspaceId` comes off the
-`board.send-to-chat` result, which has always carried it and never read it until now. `serverId` is
-omitted on purpose: it defaults to the surface's own selected host, which is the daemon that just
-created the workspace, and that is the only host this surface can reach anyway.
+launch result, and `serverId` with it, for the same reason `openAgent` takes one: the browser runs
+locally, but the workspace it belongs to is on whichever host the card was sent to.
 
 **Order is load-bearing.** Both calls focus what they open, so the browser goes first and
 `openAgent` last, which keeps the user landing exactly where they landed before. The tab is created
@@ -736,8 +792,14 @@ root `AGENTS.md`; this is where the line falls here.
 | Host settings store, `shared/settings.ts` | `hiddenRepositories`, `detailWidthFraction` (`display`); the prompt templates (`prompts`) | Read only to draw the board. `useSettings` puts them on the client with no round trip, and the host pushes an edit to every connected client. |
 | `$PASEO_HOME/plugins/github-board/settings.json` | `login`, the `launch` defaults | Handlers act on them: `gh` runs every query as that login, and `board.send-options` answers with those defaults. A settings document is readable from the client only. |
 
-Two handlers write that one file, so both go through `updateSettings`, which read-modify-writes — a
-whole-file write from either would drop the other's key. Each reader defaults what it cannot parse.
+The launch defaults are one set, whichever host a card was sent to. They could have moved into a
+settings document when sends to other hosts started saving them from the client, but the daemon's
+own send still has to read them, so they stay here and the client reaches them through
+`board.launch-defaults` and `board.save-launch-defaults`.
+
+Several handlers write that one file, so every one goes through `updateSettings`, which
+read-modify-writes — a whole-file write from any of them would drop the others' keys. Each reader
+defaults what it cannot parse.
 
 ### Migrating the pre-0.4.0 file
 

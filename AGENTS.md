@@ -165,6 +165,16 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   used for a long list — a Mac lists 185 `say` voices. Past about ten options, open a host `Modal`
   with `scrollable={false}` and put the host `FlatList` and a search `TextInput` inside it — see
   `herald/client/option-picker.tsx`.
+- **Another host is reachable from the client, but only as Paseo.** `useHosts()` lists every host the
+  app is configured with, and `getPaseoClient(serverId)` borrows the app's own connection to one as
+  an ordinary `PaseoApi` — projects, workspaces, agents, providers, terminals — whether or not the
+  plugin is installed there. It is **not** plugin RPC: `useRpc` and `client.rpc` still reach only
+  the plugin's own daemon, and server handlers have no equivalent at all. Nor can it add a plugin
+  timeline row: the daemon accepts `type: "plugin"` appends only from that plugin's own session.
+  Borrow it per action, inside an async function — it throws for a host that is offline or whose
+  connection was replaced — and pass the same `serverId` to `navigation.openAgent`,
+  `openWorkspace` or `openBrowser` to follow the work across. `github-board`'s send dialog is the
+  worked example.
 - **A surface cannot open its own settings screen.** `PluginSurfaceProps` carries no
   `openSettings`; only `PluginClientContext` and a Command Center or slash-command callback have it.
   A surface that needs to reach one keeps its own in-surface editor, routes the user through ⌘K —
