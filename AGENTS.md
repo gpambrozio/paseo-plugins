@@ -332,10 +332,25 @@ Three properties worth knowing, all of them deliberate:
   and an entry to read; the first two are automatic now, so the third is checked rather than
   assumed.
 
-**Nothing checks a pull request**, so run `npm run typecheck` and `npm test` in the plugin folder
-before merging. The publish run repeats both for the plugin it is releasing, which means a broken
-bump fails loudly instead of shipping — but it fails *after* the merge, where it is somebody's
-problem rather than the PR's.
+**`checks.yml` is what a pull request has to pass**, and `main` requires it. It typechecks and
+tests all five plugins, and runs `.github/scripts/check-plugin-consistency.mjs`, which reads the
+declarations inside each plugin that only a human keeps in step: the version in `package.json`
+against both copies of it in `package-lock.json`, every declared dependency range against the
+lockfile's, and the existence of a `## [<version>]` changelog section. Nothing else sees a plugin
+whole — `tsc` does not read a lockfile, and **`npm ci` does not catch a stale one**, because it
+only asks whether the locked tree *satisfies* `package.json`, which a resolved `0.9.0` does for an
+exact `0.9.0`. #32 shipped five drifted lockfiles through every gate in this repository exactly
+that way; #33 is both the fix and the check.
+
+Branch protection requires one status, **`Checks passed`** — an aggregating job that fails if any
+matrix job failed, was cancelled *or* was skipped. Requiring the per-plugin jobs directly would mean
+editing the rule whenever a plugin is added, and a rule naming a job that no longer runs blocks
+every merge until somebody works out why.
+
+Run `npm run typecheck` and `npm test` in the plugin folder anyway — CI answering in two minutes is
+not a reason to find out from CI. The publish run repeats both for the plugin it is releasing, which
+is deliberate belt and braces: the PR check proves the branch was sound, the publish job proves the
+commit it is about to ship still is.
 
 Two ways in by hand remain. `workflow_dispatch` takes a plugin by name and publishes whatever
 version its `package.json` declares, which is how a failed publish is re-run. And a release

@@ -8,12 +8,17 @@
 - [ ] `github-board`
 - [ ] `launchd-jobs`
 - [ ] `herald`
+- [ ] `model-pricing`
 - [ ] Repo-level (docs, CI, config)
 
 ## Checks
 
+<!-- The first three are also enforced by `checks.yml`, which must pass before this can merge.
+     Running them locally first is still faster than waiting for CI to tell you. -->
+
 - [ ] `npm run typecheck` passes in every plugin I touched
-- [ ] `npm test` passes in `skills` / `launchd-jobs` / `herald` if touched
+- [ ] `npm test` passes in every plugin I touched
+- [ ] I ran `npm install` in any plugin whose `package.json` I edited, so its lockfile moved with it
 - [ ] `paseo plugin reload <id>` loads cleanly against a real daemon
 
 ## UI

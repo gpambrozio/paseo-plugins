@@ -94,8 +94,16 @@ is Hermes, so they fail differently.
 Before opening one:
 
 - `npm run typecheck` passes in every plugin you touched
-- `npm test` passes in `skills` and `launchd-jobs` if you touched them
+- `npm test` passes in every plugin you touched
+- If you changed a `package.json` — a version, a dependency, anything — you ran `npm install` in
+  that folder so its `package-lock.json` moved with it. Editing one without the other passes
+  `npm ci`, which only checks that the locked tree satisfies `package.json`, and reaches `main`.
+- If you bumped a version, `CHANGELOG.md` has a `## [<version>]` section for it
 - You reloaded the plugin against a real daemon and it loaded
+
+The first four are also checked by `checks.yml` on the pull request, and `main` will not take a
+merge until it passes. The fifth cannot be — there is no harness for plugin UI, and nothing in CI
+can look at a panel.
 
 If you added a host API call, note the minimum Paseo version it needs — older daemons must still
 load the plugin with only that feature missing.
