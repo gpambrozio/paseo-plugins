@@ -30,8 +30,9 @@ compile time. This file covers only what is specific to `github-board`.
 
 ## Checking a `gh` query against reality
 
-There is no test script and no UI harness here, so a clean `npm run typecheck` plus a clean
-`paseo plugin reload github-board` prove the code compiles and loads, nothing more.
+There is no UI harness here, and the tests cover the import graph and the branch-status parsing
+only, so a clean `npm run typecheck` plus a clean `paseo plugin reload github-board` prove the code
+compiles and loads, nothing more.
 
 The server half is checkable on its own, though: everything it imports from `shared/board` is an
 `import type`, so it transpiles to a module with no runtime dependency beyond Node built-ins.
@@ -73,8 +74,9 @@ Three search calls per refresh, not eight: both PR columns split one search resu
 and each column's several searches share one request. Every search is `gh api graphql` rather than
 `gh search`, because `closingIssuesReferences` — the link from a pull request to the issues it
 closes — has no `gh search` field, and because searches can only share a request as GraphQL aliases
-(below). A fourth call fetches the check runs on the open pull requests, and only when there are
-any; it is separate for a reason, below.
+(below). A fourth call fetches the check runs on the open pull requests, and a fifth how far each
+draft and open pull request is behind its base, each only when there are any; both are separate
+for reasons below.
 
 **Each column is several searches: `author:<login>`, `user:<login>`, and — for issues and pull
 requests — `assignee:<login>`.** The last two are what put other people's work on the board: an
@@ -158,9 +160,76 @@ than a disagreement with the sidebar.
 
 The three counts render as one grouped pill leading the card footer. **Leading, because the footer
 wraps** — anything appended lands on a second line — and because the Send button covers the
-bottom-right corner. The plugin theme has exactly one status colour, so failure takes `statusDanger`,
-still-running takes `accent`, and passed takes `foregroundMuted`; the `✓ ✕ ●` glyphs are what
-actually carries the meaning, which is also what makes the summary readable without colour vision.
+bottom-right corner. Failure takes `statusDanger`, still-running takes `accent`, and passed takes
+`foregroundMuted` — chosen when the plugin theme had only the one status colour; it now has
+`statusSuccess` and `statusWarning` too, and the pills have not been revisited. The `✓ ✕ ●` glyphs
+are what actually carries the meaning, which is also what makes the summary readable without colour
+vision.
+
+## Out-of-date branches, and updating them
+
+`BoardItem.branch` is `{ behindBy, canUpdate }` on draft and open pull requests alike, null
+elsewhere. A pull request with `behindBy > 0` shows an **Out of date** pill, beside the checks on
+the card and in the panel's pill row; the panel's branch line adds the count. Where `canUpdate` is
+true, the card and the panel both offer **Update branch**, which is `board.update-branch` — GitHub's
+own `updatePullRequestBranch` mutation. Drafts are included deliberately, unlike checks: a draft is
+when catching up with the base is cheapest.
+
+"Base" is the pull request's base, not `main`: a stacked pull request is out of date against the
+branch it targets, and GitHub's update merges *that* branch in.
+
+**It is a fifth `gh` call, after the search, run alongside the checks call.** `Ref.compare` takes
+the head as an argument, and GraphQL cannot feed one field's answer into another field's argument,
+so the head has to come back from the search first (`headRefOid` is in `PULL_REQUEST_SELECTION`
+for this alone). `branchStatusQuery` then aliases one `node(id:)` per pull request, each with its
+own `$id<n>`/`$head<n>` pair. It fails the way checks do — `console.warn`, no pills, the columns
+untouched — and one failed alias loses them all, because `gh` exits non-zero on any GraphQL error.
+That is accepted because the one per-alias error it could hit, an unresolvable head, does not
+happen: see the next paragraph.
+
+**The comparison runs from the base ref against the head's SHA, not its branch name.** A fork's
+branch does not exist in the base repository, so comparing by name answers "Could not resolve head
+ref" for every fork pull request; GitHub keeps every pull request's head commit in the base
+repository (`refs/pull/<n>/head`), so the SHA resolves for both. Checked against `getpaseo/paseo`
+pull requests opened from `gpambrozio/paseo`. `baseRefOid` looks like it could replace the
+comparison and cannot: it is the base as of the pull request's last update, not the base's tip.
+
+**`canUpdate` is GitHub's `viewerCanUpdateBranch`, not a reconstruction of it.** GitHub answers
+false for three reasons it does not distinguish: merge conflicts, no push access, and — the one that
+surprises — a repository with **"Always suggest updating pull request branches"** turned off, which
+is the default for a new repository. There, GitHub's own page offers no Update branch button unless
+branch protection demands an up-to-date branch, and neither does the board: such a pull request
+shows the pill and no button. Guessing past that from `mergeable` and `viewerPermission` would
+mean a button GitHub itself does not offer, and `mergeable` answers `UNKNOWN` until GitHub has
+computed it, so the guess would change between two refreshes of the same pull request.
+`toBranchStatus` additionally requires `behindBy > 0`, which GitHub's flag implies, so a button can
+never appear without its pill.
+
+**The update is a merge, and nothing is expected of the head.** `updateMethod: MERGE` is GitHub's
+default and rewrites nothing, where a rebase would break every checkout of the branch.
+`expectedHeadOid` is left off: it refuses the update whenever the branch moved since the board was
+loaded, and merging the base into the newer head is still what the button said it would do.
+
+**A success is taken at its word.** The handler answers `{ behindBy: 0, canUpdate: false }` rather
+than comparing again, because GitHub makes the merge commit on its own side and an immediate
+comparison can still see the old head — putting the pill straight back on a branch that was just
+updated. The next refresh reads the real state. Both caches are patched with that answer, exactly as
+for a label (`patchCachedItem` on the server, `patchItem` on the client), and for the same reason.
+The checks on the card describe the old head until then; they are left alone rather than guessed at.
+
+The in-flight set, `updatingBranches`, lives on the board rather than in a card, so the card and
+the panel show the same "Updating…" and a second press from either is ignored. A failure — merge
+conflicts, usually, which GitHub names — is a toast, like a send's outcome, not the board's `error`.
+
+On the wide layout **Update branch** joins Send to chat in the hover overlay, now a row
+(`cardOverlay`) whose `pointerEvents: "box-none"` lets the gap between the two fall through to the
+card. Each button tracks its own hover, for the reason in *Send to chat* below. The overlay's
+Update branch is never `disabled` — a disabled Pressable stops reporting hover on web, so a pointer
+leaving mid-update would strand the overlay revealed — and an effect clears its hover state when a
+successful update unmounts it under the pointer. On compact it is an outlined button in the action
+row, left of Send.
+
+The pill takes `statusWarning`: nothing is broken, it is work waiting to be done.
 
 ## The detail panel
 

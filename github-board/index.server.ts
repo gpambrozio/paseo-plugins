@@ -14,6 +14,7 @@ import {
   sendOptionsHandler,
   sendToChatHandler,
   toggleLabelHandler,
+  updateBranchHandler,
 } from "./server/board";
 import {
   launchDefaults,
@@ -29,6 +30,7 @@ import {
   sendOptions,
   sendToChat,
   toggleLabel,
+  updateBranch,
 } from "./shared/board";
 import { displaySettings, promptSettings } from "./shared/settings";
 
@@ -46,6 +48,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(saveLaunchDefaults, saveLaunchDefaultsHandler);
   server.handle(listLabels, listLabelsHandler);
   server.handle(toggleLabel, toggleLabelHandler);
+  server.handle(updateBranch, updateBranchHandler);
 
   // Storage lives on the host; registering the definitions is what makes the
   // client's `useSettings` reads and writes valid for this installation.
