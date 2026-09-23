@@ -7,6 +7,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-github-board` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [0.9.0] — 2026-09-22
+
+### Added
+
+- **See which pull requests have fallen behind, and bring them up to date.** A draft or open pull
+  request whose base branch has moved on without it now shows an **Out of date** pill, on the card
+  and in the panel that opens when you click it, and the panel says how many commits behind it is.
+  Where GitHub would let you, both also offer an **Update branch** button — on a card it appears
+  when you hover, next to Send to chat — which does exactly what GitHub's own button does: it
+  merges the latest from the base branch into the pull request's branch, without rewriting any of
+  its history. A pull request with conflicts, one you cannot push to, or one in a repository that
+  does not have **Always suggest updating pull request branches** turned on shows the pill without
+  the button, the same as it would on GitHub.
+
 ## [0.8.0] — 2026-09-22
 
 ### Added
