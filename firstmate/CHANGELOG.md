@@ -21,6 +21,9 @@ read before you move.
 - **`/fm`, `/bearings` and `/ahoy`** in any composer: talk to the first mate from anywhere, get a
   four-part catch-up on where everything stands, or a recap of what happened with every open decision.
 - **A FirstMate tab** beside a worker's workspace and session, showing its card.
+- **Answer the first mate's questions in the panel.** When it asks you to choose, or needs your
+  permission or a plan approved, the question appears in the chat and you answer it there, without
+  opening the first mate itself.
 - **Opening the panel marks the first mate as seen**, so its workspace in the sidebar reads as done
   rather than waiting for you, just as if you had opened the first mate itself.
 - **Standing orders you write yourself**, in the first mate's home, which it reads every session and

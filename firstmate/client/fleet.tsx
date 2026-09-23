@@ -268,14 +268,21 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       />,
     );
   }
-  if (mate !== null && mate.pendingPermissions > 0) {
+  // The question itself is in the chat; the banner is for when the chat is
+  // out of sight — folded away, or behind the Crew tab on a phone.
+  const chatHidden = compact ? tab !== "chat" : values.chatCollapsed;
+  if (mate !== null && mate.pendingPermissions > 0 && chatHidden) {
     banners.push(
       <Banner
         key="permission"
         theme={theme}
         tone="warning"
-        text="The first mate is waiting on your permission."
-        {...(openMate === null ? {} : { action: { label: "Open", icon: "ExternalLink", onPress: openMate } })}
+        text="The first mate is waiting for your answer."
+        action={{
+          label: "Show",
+          icon: "MessageSquare",
+          onPress: () => (compact ? setTab("chat") : save({ chatCollapsed: false })),
+        }}
       />,
     );
   }

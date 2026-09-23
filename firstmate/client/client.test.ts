@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isSendKey } from "./keys";
+import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
 import { moveColumn, orderedColumns, relativeTime, shortPath } from "./format";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
@@ -90,5 +91,56 @@ describe("isSendKey", () => {
     expect(isSendKey({ key: "a" })).toBe(false);
     expect(isSendKey({ key: "Enter", isComposing: true })).toBe(false);
     expect(isSendKey({ key: "Enter", keyCode: 229 })).toBe(false);
+  });
+});
+
+describe("questions", () => {
+  // The shape the daemon hands over for Claude's AskUserQuestion, allowOther added by the daemon.
+  const input = {
+    questions: [
+      {
+        header: "Agents",
+        question: "Which models should run the review/fix loop?",
+        multiSelect: false,
+        allowOther: true,
+        options: [
+          { label: "Codex reviews, Claude fixes (Recommended)", description: "Cross-family review." },
+          { label: "Claude reviews, Codex fixes" },
+        ],
+      },
+      { header: "Reviews", question: "How many rounds?", multiSelect: true, options: [{ label: "One" }, { label: "Three" }] },
+    ],
+  };
+
+  it("reads the form and keeps what the daemon added", () => {
+    const questions = parseQuestions(input);
+    expect(questions?.map((question) => [question.header, question.allowOther, question.multiSelect, question.options.length])).toEqual([
+      ["Agents", true, false, 2],
+      ["Reviews", false, true, 2],
+    ]);
+    expect(parseQuestions({ command: "ls" })).toBeNull();
+    expect(parseQuestions({ questions: [{ header: "x" }] })).toBeNull();
+  });
+
+  it("answers by header, a typed answer winning over a choice and choices joined", () => {
+    const questions = parseQuestions(input) ?? [];
+    const selections = { 0: new Set([0]), 1: new Set([0, 1]) };
+    expect(allAnswered(questions, selections, {})).toBe(true);
+    expect(buildAnswers(questions, selections, {})).toEqual({
+      Agents: "Codex reviews, Claude fixes (Recommended)",
+      Reviews: "One, Three",
+    });
+    expect(buildAnswers(questions, selections, { 0: "  Fable reviews, Opus fixes " })).toMatchObject({
+      Agents: "Fable reviews, Opus fixes",
+    });
+    expect(allAnswered(questions, { 0: new Set([1]) }, {})).toBe(false);
+  });
+
+  it("toggles one choice or many, and dismisses an all-optional form by submitting it", () => {
+    expect([...toggleOption(new Set([0]), 1, false)]).toEqual([1]);
+    expect([...toggleOption(new Set([1]), 1, false)]).toEqual([]);
+    expect([...toggleOption(new Set([0]), 1, true)].sort()).toEqual([0, 1]);
+    expect(dismissSubmitsEmpty(parseQuestions(input) ?? [])).toBe(false);
+    expect(dismissSubmitsEmpty([{ question: "Notes?", header: "Notes", options: [], multiSelect: false, allowOther: false, allowEmpty: true }])).toBe(true);
   });
 });

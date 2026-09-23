@@ -1,7 +1,7 @@
 import { usePaseo } from "@getpaseo/plugin/client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { TimelineEntry } from "./transcript-rows";
+import type { TimelinePage, TimelineEntry } from "./transcript-rows";
 
 /** Wait for a pause in the stream before re-reading, so one burst is one read. */
 const QUIET_MS = 300;
@@ -10,6 +10,12 @@ const CEILING_MS = 1500;
 
 export interface AgentTimeline {
   entries: TimelineEntry[];
+  /**
+   * The agent as of the last read. Every timeline page carries it, and a
+   * permission request arrives as a stream event like any other, so this is
+   * how a question the agent just asked reaches the pane without a poll.
+   */
+  agent: TimelinePage["agent"];
   error: string | null;
   loading: boolean;
 }
@@ -23,15 +29,19 @@ export interface AgentTimeline {
  * during it coalesce into a single follow-up, and the ceiling keeps a turn
  * that streams without pause from freezing the pane.
  */
-export function useAgentTimeline(agentId: string | null, limit = 150): AgentTimeline {
+export function useAgentTimeline(agentId: string | null, revision = "", limit = 150): AgentTimeline {
   const paseo = usePaseo();
+  /** The current subscription's re-read, for the revision effect below. */
+  const reread = useRef<() => void>(() => {});
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
+  const [agent, setAgent] = useState<TimelinePage["agent"]>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (agentId === null) {
       setEntries([]);
+      setAgent(null);
       setError(null);
       setLoading(false);
       return;
@@ -63,6 +73,7 @@ export function useAgentTimeline(agentId: string | null, limit = 150): AgentTime
         const page = await timeline.refetch({ direction: "tail", limit, projection: "projected" });
         if (!alive) return;
         setEntries(page.entries);
+        if (page.agent !== null) setAgent(page.agent);
         setError(page.error ?? null);
       } catch (cause) {
         if (alive) setError(cause instanceof Error ? cause.message : String(cause));
@@ -89,6 +100,7 @@ export function useAgentTimeline(agentId: string | null, limit = 150): AgentTime
       if (ceiling === undefined) ceiling = setTimeout(refresh, CEILING_MS);
     }
 
+    reread.current = schedule;
     void load();
     const unsubscribe = timeline.subscribe(schedule);
     return () => {
@@ -98,5 +110,15 @@ export function useAgentTimeline(agentId: string | null, limit = 150): AgentTime
     };
   }, [paseo, agentId, limit]);
 
-  return { entries, error, loading };
+  /**
+   * A second way in, for whatever the stream did not say: the caller passes
+   * something that changes when the agent does (the board's poll of it), and
+   * a change is a re-read. A question the agent asked in the instant between
+   * a read and its own tool call's last event is still seen within a poll.
+   */
+  useEffect(() => {
+    if (revision !== "") reread.current();
+  }, [revision]);
+
+  return { entries, agent, error, loading };
 }

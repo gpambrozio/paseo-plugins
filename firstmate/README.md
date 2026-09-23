@@ -56,6 +56,8 @@ To hack on it, clone the repository and run `paseo plugin install "$PWD"` from t
 
 - The chat in the panel — Enter sends and Shift+Enter starts a new line, as in Paseo — or open the
   first mate in Paseo for the whole session, every tool call and its output.
+- **Questions it asks you** — which option, whether to go ahead, a plan to approve — appear in the
+  chat as a form you answer there, the same as in the first mate's own tab.
 - **`/fm <message>`** in any composer sends the message to the first mate, from wherever you are.
 - **`/bearings`** — where everything stands, in four sections: what needs your call, what landed,
   what is under way, and what is next. `/bearings file` also writes it to a dated report in the first

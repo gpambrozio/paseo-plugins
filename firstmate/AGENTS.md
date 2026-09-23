@@ -32,6 +32,8 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
 | `client/fleet.tsx`            | The surface: header, banners, chat/board split, compact tabs, the shared fleet query.      |
 | `client/chat.tsx`             | The first mate's conversation, folded to the words, and the composer.                      |
+| `client/permission-card.tsx`  | What the first mate is waiting on — a question, a permission, a plan — answered in the chat. |
+| `client/questions.ts`         | The question form's rules, ported from Paseo's own card. Pure.                             |
 | `client/keyboard.ts`          | How far the on-screen keyboard covers a view, measured in window coordinates.              |
 | `client/keys.ts`              | Enter sends, Shift+Enter is a new line — web and wide layouts only, as in Paseo. Pure.     |
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
@@ -160,6 +162,29 @@ skipped, and `(since …)` is accepted without the colon because that is how the
 The handle has no cancel. `server/cli.ts` runs `paseo stop <id> --home $PASEO_HOME`, preferring
 `PASEO_CLI` — the daemon hands its plugins the path of the CLI it shipped with (seen on 0.9.1) — and
 falling back to `PATH` and the usual install directories.
+
+## Questions and permissions are answered in the chat
+
+When the first mate asks the captain something (Claude's `AskUserQuestion`) or needs a permission, it
+stops on a pending permission request. The chat draws each one at the end of the conversation and
+answers it with `respondToPermission` from the client — the same call and payload the agent's own tab
+sends, so nothing server-side is involved:
+
+- **A question** (`kind: "question"`) is a form: one tab per question, options as radio buttons or
+  checkboxes, a free-text box where the daemon added `allowOther`, and Dismiss / Next / Submit.
+  `client/questions.ts` is a port of Paseo's `question-form-card-core.ts`, and the payload must stay
+  identical to it: `allow` with `{ ...request.input, answers }` keyed by each question's **header**
+  (the daemon re-keys them by question text for Claude), or `deny` with "Dismissed by user".
+- **Anything else** is a card with the request's own `actions` as buttons, or Allow and Deny.
+
+The request reaches the chat through the timeline: every timeline page carries the agent's snapshot,
+pending requests included, and the request is itself a stream event, so it shows up with the next
+re-read. The board's poll of the first mate (`updatedAt` and the pending count) is a second trigger for
+a re-read, for a request the stream did not announce. The "waiting for your answer" banner now shows
+only when the chat is out of sight — folded, or behind the Crew tab — with a button that brings it back.
+
+Checked on a throwaway 0.9.1 daemon: a Claude agent's AskUserQuestion arrived in the timeline page's
+snapshot with `allowOther` set, and answering it with `buildAnswers` got "I picked Blue." back.
 
 ## Opening the panel marks the first mate seen
 

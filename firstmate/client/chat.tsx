@@ -4,7 +4,7 @@
  * one press away in Paseo itself, which is what the Open button is for.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
+import { openExternalUrl, usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -22,6 +22,7 @@ import { askMate, type AgentSummary } from "../shared/fleet";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
+import { PermissionCard, type PermissionResponse } from "./permission-card";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
 import { IconButton, errorText } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
@@ -78,9 +79,17 @@ export function MateChat({
 }) {
   const ask = useRpc(askMate);
   const toast = useToast();
-  const timeline = useAgentTimeline(mate.id);
+  const timeline = useAgentTimeline(mate.id, `${mate.updatedAt}:${mate.pendingPermissions}`);
   const rows = useMemo(() => transcriptRows(timeline.entries), [timeline.entries]);
   const groups = useMemo(() => groupRows(rows), [rows]);
+  const paseo = usePaseo();
+  /**
+   * What the first mate is waiting on — a question, a permission, a plan.
+   * Answered ones are hidden at once rather than when the next read confirms
+   * it, so a card cannot be answered twice.
+   */
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
+  const pending = (timeline.agent?.pendingPermissions ?? []).filter((request) => !answered.has(request.id));
 
   const [draft, setDraftState] = useState(cachedDraft);
   const [sending, setSending] = useState(false);
@@ -168,6 +177,19 @@ export function MateChat({
       .finally(() => setSending(false));
   }
 
+  /** Answers one request as the agent's own tab would; a failure is reported and the card comes back. */
+  function respond(requestId: string, response: PermissionResponse): Promise<void> {
+    pinnedToEnd.current = true;
+    return paseo.agents
+      .ref(mate.id)
+      .respondToPermission({ requestId, response })
+      .then(() => setAnswered((current) => new Set([...current, requestId])))
+      .catch((caught: unknown) => {
+        toast.error(errorText(caught));
+        throw caught;
+      });
+  }
+
   function openLink(url: string): void {
     void openExternalUrl(url).catch((caught: unknown) => toast.error(errorText(caught)));
   }
@@ -253,11 +275,21 @@ export function MateChat({
         }}
       >
         {timeline.error === null ? null : <Text style={styles.error}>{timeline.error}</Text>}
-        {groups.length === 0 ? (
+        {groups.length === 0 && pending.length === 0 ? (
           <Text style={styles.hint}>{timeline.loading ? "Loading the conversation…" : "Nothing said yet. Ask below."}</Text>
         ) : (
           groups.map(renderGroup)
         )}
+        {pending.map((request) => (
+          <PermissionCard
+            key={request.id}
+            request={request}
+            theme={theme}
+            compact={compact}
+            onRespond={(response) => respond(request.id, response)}
+            onOpenLink={openLink}
+          />
+        ))}
       </ScrollView>
       {/*
         The host pads a surface's top, under its header, but not its bottom, so
