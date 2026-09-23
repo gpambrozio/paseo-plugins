@@ -43,7 +43,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
 | `client/activity-rows.ts`     | Timeline entries → Watch rows, machinery kept: reasoning, tool detail, the latest plan. Pure. |
 | `client/mate-controls.tsx`    | The context meter, Compact and Restart (with its confirmation), at the end of the chat's buttons. |
-| `client/context-meter.tsx`    | How full the first mate's context is: a bar, the share, the tokens — Paseo's thresholds.    |
+| `client/context-meter.tsx`    | How full the first mate's context is: Paseo's ring, built from views, the share, the tokens. |
 | `client/follow-end.ts`        | A streaming transcript that follows its end, brings a new request into view, jumps back.   |
 | `client/launch.tsx`           | What shows before there is a first mate: launch one, or adopt a running agent.             |
 | `client/panels.tsx`           | The workspace and agent panels: the crewmate's card beside its own tab.                    |
@@ -261,21 +261,30 @@ Errors from any RPC reach the app wrapped as `Request failed: … requestType=�
 The chat's button row ends with how full the first mate's context window is, the way Paseo's composer
 shows it: `lastUsage.contextWindowUsedTokens` over `contextWindowMaxTokens`, read from the agent snapshot
 every timeline page carries (so it moves with the stream, and the board's poll re-reads it too), coloured
-at Paseo's thresholds — a warning from 70%, danger past 90%. Paseo draws an SVG ring; `react-native-svg`
-is not a module a plugin may import, so this is a bar. No usage yet — before the first turn ends — draws
-nothing, as Paseo's does.
+at Paseo's thresholds — a warning from 70%, danger past 90%. Paseo draws its ring in SVG, and
+`react-native-svg` is not a module a plugin may import, so `ProgressRing` builds the same ring from views:
+each half of the circle is an `overflow: hidden` clip holding a ring whose border is coloured on two
+adjacent sides only — a rounded border splits its sides at the diagonals, so that is exactly half a ring —
+rotated so the coloured half slides into view clockwise from the top. At 0% the fill is not drawn at all,
+since its edge showed as a hairline on the seam. Rendered through react-native-web in Chromium at 0–100%
+and at 14 points to check the angles; iOS and Android draw per-side border colours on a rounded view the
+same way, but have not been looked at. No usage yet — before the first turn ends — draws nothing, as
+Paseo's does.
 
 - **Compact** (`firstmate.mate.compact`) sends `/compact`, the command Paseo's own composer sends; Claude
   Code (a root-only command there, and the first mate is a root agent), Codex and OpenCode each compact on
-  it. It is a plain send and refused while a turn runs: a slash command must be a turn of its own, where a
-  send would interrupt the running turn and a steer would bury the command inside it. The compaction's
+  it. It is a plain send and refused while a turn runs — the button is disabled then, and the daemon
+  refuses too: a slash command must be a turn of its own, where a send would interrupt the running turn
+  and a steer would bury the command inside it. The compaction's
   two timeline entries — started, finished — fold into one line (`pushCompaction`).
 - **Restart** (`firstmate.mate.restart`) archives the first mate and launches a new one in the home with
   the live agent's model, mode and thinking — not the config's, since they can be changed in its tab and
   an adopted first mate has none there — and `RESTART_PROMPT`, which tells it it is taking over. Archived
   *first*, under the same lock as a launch, so two first mates never hold the helm at once; a launch that
-  then fails leaves none, and says so. Archiving stops its turn and retires its heartbeat, because Paseo
-  completes a schedule whose agent is archived; the conversation stays readable in Paseo's history.
+  then fails leaves none, and says so. Archiving retires its heartbeat, because Paseo completes a schedule
+  whose agent is archived; the conversation stays readable in Paseo's history. Refused mid-turn, like
+  Compact, button and daemon both: a turn cut off halfway through a dispatch can leave a crewmate the
+  records never heard of.
 
 What a restart costs: **crewmates the old first mate started no longer wake anyone.** Paseo's finish
 notification goes to the agent that created or prompted the crewmate and is dropped when that agent is

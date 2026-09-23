@@ -30,7 +30,7 @@ export function MateControls({
   compact: boolean;
   usedTokens: number | null | undefined;
   maxTokens: number | null | undefined;
-  /** A turn is in flight, so a compact would have to wait; Paseo refuses it too. */
+  /** A turn is in flight: neither a compact nor a restart may cut into it, and the daemon refuses both. */
   running: boolean;
   /** Called once the change is made, so the board picks up the new state at once. */
   onChanged: () => void;
@@ -79,7 +79,7 @@ export function MateControls({
         label="Restart"
         showLabel={!compact}
         theme={theme}
-        disabled={busy}
+        disabled={busy || running}
         onPress={() => setConfirming(true)}
       />
       <Modal title="Restart the first mate?" open={confirming} onOpenChange={setConfirming}>
@@ -101,7 +101,7 @@ export function MateControls({
               showLabel
               tone="danger"
               theme={theme}
-              disabled={busy}
+              disabled={busy || running}
               onPress={() => {
                 setConfirming(false);
                 run(() => restartNow({}), "The first mate is starting afresh.");

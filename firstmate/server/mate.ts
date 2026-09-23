@@ -89,11 +89,18 @@ export async function launchMate(
   });
 }
 
+const MID_TURN = "The first mate is in the middle of a turn.";
+
+function isMidTurn(agent: { status: string }): boolean {
+  return agent.status === "running" || agent.status === "initializing";
+}
+
 /**
  * Archives the first mate and launches a new one set up the same way, from
  * the live agent rather than the config: its model, mode or thinking may have
  * been changed in its own tab since launch, and an adopted one has nothing in
- * the config at all.
+ * the config at all. Refused mid-turn, as Compact is: a turn cut off halfway
+ * through a dispatch can leave a crewmate the records never heard of.
  *
  * The old one is archived before the new one starts, so two first mates never
  * hold the helm at once. Archiving stops its turn and ends its heartbeat —
@@ -106,6 +113,7 @@ export async function restartMate(paseo: PaseoApi): Promise<{ agentId: string; w
     const config = await readFirstmateConfig();
     const { agent } = await resolveMate(paseo, config);
     if (agent === null) throw new Error(NO_MATE);
+    if (isMidTurn(agent)) throw new Error(`${MID_TURN} Restart it once it is idle.`);
     const setup: MateSetup = {
       provider: agent.model === null ? agent.provider : `${agent.provider}/${agent.model}`,
       modeId: agent.currentModeId ?? "",
@@ -193,9 +201,7 @@ export async function requireMate(paseo: PaseoApi): Promise<string> {
 export async function compactMate(paseo: PaseoApi): Promise<string> {
   const { agent } = await resolveMate(paseo, await readFirstmateConfig());
   if (agent === null) throw new Error(NO_MATE);
-  if (agent.status === "running" || agent.status === "initializing") {
-    throw new Error("The first mate is in the middle of a turn. Compact it once it is idle.");
-  }
+  if (isMidTurn(agent)) throw new Error(`${MID_TURN} Compact it once it is idle.`);
   await paseo.agents.ref(agent.id).send("/compact");
   return agent.id;
 }

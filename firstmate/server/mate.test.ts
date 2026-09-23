@@ -88,7 +88,7 @@ const oldMate: Snapshot = {
 describe("restartMate", () => {
   it("archives the old first mate before starting one set up the same way", async () => {
     await updateFirstmateConfig({ mateAgentId: "old-mate", mateProvider: "claude/claude-sonnet-5", mateModeId: "" });
-    const { paseo, calls, created } = fakePaseo({ "old-mate": { ...oldMate } });
+    const { paseo, calls, created } = fakePaseo({ "old-mate": { ...oldMate, status: "idle" } });
 
     await expect(restartMate(paseo)).resolves.toEqual({ agentId: "new-mate", workspaceId: "wks_home" });
 
@@ -105,6 +105,14 @@ describe("restartMate", () => {
       mateProvider: "claude/claude-opus-5-5",
       mateModeId: "bypassPermissions",
     });
+  });
+
+  it("refuses a first mate in the middle of a turn, and touches nothing", async () => {
+    await updateFirstmateConfig({ mateAgentId: "old-mate" });
+    const { paseo, calls } = fakePaseo({ "old-mate": { ...oldMate, status: "running" } });
+    await expect(restartMate(paseo)).rejects.toThrow("in the middle of a turn");
+    expect(calls).toEqual([]);
+    expect((await readFirstmateConfig()).mateAgentId).toBe("old-mate");
   });
 
   it("says so when there is no first mate to restart", async () => {

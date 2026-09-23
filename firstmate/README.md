@@ -58,11 +58,11 @@ To hack on it, clone the repository and run `paseo plugin install "$PWD"` from t
   first mate in Paseo for the whole session, every tool call and its output. The chat follows new
   messages while you are at the bottom; scroll up to read, and the round button at the bottom brings
   you back.
-- **How full its memory is** — the bar at the end of the chat's buttons shows how much of the first
+- **How full its memory is** — the ring at the end of the chat's buttons shows how much of the first
   mate's context window is used, the way Paseo's own chat does: amber from 70%, red past 90%.
-  **Compact** has it summarise its conversation to free room, as `/compact` does in Paseo; it waits
-  until the first mate is between turns. **Restart** starts a new first mate from scratch, with the
-  same model and settings, after asking you: its records carry over, the old conversation stays in
+  **Compact** has it summarise its conversation to free room, as `/compact` does in Paseo. **Restart**
+  starts a new first mate from scratch, with the same model and settings, after asking you. Both wait
+  until the first mate is between turns. On a restart its records carry over, the old conversation stays in
   Paseo's history, and workers already running keep going — the new first mate checks on them
   regularly, since Paseo tells only the agent that started a worker when it finishes.
 - **Questions it asks you** — which option, whether to go ahead, a plan to approve — appear in the
