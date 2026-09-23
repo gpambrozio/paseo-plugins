@@ -11,6 +11,7 @@ import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./confi
 import { fetchLiveAgent, listAgents, resolveMate, summarizeAgent } from "./fleet";
 import { prepareHome } from "./home";
 import type { PaseoApi } from "./host-types";
+import { sendSessionRequest } from "./daemon-session";
 import { sendWithoutInterrupting } from "./send";
 
 export const MATE_TITLE = "First mate";
@@ -119,4 +120,19 @@ export async function askMate(paseo: PaseoApi, text: string): Promise<string> {
   const agentId = await requireMate(paseo);
   await sendWithoutInterrupting(paseo, agentId, text);
   return agentId;
+}
+
+/**
+ * Clears the first mate's attention flag while the captain has the FirstMate
+ * panel open, as looking at the agent in Paseo would. The SDK has no call for
+ * it, so it goes over the plugin's own channel (`daemon-session.ts`). Skipped
+ * for a first mate waiting on a permission, as Paseo's own "mark as read"
+ * skips one: the flag is the only prompt to answer it.
+ */
+export async function markMateSeen(paseo: PaseoApi): Promise<{ cleared: boolean }> {
+  const { agent } = await resolveMate(paseo, await readFirstmateConfig());
+  if (agent === null || agent.requiresAttention !== true) return { cleared: false };
+  if (agent.pendingPermissions.length > 0 || agent.attentionReason === "permission") return { cleared: false };
+  await sendSessionRequest({ type: "clear_agent_attention", agentId: agent.id }, "clear_agent_attention_response");
+  return { cleared: true };
 }

@@ -17,7 +17,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
-import { enableAgentTools, loadFleet, type ColumnId, type Fleet } from "../shared/fleet";
+import { enableAgentTools, loadFleet, markMateSeen, type ColumnId, type Fleet } from "../shared/fleet";
 import { displaySettings, type DisplaySettings } from "../shared/settings";
 import { Board } from "./board";
 import { MateChat } from "./chat";
@@ -189,6 +189,29 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   }, [theme, compact]);
 
   const mate = data?.mate ?? null;
+
+  /**
+   * While this surface is open the captain is looking at the first mate, so
+   * its "finished" flag is cleared the way opening it in Paseo would clear it,
+   * and its workspace reads as done in the sidebar. Keyed by `updatedAt`, so a
+   * turn that ends while the panel is open is cleared too, and a clear that
+   * failed is not retried until something changes. A pending permission is
+   * left flagged; the server checks that again.
+   */
+  const markSeen = useRpc(markMateSeen);
+  const unseen =
+    mate !== null && mate.requiresAttention && mate.pendingPermissions === 0 ? `${mate.id}:${mate.updatedAt}` : null;
+  useEffect(() => {
+    if (unseen === null) return;
+    markSeen({})
+      .then((result) => {
+        if (result.cleared) refresh();
+      })
+      .catch((caught: unknown) => {
+        console.warn("[firstmate] could not mark the first mate as seen:", caught);
+      });
+  }, [unseen, markSeen, refresh]);
+
   const openMate =
     mate === null || navigation === undefined ? null : () => navigation.openAgent({ agentId: mate.id });
 

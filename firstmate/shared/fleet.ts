@@ -230,6 +230,18 @@ export const listCandidates = defineRpc({
   output: z.object({ home: z.string(), agents: z.array(AgentSummarySchema) }),
 });
 
+/**
+ * Marks the first mate as seen, the way looking at it in Paseo does: its
+ * "finished" or "error" flag is cleared, so its workspace reads as done in
+ * the sidebar. A first mate waiting on a permission keeps its flag — that is
+ * the captain's prompt to answer it.
+ */
+export const markMateSeen = defineRpc({
+  name: "firstmate.mate.seen",
+  input: z.object({}),
+  output: z.object({ cleared: z.boolean() }),
+});
+
 /** Delivers the captain's words to the first mate. */
 export const askMate = defineRpc({
   name: "firstmate.mate.ask",

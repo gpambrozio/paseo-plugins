@@ -79,6 +79,10 @@ Each card is a worker, a backlog item, or both. Press one for its actions:
 Columns fold to a strip and move with the arrows in their headers, and the split between chat and board
 drags. The layout is remembered.
 
+Opening the panel counts as looking at the first mate: when it has finished a turn, its workspace in
+Paseo's sidebar turns to done, as it would if you had opened the first mate itself. One waiting on
+your permission stays flagged until you answer.
+
 A worker's workspace and session also get a **FirstMate** tab showing its card, with a box for telling
 the first mate something about it.
 

@@ -27,6 +27,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
 | `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
 | `server/cli.ts`               | `paseo stop`, for the interrupt the SDK does not have.                                     |
+| `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing the first mate's attention.    |
 | `server/config.ts`            | `$PASEO_HOME/plugins/firstmate/config.json`, read on every call.                           |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
 | `client/fleet.tsx`            | The surface: header, banners, chat/board split, compact tabs, the shared fleet query.      |
@@ -158,6 +159,22 @@ skipped, and `(since …)` is accepted without the colon because that is how the
 The handle has no cancel. `server/cli.ts` runs `paseo stop <id> --home $PASEO_HOME`, preferring
 `PASEO_CLI` — the daemon hands its plugins the path of the CLI it shipped with (seen on 0.9.1) — and
 falling back to `PATH` and the usual install directories.
+
+## Opening the panel marks the first mate seen
+
+While the surface is mounted, a first mate flagged "finished" or "error" is cleared the way opening
+it in Paseo clears it, so its workspace reads as done in the sidebar (`deriveAgentStateBucket`: an
+idle agent without `requiresAttention` is `done`). The effect is keyed by the agent's `updatedAt`, so
+a turn that ends while the panel is open is cleared too, and a failed clear is not retried until
+something changes. A first mate waiting on a permission keeps its flag — Paseo's own "mark as read"
+(`workspace.clear_attention`) skips those too, because the flag is the prompt to answer it.
+
+The SDK has no call for it, so `server/daemon-session.ts` writes a `clear_agent_attention` session
+message on the plugin's own IPC channel — the frame envelope the plugin's `DaemonClient` already
+uses — and waits for the response carrying its own `requestId`. That is the protocol, not an
+interface: a daemon that changes the message answers with a timeout, which is logged and costs
+nothing. Only complete, valid session messages go this way; a malformed frame is a protocol
+violation, and the daemon closes the socket every other call from the plugin rides on.
 
 ## What was left out
 
