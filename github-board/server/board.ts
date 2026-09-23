@@ -8,6 +8,7 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type {
   BoardColumn,
   BoardItem,
+  BranchStatus,
   CheckSummary,
   ItemComment,
   ItemDetails,
@@ -29,6 +30,7 @@ import type {
   sendToChat,
   takeLegacySettings,
   toggleLabel,
+  updateBranch,
 } from "../shared/board";
 import { isGitHubImageHost } from "../shared/image-host";
 import { repositoryIdFor, workspaceTitle } from "../shared/launch";
@@ -319,6 +321,8 @@ function toItem(node: GhSearchNode, detail: string | null): BoardItem {
     linkedIssues: [],
     // Filled for open pull requests only, by fetchChecks; see attachChecks.
     checks: null,
+    // Filled for draft and open pull requests, by fetchBranchStatuses.
+    branch: null,
   };
 }
 
@@ -456,6 +460,8 @@ async function fetchIssues(login: string, limit: number): Promise<BoardItem[]> {
  * to the issues it closes, and the only source that sees both closing keywords
  * in the body and issues attached by hand from the Development panel. The board
  * needs it to fold an issue into the pull request that closes it.
+ *
+ * `headRefOid` is what `fetchBranchStatuses` compares against the base.
  */
 const PULL_REQUEST_SELECTION = `... on PullRequest {
   id
@@ -464,6 +470,7 @@ const PULL_REQUEST_SELECTION = `... on PullRequest {
   url
   updatedAt
   isDraft
+  headRefOid
   author { login }
   comments { totalCount }
   labels(first: 20) { nodes { name } }
@@ -481,6 +488,7 @@ const PULL_REQUEST_QUERY = multiSearchQuery("ISSUE", PULL_REQUEST_SELECTION, [
 
 interface GhPullRequestNode extends GhSearchNode {
   isDraft?: unknown;
+  headRefOid?: unknown;
   closingIssuesReferences?: { nodes?: unknown };
 }
 
@@ -725,6 +733,140 @@ async function attachChecks(items: readonly BoardItem[]): Promise<BoardItem[]> {
   return items.map((item) => ({ ...item, checks: summaries.get(item.id) ?? null }));
 }
 
+/** A pull request to compare, and the head commit the search saw it at. */
+interface BranchHead {
+  id: string;
+  headOid: string;
+}
+
+/**
+ * One alias per pull request, because `compare` takes the head as an argument
+ * and GraphQL cannot feed one field's answer into another's argument — so the
+ * head commit has to come from the search first, and this is a second request.
+ *
+ * The comparison runs from the *base* ref, in the base repository, against the
+ * head commit's SHA rather than the head branch's name: a pull request from a
+ * fork has no such branch in the base repository, but GitHub keeps every pull
+ * request's head commit there (`refs/pull/<n>/head`), so the SHA resolves for a
+ * fork and a same-repository branch alike.
+ *
+ * Exported for the tests, which pin the aliases to the variables.
+ */
+export function branchStatusQuery(count: number): string {
+  const indexes = Array.from({ length: count }, (_, index) => index);
+  const variables = indexes.map((index) => `$id${index}: ID!, $head${index}: String!`).join(", ");
+  const selections = indexes
+    .map(
+      (index) =>
+        `  pr${index}: node(id: $id${index}) { ... on PullRequest { mergeable viewerCanUpdateBranch baseRef { compare(headRef: $head${index}) { behindBy } } } }`,
+    )
+    .join("\n");
+  return `query(${variables}) {\n${selections}\n}`;
+}
+
+/**
+ * One alias's answer, or null when GitHub had no comparison to give — a base
+ * branch deleted from under an open pull request leaves `baseRef` null.
+ *
+ * `canUpdate` is GitHub's own flag narrowed twice. By conflicts, because the
+ * flag does not account for them: getpaseo/paseo#3339 answered
+ * `viewerCanUpdateBranch: true` with `mergeable: CONFLICTING`, and the update
+ * GitHub offered there fails. And by `behindBy > 0`, which the flag already
+ * implies, so that the button can never appear without the pill.
+ *
+ * `mergeable` is `UNKNOWN` until GitHub has computed it, which asking starts;
+ * that reads as no conflicts, and the check in `updateBranchHandler` is what
+ * stops a press on a branch whose conflicts were not known yet.
+ */
+export function toBranchStatus(node: unknown): BranchStatus | null {
+  const record = node as
+    | {
+        mergeable?: unknown;
+        viewerCanUpdateBranch?: unknown;
+        baseRef?: { compare?: { behindBy?: unknown } | null } | null;
+      }
+    | null
+    | undefined;
+  const behindBy = record?.baseRef?.compare?.behindBy;
+  if (typeof behindBy !== "number" || behindBy < 0) return null;
+  const conflicts = record?.mergeable === "CONFLICTING";
+  return {
+    behindBy,
+    canUpdate: behindBy > 0 && !conflicts && record?.viewerCanUpdateBranch === true,
+    conflicts,
+  };
+}
+
+/**
+ * Up to date from here on. GitHub accepts the update and makes the merge
+ * commit on its side, so comparing straight afterwards could still see the old
+ * head and put the pill back on a branch that was just updated; a success is
+ * taken at its word instead. A merge conflict fails the mutation itself, which
+ * is what the client then shows.
+ */
+const UPDATED_BRANCH: BranchStatus = { behindBy: 0, canUpdate: false, conflicts: false };
+
+/**
+ * How long a success is taken at its word over a comparison — long enough for
+ * GitHub to have made the merge commit, after which a refresh reads the real
+ * state again.
+ */
+const BRANCH_UPDATE_SETTLE_MS = 2 * 60_000;
+
+/**
+ * When each pull request's branch was last updated from this daemon, by node
+ * id. Patching the cached board is not enough on its own: a refresh already
+ * running when the update lands compared the branch *before* it, and would
+ * replace the patched board with that answer — putting the pill and the button
+ * straight back. So `loadBoardHandler` consults this once every request has
+ * returned, just before it caches the board, which covers that race and a
+ * refresh pressed before GitHub has caught up.
+ */
+const recentBranchUpdates = new Map<string, number>();
+
+function settledBranch(item: BoardItem): BoardItem {
+  const updatedAt = recentBranchUpdates.get(item.id);
+  if (updatedAt === undefined) return item;
+  if (Date.now() - updatedAt < BRANCH_UPDATE_SETTLE_MS) return { ...item, branch: UPDATED_BRANCH };
+  recentBranchUpdates.delete(item.id);
+  return item;
+}
+
+/**
+ * Whether each pull request has fallen behind its base, draft and open alike —
+ * unlike checks, being out of date is worth knowing while the work is still a
+ * draft, because that is when bringing it up to date is cheapest.
+ *
+ * A separate request from the search for the reason above, and treated like
+ * checks when it fails: the pull requests already loaded, so a failure costs the
+ * pills and the buttons and is written to the plugin log. It runs alongside the
+ * checks request rather than after it, so the board waits for the slower of the
+ * two and not their sum.
+ */
+async function fetchBranchStatuses(heads: readonly BranchHead[]): Promise<Map<string, BranchStatus>> {
+  const statuses = new Map<string, BranchStatus>();
+  if (heads.length === 0) return statuses;
+  const args = ["api", "graphql", "-f", `query=${branchStatusQuery(heads.length)}`];
+  heads.forEach((head, index) => {
+    args.push("-f", `id${index}=${head.id}`, "-f", `head${index}=${head.headOid}`);
+  });
+  try {
+    const parsed: unknown = JSON.parse(await gh(args));
+    const data = (parsed as { data?: Record<string, unknown> }).data;
+    heads.forEach((head, index) => {
+      const status = toBranchStatus(data?.[`pr${index}`]);
+      if (status !== null) statuses.set(head.id, status);
+    });
+  } catch (error) {
+    console.warn(
+      `[github-board] pull request branch status unavailable: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  return statuses;
+}
+
 /**
  * One search backs two columns. Splitting client-side would ship draft pull
  * requests the open column discards, so the split happens here — after the
@@ -747,6 +889,7 @@ async function fetchPullRequests(
   );
 
   const drafts = new Set<string>();
+  const headOids = new Map<string, string>();
   const items: BoardItem[] = [];
   for (const node of nodes) {
     if (typeof node !== "object" || node === null) continue;
@@ -755,16 +898,31 @@ async function fetchPullRequests(
     // matched neither inline fragment comes back as an empty object.
     if (typeof row.id !== "string") continue;
     if (row.isDraft === true) drafts.add(row.id);
+    if (typeof row.headRefOid === "string" && row.headRefOid !== "") {
+      headOids.set(row.id, row.headRefOid);
+    }
     items.push({ ...toItem(row, null), linkedIssues: toLinkedIssues(row) });
   }
 
   const merged = mergeItems(items, limit);
+  const heads = merged.flatMap((item) => {
+    const headOid = headOids.get(item.id);
+    return headOid === undefined ? [] : [{ id: item.id, headOid }];
+  });
   // Checks are fetched for the open column alone: a draft says its work is not
   // finished, so its CI is nobody's business yet, and asking for fewer ids
   // keeps the extra request as small as the thing it feeds.
+  const [statuses, open] = await Promise.all([
+    fetchBranchStatuses(heads),
+    attachChecks(merged.filter((item) => !drafts.has(item.id))),
+  ]);
+  const withBranch = (item: BoardItem): BoardItem => ({
+    ...item,
+    branch: statuses.get(item.id) ?? null,
+  });
   return {
-    draft: merged.filter((item) => drafts.has(item.id)),
-    open: await attachChecks(merged.filter((item) => !drafts.has(item.id))),
+    draft: merged.filter((item) => drafts.has(item.id)).map(withBranch),
+    open: open.map(withBranch),
   };
 }
 
@@ -924,10 +1082,22 @@ export async function loadBoardHandler(
     settle("discussions", "Discussions", () => fetchDiscussions(resolved, limit)),
   ]);
 
+  // After every await above, so an update that landed while they ran wins
+  // over what they saw.
   const columns: BoardColumn[] = [
     issues,
-    { id: "draft-prs", title: "Draft PRs", items: prs.split.draft, error: prs.error },
-    { id: "open-prs", title: "Open PRs", items: prs.split.open, error: prs.error },
+    {
+      id: "draft-prs",
+      title: "Draft PRs",
+      items: prs.split.draft.map(settledBranch),
+      error: prs.error,
+    },
+    {
+      id: "open-prs",
+      title: "Open PRs",
+      items: prs.split.open.map(settledBranch),
+      error: prs.error,
+    },
     discussions,
   ];
   const fetchedAt = new Date().toISOString();
@@ -1092,17 +1262,18 @@ function labelNamesOf(result: unknown): string[] {
 }
 
 /**
- * Keeps the cached board honest. Without this a label edited now would be
- * undone on screen by the next cache hit — the board is remembered for five
- * minutes, and a surface remounts on every workspace switch.
+ * Keeps the cached board honest. Without this a label edited or a branch
+ * updated now would be undone on screen by the next cache hit — the board is
+ * remembered for five minutes, and a surface remounts on every workspace
+ * switch.
  */
-function patchCachedLabels(itemId: string, labels: readonly string[]): void {
+function patchCachedItem(itemId: string, patch: Partial<BoardItem>): void {
   if (cachedBoard === null) return;
   cachedBoard = {
     ...cachedBoard,
     columns: cachedBoard.columns.map((column) => ({
       ...column,
-      items: column.items.map((item) => (item.id === itemId ? { ...item, labels: [...labels] } : item)),
+      items: column.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
     })),
   };
 }
@@ -1125,8 +1296,72 @@ export async function toggleLabelHandler({
   const parsed: unknown = JSON.parse(raw);
   const data = (parsed as { data?: Record<string, unknown> }).data;
   const labels = labelNamesOf(add ? data?.addLabelsToLabelable : data?.removeLabelsFromLabelable);
-  patchCachedLabels(itemId, labels);
+  patchCachedItem(itemId, { labels });
   return { labels };
+}
+
+/**
+ * `MERGE` is spelled out although it is the default: it is the choice that
+ * matters, since a rebase would rewrite a branch someone may have checked out.
+ *
+ * No `expectedHeadOid`. It would refuse the update whenever the branch moved
+ * since the board loaded — a push from an agent five minutes ago, say — and
+ * merging the base into the *new* head is still exactly what the button
+ * promised.
+ */
+const UPDATE_BRANCH_MUTATION = `mutation($id: ID!) {
+  updatePullRequestBranch(input: { pullRequestId: $id, updateMethod: MERGE }) {
+    pullRequest { id }
+  }
+}`;
+
+const HEAD_OID_QUERY = `query($id: ID!) {
+  node(id: $id) { ... on PullRequest { headRefOid } }
+}`;
+
+/**
+ * A last look before merging, because the board's answer is not enough to
+ * send an update on. It can be minutes old, and it can predate GitHub knowing
+ * about conflicts at all — `mergeable` is `UNKNOWN` the first time it is asked
+ * — while `viewerCanUpdateBranch` stays true either way. By the time someone
+ * presses the button the board's own load has set GitHub computing, so this
+ * look is the one that knows.
+ *
+ * Two requests, because `compare` needs the head and a query cannot feed one
+ * field's answer into another's argument; a press is rare enough for that.
+ * Null when the look fails, and the mutation is then left to answer for itself.
+ */
+async function currentBranchStatus(id: string): Promise<BranchStatus | null> {
+  let headOid: unknown;
+  try {
+    const parsed: unknown = JSON.parse(
+      await gh(["api", "graphql", "-f", `query=${HEAD_OID_QUERY}`, "-f", `id=${id}`]),
+    );
+    headOid = (parsed as { data?: { node?: { headRefOid?: unknown } } }).data?.node?.headRefOid;
+  } catch (error) {
+    console.warn(
+      `[github-board] could not check the branch before updating it: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return null;
+  }
+  if (typeof headOid !== "string" || headOid === "") return null;
+  return (await fetchBranchStatuses([{ id, headOid }])).get(id) ?? null;
+}
+
+export async function updateBranchHandler({
+  id,
+}: z.output<typeof updateBranch.input>): Promise<z.input<typeof updateBranch.output>> {
+  const current = await currentBranchStatus(id);
+  if (current !== null && !current.canUpdate) {
+    patchCachedItem(id, { branch: current });
+    return { updated: false, branch: current };
+  }
+  await gh(["api", "graphql", "-f", `query=${UPDATE_BRANCH_MUTATION}`, "-f", `id=${id}`]);
+  recentBranchUpdates.set(id, Date.now());
+  patchCachedItem(id, { branch: UPDATED_BRANCH });
+  return { updated: true, branch: UPDATED_BRANCH };
 }
 
 /**

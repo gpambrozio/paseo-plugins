@@ -34,6 +34,28 @@ export const CheckSummarySchema = z.object({
   pending: z.number().int().min(0),
 });
 
+/**
+ * How a pull request's branch stands against the branch it targets — its base,
+ * which is `main` for most pull requests and another feature branch for a
+ * stacked one. "Out of date" is GitHub's own phrase for `behindBy > 0`.
+ */
+export const BranchStatusSchema = z.object({
+  /** Commits on the base the head does not have yet. 0 is up to date. */
+  behindBy: z.number().int().min(0),
+  /**
+   * Behind, free of known conflicts, *and* this login may bring it up to date —
+   * GitHub's own `viewerCanUpdateBranch`, the condition behind its "Update
+   * branch" button, less the conflicts that flag does not rule out.
+   */
+  canUpdate: z.boolean(),
+  /**
+   * The branch and its base change the same lines, so nothing can bring it up
+   * to date automatically: someone has to resolve them. False while GitHub has
+   * not worked it out yet — it computes this lazily, starting when first asked.
+   */
+  conflicts: z.boolean(),
+});
+
 export const BoardItemSchema = z.object({
   id: z.string(),
   number: z.number().int(),
@@ -65,6 +87,13 @@ export const BoardItemSchema = z.object({
    * business — or a head commit nothing has ever reported a check on.
    */
   checks: CheckSummarySchema.nullable(),
+  /**
+   * Draft and open pull requests. Null for an issue or a discussion, and for a
+   * pull request GitHub would not compare — its base branch is gone, or the
+   * request that asks failed, which costs the pill and the button and nothing
+   * else.
+   */
+  branch: BranchStatusSchema.nullable(),
 });
 
 /**
@@ -148,6 +177,7 @@ export type PromptSettings = z.output<typeof PromptSettingsSchema>;
 export type LinkedIssue = z.output<typeof LinkedIssueSchema>;
 export type RepositoryLabel = z.output<typeof RepositoryLabelSchema>;
 export type CheckSummary = z.output<typeof CheckSummarySchema>;
+export type BranchStatus = z.output<typeof BranchStatusSchema>;
 export type BoardItem = z.output<typeof BoardItemSchema>;
 export type BoardColumn = z.output<typeof BoardColumnSchema>;
 export type Board = z.output<typeof BoardSchema>;
@@ -369,6 +399,34 @@ export const toggleLabel = defineRpc({
     add: z.boolean(),
   }),
   output: z.object({ labels: z.array(z.string()) }),
+});
+
+/**
+ * GitHub's "Update branch": merges the pull request's base into its head, on
+ * GitHub, so the branch is no longer out of date. A merge rather than a rebase,
+ * which is GitHub's own default — it rewrites nothing, so a checkout of the
+ * branch somewhere else still pulls cleanly.
+ *
+ * Answers with the branch status the card should show from now on, the way
+ * `board.toggle-label` answers with the labels, so the client and the server's
+ * cached board are patched with the same value.
+ */
+export const updateBranch = defineRpc({
+  name: "board.update-branch",
+  input: z.object({
+    /** The pull request's node id. */
+    id: z.string().min(1),
+  }),
+  output: z.object({
+    /**
+     * False when a last look before merging found nothing the update could do
+     * — conflicts, most likely, or a branch already brought up to date — and
+     * nothing was sent. `branch` is then that look's answer, so the card stops
+     * offering what would have failed.
+     */
+    updated: z.boolean(),
+    branch: BranchStatusSchema,
+  }),
 });
 
 /**

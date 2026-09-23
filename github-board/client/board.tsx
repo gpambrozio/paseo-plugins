@@ -36,6 +36,7 @@ import type {
   Board,
   BoardColumn,
   BoardItem,
+  BranchStatus,
   CheckSummary,
   ColumnId,
   Isolation,
@@ -64,6 +65,7 @@ import {
   takeLegacySettings,
   sendToChat,
   toggleLabel,
+  updateBranch,
 } from "../shared/board";
 import { isGitHubImageHost } from "../shared/image-host";
 import { repositoryIdFor, workspaceTitle } from "../shared/launch";
@@ -145,6 +147,31 @@ function renderTemplate(template: string, item: BoardItem): string {
  */
 let cachedBoard: Board | null = null;
 let cachedFetchedAt = 0;
+/**
+ * The mounted board's own `setBoard`, or null while none is mounted. An edit
+ * outlives the surface that started it — press Update branch, switch workspace
+ * and come back, and the answer arrives after the remount — so `patchBoardItem`
+ * reaches whichever board is on screen *now* instead of the one that asked.
+ */
+let setMountedBoard: ((update: (current: Board | null) => Board | null) => void) | null = null;
+
+/**
+ * Adopts what GitHub reported after an edit — a label toggled, a branch
+ * updated. The cached board is patched alongside the rendered one, or the
+ * next remount — which happens on every workspace switch — would repaint what
+ * the edit replaced.
+ */
+function patchBoardItem(itemId: string, patch: Partial<BoardItem>): void {
+  const apply = (current: Board): Board => ({
+    ...current,
+    columns: current.columns.map((column) => ({
+      ...column,
+      items: column.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
+    })),
+  });
+  if (cachedBoard !== null) cachedBoard = apply(cachedBoard);
+  setMountedBoard?.((current) => (current === null ? current : apply(current)));
+}
 /**
  * Whether the one-way migration out of the daemon's old settings file has been
  * attempted in this app session. Module scope because the surface remounts on
@@ -657,26 +684,47 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
       },
       // Bottom-right and out of flow, so revealing it on hover never reflows the
       // card and never nudges the cards below it. It sits over the footer's
-      // trailing labels, so it is opaque rather than tinted.
-      sendButton: {
+      // trailing labels, so its buttons are opaque rather than tinted.
+      // `box-none` lets the gap between two buttons fall through to the card.
+      cardOverlay: {
         position: "absolute" as const,
         right: 8,
         bottom: 8,
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        pointerEvents: "box-none" as const,
+      },
+      // Hidden, never disabled. It keeps taking pointer events so it can report
+      // its own hover, and a pointer cannot reach it without first crossing the
+      // card and revealing it — so there is no invisible click target.
+      cardOverlayHidden: { opacity: 0 },
+      sendButton: {
         backgroundColor: colors.accent,
         borderRadius: 6,
         paddingHorizontal: 8,
         paddingVertical: 3,
       },
-      // Hidden, never disabled. It keeps taking pointer events so it can report
-      // its own hover, and a pointer cannot reach it without first crossing the
-      // card and revealing it — so there is no invisible click target.
-      sendButtonHidden: { opacity: 0 },
       sendButtonPressed: { opacity: 0.75 },
       sendButtonLabel: {
         color: colors.accentForeground,
         fontSize: 11,
         fontWeight: "600" as const,
       },
+      /**
+       * Secondary to Send, so outlined rather than filled — but still opaque,
+       * for the same reason Send is. The border takes a point of the padding so
+       * the two buttons stand the same height side by side.
+       */
+      updateButton: {
+        backgroundColor: colors.surface0,
+        borderWidth: 1,
+        borderColor: colors.accent,
+        borderRadius: 6,
+        paddingHorizontal: 7,
+        paddingVertical: 2,
+      },
+      updateButtonLabel: { color: colors.accent, fontSize: 11, fontWeight: "600" as const },
       /**
        * Compact takes the action out of the corner and gives it a row. The
        * overlay only ever worked because hover kept it out of the way until it
@@ -686,6 +734,7 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
       cardActions: {
         flexDirection: "row" as const,
         justifyContent: "flex-end" as const,
+        gap: 8,
         borderTopWidth: 1,
         borderTopColor: separator,
         paddingTop: 8,
@@ -704,6 +753,17 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
         fontSize: 13,
         fontWeight: "600" as const,
       },
+      updateButtonInline: {
+        borderWidth: 1,
+        borderColor: colors.accent,
+        borderRadius: 6,
+        minHeight: 34,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+        paddingHorizontal: 14,
+        paddingVertical: 6,
+      },
+      updateButtonInlineLabel: { color: colors.accent, fontSize: 13, fontWeight: "600" as const },
       cardRepo: { color: colors.foregroundMuted, fontSize: layout.compact ? 12 : 11 },
       // Muted like the rest of the footer but weighted, so "someone else's"
       // reads at a glance without competing with the title above it.
@@ -744,6 +804,32 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
         backgroundColor: withAlpha(colors.accent, "1a"),
       },
       /**
+       * A pull request whose base has moved on without it, in the same shape
+       * as the linked-issue pill so the footer reads as one row of pills.
+       * Warning for a branch that is merely behind — nothing is broken, it is
+       * work waiting to be done — and danger for one with conflicts, which no
+       * button can fix and someone has to resolve by hand.
+       */
+      branchPill: {
+        fontSize: layout.compact ? 11 : 10,
+        fontWeight: "600" as const,
+        overflow: "hidden" as const,
+        borderRadius: 8,
+        paddingHorizontal: 6,
+        paddingVertical: layout.compact ? 3 : 1,
+        borderWidth: 1,
+      },
+      branchPillBehind: {
+        color: colors.statusWarning,
+        borderColor: withAlpha(colors.statusWarning, "66"),
+        backgroundColor: withAlpha(colors.statusWarning, "1a"),
+      },
+      branchPillConflicts: {
+        color: colors.statusDanger,
+        borderColor: withAlpha(colors.statusDanger, "66"),
+        backgroundColor: withAlpha(colors.statusDanger, "1a"),
+      },
+      /**
        * One pill per outcome, grouped so they read as a single summary the way
        * Paseo's own checks row does. It leads the footer rather than trailing
        * it: the footer wraps, so anything appended lands on a second line, and
@@ -760,9 +846,10 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
         paddingVertical: layout.compact ? 3 : 1,
       },
       /**
-       * Danger is the only status colour the plugin theme offers, so failure
-       * takes it and the other two are spelled in what is left: accent for work
-       * still running, muted for the checks that are simply done. Glyphs carry
+       * Chosen when danger was the only status colour the plugin theme offered,
+       * so failure takes it and the other two are spelled in what was left:
+       * accent for work still running, muted for the checks that are simply
+       * done. The theme has `statusSuccess` and `statusWarning` now. Glyphs carry
        * the meaning where colour cannot, which is also what makes the summary
        * readable to anyone who does not separate red from grey.
        */
@@ -1213,6 +1300,34 @@ function checksSentence(checks: CheckSummary): string {
 }
 
 /**
+ * The branch status worth a pill, or null for a branch that is up to date.
+ * Conflicts count on their own: a branch with conflicts is behind in practice,
+ * but the pill must not depend on the count to say so.
+ */
+function staleBranch(branch: BranchStatus | null): BranchStatus | null {
+  return branch !== null && (branch.behindBy > 0 || branch.conflicts) ? branch : null;
+}
+
+/**
+ * The count behind the pill, in words. The pill itself says only what state
+ * the branch is in; how far behind is for the accessibility label and the
+ * panel's branch line, where there is room to say it.
+ */
+function behindSentence(branch: BranchStatus): string {
+  const behind = `${branch.behindBy} ${branch.behindBy === 1 ? "commit" : "commits"} behind`;
+  return branch.conflicts ? `${behind}, with conflicts` : behind;
+}
+
+/** "Conflicts" says the branch is behind too; nobody resolves conflicts on a current branch. */
+function BranchPill({ branch, styles }: { branch: BranchStatus; styles: Styles }) {
+  return branch.conflicts ? (
+    <Text style={[styles.branchPill, styles.branchPillConflicts]}>Conflicts</Text>
+  ) : (
+    <Text style={[styles.branchPill, styles.branchPillBehind]}>Out of date</Text>
+  );
+}
+
+/**
  * A pull request's checks, as Paseo's sidebar hover card spells them: a count
  * per outcome rather than one verdict, because "12 passed, 1 failed" is the
  * fact a reader acts on and "failed" alone is not.
@@ -1436,8 +1551,10 @@ function Card({
   platform,
   compact,
   selected,
+  updating,
   onOpen,
   onSend,
+  onUpdateBranch,
   onLabels,
   type,
 }: {
@@ -1459,9 +1576,13 @@ function Card({
   compact: boolean;
   /** True while this card's details are open in the panel. */
   selected: boolean;
+  /** True while this card's "Update branch" is in flight; the board owns it. */
+  updating: boolean;
   /** A press: opens the card in the detail panel, never the browser. */
   onOpen: (item: BoardItem, type: ColumnId) => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
+  /** Drawn only when `item.branch.canUpdate` says GitHub would allow it. */
+  onUpdateBranch: (item: BoardItem) => void;
   /** Null where labels cannot be edited, which takes the gesture away entirely. */
   onLabels: ((item: BoardItem, point: { x: number; y: number }) => void) | null;
   /** Chooses the prompt template; the card is otherwise column-agnostic. */
@@ -1470,19 +1591,39 @@ function Card({
   /** Nothing hovers on a touch platform, and the action would hide forever. */
   const isWeb = platform === "web";
   /**
-   * Two hover states, not one. The action sits inside the card, and moving onto
-   * it takes the pointer off the card as far as the card's own hover is
-   * concerned — so tracking only the card would hide the action the moment the
-   * user reached for it. Either one being hovered keeps it revealed.
+   * One hover state per target, not one for the card. The actions sit inside
+   * the card, and moving onto one takes the pointer off the card as far as the
+   * card's own hover is concerned — so tracking only the card would hide the
+   * actions the moment the user reached for one. Any of them being hovered
+   * keeps them revealed.
    */
   const [cardHovered, setCardHovered] = useState(false);
-  const [actionHovered, setActionHovered] = useState(false);
+  const [sendHovered, setSendHovered] = useState(false);
+  const [updateHovered, setUpdateHovered] = useState(false);
+
+  const behind = staleBranch(item.branch);
+  const canUpdate = behind !== null && behind.canUpdate;
+
+  /**
+   * A successful update unmounts its button under the pointer, and an
+   * unmounted button never reports the hover-out that would clear its state.
+   * Nor does the card get its own hover back: on web a child that takes the
+   * pointer ends the card's hover, and only the child's hover-out restores it.
+   * The pointer is over the card at that moment, so the card takes it back —
+   * otherwise the actions would hide under the pointer until it left and
+   * returned.
+   */
+  useEffect(() => {
+    if (canUpdate || !updateHovered) return;
+    setUpdateHovered(false);
+    setCardHovered(true);
+  }, [canUpdate, updateHovered]);
 
   /**
    * Revealed by style rather than by mounting: an action that unmounts under the
    * cursor can never report the hover that would have kept it alive.
    */
-  const revealed = !isWeb || cardHovered || actionHovered;
+  const revealed = !isWeb || cardHovered || sendHovered || updateHovered;
 
   const open = useCallback(() => {
     onOpen(item, type);
@@ -1493,6 +1634,10 @@ function Card({
   const send = useCallback(() => {
     onSend(item, type);
   }, [item, onSend, type]);
+
+  const update = useCallback(() => {
+    onUpdateBranch(item);
+  }, [item, onUpdateBranch]);
 
   const openLabels = useCallback(
     (event: unknown) => {
@@ -1538,7 +1683,7 @@ function Card({
         byline === null ? "" : `, opened by ${byline}`
       }${closes === "" ? "" : `, closes ${closes}`}${
         item.checks === null ? "" : `, checks ${checksSentence(item.checks)}`
-      }`}
+      }${behind === null ? "" : `, out of date: ${behindSentence(behind)}`}`}
       accessibilityHint={
         onLabels === null
           ? undefined
@@ -1568,6 +1713,9 @@ function Card({
       </Text>
       <View style={styles.cardFooter}>
         {item.checks !== null ? <ChecksPills checks={item.checks} styles={styles} /> : null}
+        {/* Leading with the checks, for the same reason they lead: the footer
+            wraps, and the actions cover its bottom-right corner on hover. */}
+        {behind !== null ? <BranchPill branch={behind} styles={styles} /> : null}
         {byline !== null ? <Text style={styles.cardAuthor}>by {byline}</Text> : null}
         <Text style={styles.subtle}>{relativeTime(item.updatedAt)}</Text>
         {item.commentsCount > 0 ? (
@@ -1595,6 +1743,24 @@ function Card({
           and a card the width of the screen has room to spare. */}
       {compact ? (
         <View style={styles.cardActions}>
+          {canUpdate ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Update the branch of ${item.repository} #${item.number} with its base branch`}
+              accessibilityState={{ busy: updating, disabled: updating }}
+              onPress={update}
+              disabled={updating}
+              style={({ pressed }) => [
+                styles.updateButtonInline,
+                updating ? styles.buttonDisabled : null,
+                pressed ? styles.sendButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.updateButtonInlineLabel}>
+                {updating ? "Updating…" : "Update branch"}
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Send ${item.repository} #${item.number} to a new workspace chat`}
@@ -1608,20 +1774,45 @@ function Card({
           </Pressable>
         </View>
       ) : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Send ${item.repository} #${item.number} to a new workspace chat`}
-          onPress={send}
-          onHoverIn={() => setActionHovered(true)}
-          onHoverOut={() => setActionHovered(false)}
-          style={({ pressed }) => [
-            styles.sendButton,
-            revealed ? null : styles.sendButtonHidden,
-            pressed ? styles.sendButtonPressed : null,
-          ]}
-        >
-          <Text style={styles.sendButtonLabel}>Send to chat</Text>
-        </Pressable>
+        <View style={[styles.cardOverlay, revealed ? null : styles.cardOverlayHidden]}>
+          {canUpdate ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Update the branch of ${item.repository} #${item.number} with its base branch`}
+              accessibilityState={{ busy: updating, disabled: updating }}
+              // Not `disabled`: a disabled Pressable stops reporting hover, so
+              // the pointer leaving mid-update would leave the actions stuck
+              // revealed. The board ignores a second press while one runs.
+              //
+              // Inert while hidden, unlike Send: this one pushes a commit with
+              // no dialog to cancel, and on touch web nothing ever hovers, so
+              // a tap on the card's corner — or Enter on a focused, invisible
+              // button — would otherwise merge without the user seeing it.
+              onPress={revealed ? update : undefined}
+              onHoverIn={() => setUpdateHovered(true)}
+              onHoverOut={() => setUpdateHovered(false)}
+              style={({ pressed }) => [
+                styles.updateButton,
+                updating ? styles.buttonDisabled : null,
+                pressed ? styles.sendButtonPressed : null,
+              ]}
+            >
+              <Text style={styles.updateButtonLabel}>
+                {updating ? "Updating…" : "Update branch"}
+              </Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Send ${item.repository} #${item.number} to a new workspace chat`}
+            onPress={send}
+            onHoverIn={() => setSendHovered(true)}
+            onHoverOut={() => setSendHovered(false)}
+            style={({ pressed }) => [styles.sendButton, pressed ? styles.sendButtonPressed : null]}
+          >
+            <Text style={styles.sendButtonLabel}>Send to chat</Text>
+          </Pressable>
+        </View>
       )}
     </Pressable>
   );
@@ -3055,8 +3246,10 @@ function ItemDetailPanel({
   progress,
   widthFraction,
   onWidthCommitted,
+  updating,
   onClose,
   onSend,
+  onUpdateBranch,
 }: {
   item: BoardItem;
   type: ColumnId;
@@ -3079,8 +3272,14 @@ function ItemDetailPanel({
   widthFraction: number | null;
   /** Called once per drag, on release, with the share to persist. */
   onWidthCommitted: (fraction: number) => void;
+  /**
+   * True while this pull request's "Update branch" is in flight. The board
+   * owns it, so the card behind and the panel show the same wait.
+   */
+  updating: boolean;
   onClose: () => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
+  onUpdateBranch: (item: BoardItem) => void;
 }) {
   const load = useRpc(loadItem);
   /**
@@ -3270,6 +3469,7 @@ function ItemDetailPanel({
     .join(" · ");
 
   const state = details?.state ?? null;
+  const behind = staleBranch(item.branch);
 
   const translateX = progress.interpolate({
     inputRange: [0, 1],
@@ -3348,11 +3548,16 @@ function ItemDetailPanel({
         {details?.branches ? (
           <Text style={styles.detailMeta}>
             {details.branches.head} → {details.branches.base}
+            {behind === null ? "" : ` · ${behindSentence(behind)}`}
           </Text>
         ) : null}
-        {item.labels.length > 0 || item.linkedIssues.length > 0 || item.checks !== null ? (
+        {item.labels.length > 0 ||
+        item.linkedIssues.length > 0 ||
+        item.checks !== null ||
+        behind !== null ? (
           <View style={styles.detailLabels}>
             {item.checks !== null ? <ChecksPills checks={item.checks} styles={styles} /> : null}
+            {behind !== null ? <BranchPill branch={behind} styles={styles} /> : null}
             {item.linkedIssues.map((issue) => (
               <Text key={issue.id} style={styles.linkedIssue}>
                 {linkedIssueLabel(issue, item.repository)}
@@ -3374,6 +3579,24 @@ function ItemDetailPanel({
           >
             <Text style={styles.buttonLabel}>Send to chat</Text>
           </Pressable>
+          {behind !== null && behind.canUpdate ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Update the branch of ${item.repository} #${item.number} with its base branch`}
+              accessibilityState={{ busy: updating, disabled: updating }}
+              style={({ pressed }) => [
+                styles.ghostButton,
+                updating ? styles.buttonDisabled : null,
+                pressed ? styles.cardPressed : null,
+              ]}
+              onPress={() => onUpdateBranch(item)}
+              disabled={updating}
+            >
+              <Text style={styles.ghostButtonLabel}>
+                {updating ? "Updating…" : "Update branch"}
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="link"
             accessibilityLabel={`Open ${item.repository} #${item.number} on GitHub`}
@@ -3491,8 +3714,10 @@ function Column({
   refreshing,
   onRefresh,
   selectedId,
+  updatingIds,
   onOpen,
   onSend,
+  onUpdateBranch,
   onLabels,
 }: {
   column: BoardColumn;
@@ -3506,8 +3731,11 @@ function Column({
   onRefresh: (() => void) | null;
   /** The card whose details are open, if any, so it can be drawn selected. */
   selectedId: string | null;
+  /** Pull requests whose "Update branch" is in flight. */
+  updatingIds: ReadonlySet<string>;
   onOpen: (item: BoardItem, type: ColumnId) => void;
   onSend: (item: BoardItem, type: ColumnId) => void;
+  onUpdateBranch: (item: BoardItem) => void;
   onLabels: (item: BoardItem, point: { x: number; y: number }) => void;
 }) {
   /**
@@ -3548,8 +3776,10 @@ function Column({
               platform={platform}
               compact={compact}
               selected={item.id === selectedId}
+              updating={updatingIds.has(item.id)}
               onOpen={onOpen}
               onSend={onSend}
+              onUpdateBranch={onUpdateBranch}
               onLabels={labelable ? onLabels : null}
               type={column.id}
             />
@@ -3622,6 +3852,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const styles = useStyles(props);
   const load = useRpc(loadBoard);
   const persistLogin = useRpc(saveLogin);
+  const requestBranchUpdate = useRpc(updateBranch);
   /**
    * How this client draws the board, kept by the host rather than by the
    * daemon: the filter and the panel width are read only to paint, so they no
@@ -3720,6 +3951,12 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   }, [ackLegacy, display, prompts, takeLegacy, toast]);
 
   const [board, setBoard] = useState<Board | null>(cachedBoard);
+  useEffect(() => {
+    setMountedBoard = setBoard;
+    return () => {
+      if (setMountedBoard === setBoard) setMountedBoard = null;
+    };
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(cachedBoard === null);
   const [loginDraft, setLoginDraft] = useState(cachedBoard?.login ?? "");
@@ -3733,6 +3970,12 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   const [sendTarget, setSendTarget] = useState<{ item: BoardItem; prompt: string } | null>(null);
   /** The card the label menu is open on, and where on this surface to draw it. */
   const [labelTarget, setLabelTarget] = useState<LabelMenuTarget | null>(null);
+  /**
+   * Pull requests with an "Update branch" in flight. Held here rather than in
+   * a card, so the card and the detail panel show the same wait and a second
+   * press from either is ignored.
+   */
+  const [updatingBranches, setUpdatingBranches] = useState<ReadonlySet<string>>(() => new Set());
   /** The card the detail panel is open on. Its column picks the send template. */
   const [detailTarget, setDetailTarget] = useState<{ item: BoardItem; type: ColumnId } | null>(
     null,
@@ -3980,22 +4223,58 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     });
   }, []);
 
+  const applyItemLabels = useCallback(
+    (itemId: string, labels: string[]) => patchBoardItem(itemId, { labels }),
+    [],
+  );
+
   /**
-   * Adopts the labels GitHub reported after a toggle. The cached board is
-   * patched alongside the rendered one, or the next remount — which happens on
-   * every workspace switch — would repaint the labels the edit replaced.
+   * GitHub's "Update branch", from a card or the panel. The outcome is a toast
+   * rather than the board's `error`, for the reason the send's is: a branch
+   * that would not update says nothing about whether the board loaded.
+   *
+   * `updated: false` is not a failure: the server looked again before merging
+   * and found nothing the update could do, most often conflicts the board did
+   * not know about yet. The status it found replaces the card's, so the pill
+   * says why and the button goes away.
    */
-  const applyItemLabels = useCallback((itemId: string, labels: string[]) => {
-    const patch = (current: Board): Board => ({
-      ...current,
-      columns: current.columns.map((column) => ({
-        ...column,
-        items: column.items.map((item) => (item.id === itemId ? { ...item, labels } : item)),
-      })),
-    });
-    if (cachedBoard !== null) cachedBoard = patch(cachedBoard);
-    setBoard((current) => (current === null ? current : patch(current)));
-  }, []);
+  const updateItemBranch = useCallback(
+    (item: BoardItem) => {
+      if (updatingBranches.has(item.id)) return;
+      setUpdatingBranches((current) => new Set(current).add(item.id));
+      requestBranchUpdate({ id: item.id })
+        .then((result) => {
+          patchBoardItem(item.id, { branch: result.branch });
+          const name = `${item.repository} #${item.number}`;
+          if (result.updated) {
+            toast.show(`Updated ${name} with its base branch.`, { variant: "success" });
+          } else if (result.branch.conflicts) {
+            toast.error(
+              `${name} has conflicts with its base branch, so it cannot be updated automatically. Resolve them in a checkout or on GitHub.`,
+            );
+          } else if (result.branch.behindBy === 0) {
+            toast.show(`${name} is already up to date with its base branch.`, { variant: "info" });
+          } else {
+            toast.error(`GitHub no longer offers to update ${name}.`);
+          }
+        })
+        .catch((cause: unknown) => {
+          toast.error(
+            `${item.repository} #${item.number} was not updated: ${
+              cause instanceof Error ? cause.message : String(cause)
+            }`,
+          );
+        })
+        .finally(() => {
+          setUpdatingBranches((current) => {
+            const next = new Set(current);
+            next.delete(item.id);
+            return next;
+          });
+        });
+    },
+    [requestBranchUpdate, toast, updatingBranches],
+  );
 
   const openDetails = useCallback((item: BoardItem, type: ColumnId) => {
     setDetailTarget({ item, type });
@@ -4244,8 +4523,10 @@ export function GitHubBoard(props: PluginSurfaceProps) {
                   refreshing={busy}
                   onRefresh={() => void refresh(undefined, true)}
                   selectedId={detailItem?.id ?? null}
+                  updatingIds={updatingBranches}
                   onOpen={openDetails}
                   onSend={openSendDialog}
+                  onUpdateBranch={updateItemBranch}
                   onLabels={openLabelMenu}
                 />
               )}
@@ -4263,8 +4544,10 @@ export function GitHubBoard(props: PluginSurfaceProps) {
                   refreshing={false}
                   onRefresh={null}
                   selectedId={detailItem?.id ?? null}
+                  updatingIds={updatingBranches}
                   onOpen={openDetails}
                   onSend={openSendDialog}
+                  onUpdateBranch={updateItemBranch}
                   onLabels={openLabelMenu}
                 />
               ))}
@@ -4297,8 +4580,10 @@ export function GitHubBoard(props: PluginSurfaceProps) {
               widthFraction={savedFraction}
               onWidthCommitted={commitWidth}
               progress={detailProgress}
+              updating={updatingBranches.has(detailItem.id)}
               onClose={closeDetails}
               onSend={openSendDialog}
+              onUpdateBranch={updateItemBranch}
             />
           ) : null}
         </View>
