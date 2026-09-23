@@ -7,10 +7,10 @@
  * is `{ type: "paseo_frame", isBinary: false, data }`, and `data` is
  * `{ "type": "session", "message": … }` — the same envelope the app sends over
  * its websocket. `PaseoApi` wraps only part of that protocol; the rest (here,
- * clearing an agent's attention, which the app does when you look at an agent,
- * and setting a project's icon) is reachable by writing a well-formed session
- * message to the same channel and listening for the response with our own
- * `requestId`. The plugin's own client ignores a response it did not ask for.
+ * clearing an agent's attention, which the app does when you look at an agent)
+ * is reachable by writing a well-formed session message to the same channel
+ * and listening for the response with our own `requestId`. The plugin's own
+ * client ignores a response it did not ask for.
  *
  * This is the protocol, not an interface. Checked against 0.9.0 and 0.9.1;
  * a later daemon that changes the message is answered by a timeout, which the

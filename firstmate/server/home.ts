@@ -10,6 +10,7 @@
  *     <home>/data/backlog.md    every work item; the board reads it
  *     <home>/data/learnings.md
  *     <home>/projects/          clones for projects with no local checkout
+ *     <home>/icon.svg           the icon Paseo's sidebar shows for the home (`home-icon.ts`)
  *
  * Everything but the charter is written only when missing, so a relaunch
  * never loses a record the first mate has been keeping.
@@ -30,6 +31,7 @@ import {
   PROJECTS_TEMPLATE,
   renderCharter,
 } from "./charter";
+import { HOME_ICON_FILE, HOME_ICON_SVG } from "./home-icon";
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -62,6 +64,7 @@ export async function prepareHome(home: string, config: FirstmateConfig): Promis
   await writeIfMissing(join(home, "data", "projects.md"), PROJECTS_TEMPLATE);
   await writeIfMissing(join(home, "data", "learnings.md"), LEARNINGS_TEMPLATE);
   await writeIfMissing(join(home, "data", "backlog.md"), EMPTY_BACKLOG);
+  await writeIfMissing(join(home, HOME_ICON_FILE), HOME_ICON_SVG);
 }
 
 /** Whether a launch has ever prepared this home. */

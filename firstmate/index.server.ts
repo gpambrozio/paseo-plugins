@@ -1,7 +1,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./server/config";
-import { brandHomeOnce } from "./server/home-brand";
+import { nameHomeOnce } from "./server/home-name";
 import {
   CaptainSteers,
   exitCrew,
@@ -63,9 +63,9 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(loadFleetRpc, async (_input, { paseo }) => {
     const fleet = await loadFleet(paseo, await readFirstmateConfig(), reports);
-    // A first mate launched before the plugin named its home gets its name and icon the first time the board looks.
+    // A first mate launched before the plugin named its home gets its name the first time the board looks.
     const workspaceId = fleet.mate?.workspaceId ?? null;
-    if (workspaceId !== null && fleet.mateInHome) brandHomeOnce(paseo, workspaceId, fleet.home);
+    if (workspaceId !== null && fleet.mateInHome) nameHomeOnce(paseo, workspaceId, fleet.home);
     return fleet;
   });
   server.handle(enableAgentTools, async (_input, { paseo }) => {

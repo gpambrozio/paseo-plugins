@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CREW_LABELS, FirstmateConfigSchema } from "../shared/fleet";
 import { renderCharter } from "./charter";
 import { isHomeReady, parseProjects, prepareHome, readBacklog } from "./home";
+import { HOME_ICON_FILE } from "./home-icon";
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -35,6 +36,19 @@ describe("prepareHome", () => {
     const charter = await readFile(join(home, "AGENTS.md"), "utf8");
     expect(charter).toContain("`codex/gpt-5.5`");
     expect(charter).toContain(home);
+  });
+
+  it("puts an icon where Paseo looks for one, and keeps one the captain replaced it with", async () => {
+    const home = await tempHome();
+    await prepareHome(home, FirstmateConfigSchema.parse({}));
+    const icon = await readFile(join(home, HOME_ICON_FILE), "utf8");
+    // What Paseo takes from a project's folder: 32 KB at most, square — an SVG is taken as square.
+    expect(Buffer.byteLength(icon)).toBeLessThan(32 * 1024);
+    expect(icon).toContain('viewBox="0 0 128 128"');
+
+    await writeFile(join(home, HOME_ICON_FILE), "<svg/>", "utf8");
+    await prepareHome(home, FirstmateConfigSchema.parse({}));
+    expect(await readFile(join(home, HOME_ICON_FILE), "utf8")).toBe("<svg/>");
   });
 });
 

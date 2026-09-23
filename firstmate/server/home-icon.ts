@@ -1,63 +1,23 @@
 /**
- * The home project's icon in Paseo's sidebar: Lucide's ship — the plugin's own
- * sidebar icon, ISC-licensed — in white on a blue rounded square, a 128×128
- * PNG, drawn once in Chromium from the Lucide paths. Paseo takes a square PNG,
- * JPEG, GIF, WebP or ICO up to 1024×1024 and 512 KB, as base64.
+ * The home's icon in Paseo's sidebar: Lucide's ship — the plugin's own sidebar
+ * icon, ISC-licensed — in white on a blue rounded square.
  *
- * Inline rather than a file beside this one: the daemon compiles the server
- * half into a bundle, and the bundle does not run from this directory.
+ * It is a file in the home, `icon.svg`, not something the plugin sets: Paseo
+ * looks for an icon in every project's folder on its own (`favicon.svg`,
+ * `icon.svg`, `icon.png` and more, square and 32 KB at most; an SVG counts as
+ * square) and shows it unless the captain has uploaded one in the project's
+ * settings. Written only when missing, so the captain can replace it.
  */
-export const HOME_ICON_PNG = [
-  "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",
-].join("");
+export const HOME_ICON_FILE = "icon.svg";
+
+export const HOME_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="28" fill="#1d4ed8"/>
+  <g transform="translate(22 22) scale(3.5)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 10.189V14"/>
+    <path d="M12 2v3"/>
+    <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6"/>
+    <path d="M19.38 20A11.6 11.6 0 0 0 21 14l-8.188-3.639a2 2 0 0 0-1.624 0L3 14a11.6 11.6 0 0 0 2.81 7.76"/>
+    <path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1s1.2 1 2.5 1c2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/>
+  </g>
+</svg>
+`;
