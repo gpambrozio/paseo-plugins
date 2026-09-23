@@ -19,7 +19,7 @@ compile time. This file covers only what is specific to `herald`.
 | `shared/timeline.ts`         | The summary card's `kind`/`version` and schema; a *runtime* import on both sides.        |
 | `server/card.ts`             | Appends the summary card to the agent's transcript, one chain per row.                 |
 | `client/timeline-card.tsx`   | Draws that card, with a Play button that speaks the sentence again.                     |
-| `server/hooks.ts`            | Lifecycle events → store entries; helper recognition; turn dedupe; the summary queue.  |
+| `server/hooks.ts`            | Lifecycle events → store entries; helper recognition; turn dedupe; the summary queue; which agents are announced. |
 | `server/summarize.ts`        | One helper per summary: the prompt template, structured output, cleanup on failure.     |
 | `server/cleanup.ts`          | The `paseo` CLI: deleting one helper by id, and sweeping the rest by label.             |
 | `server/store.ts`            | One entry per agent, mirrored to `attention.json`.                                     |
@@ -137,6 +137,45 @@ first shipped version read that as the words "code block". `parseSummaryText` th
 fences, finds the object anywhere in the text, takes `speech` or else the first string in it, and
 only then falls back to the prose. Keep the *default* prompt's closing line — the exact shape and "no
 code fences" — and keep the parser defensive; do not trust one to fix the other.
+
+## Agents another agent started are their parent's to announce
+
+When an agent starts another through Paseo's tools, Paseo records the starter as its parent — the
+`paseo.parent-agent-id` label, which reaches a hook as `PluginHookAgent.parentAgentId` — and, with
+`notifyOnFinish` (on by default for agent-scoped calls), sends the parent a note when the child
+finishes, errors or asks for a permission. The parent then acts and ends its own turn, which Herald
+announces. Announcing the child as well says everything twice, and the child's sentence is the worse
+one: it knows only its own task. A FirstMate crew is the case that raised it — the first mate's
+report is what the user wants to hear.
+
+So `isAnnounced` treats a child like a switched-off kind unless `config.subagents.announce` is on:
+listed in the panel with the fallback, no helper, no transcript card, nothing spoken. Off by default.
+Nothing about FirstMate is known here — no label, no agent id — so it covers any orchestrator, and
+costs no lookup, because the parent id arrives with every event.
+
+Paseo takes the parent label off a cross-workspace child when the parent is archived (a FirstMate
+worker, once its first mate is released or relaunched), so from then on the child is announced like
+any other agent: there is nobody left to speak for it. A legacy `detached` creation never had a parent
+and is announced throughout. Herald's own helpers have a parent too, but `isHelper` drops their events
+before any of this.
+
+**A parent is not a subscription, and the mute covers both anyway — a known gap, kept on purpose.**
+In Paseo 0.9.0 the note to the parent comes from `setupFinishNotification`
+(`packages/server/src/server/agent/agent-prompt.ts`), an in-memory subscription that stops at the
+child's first finish, error or close while the parent label stays. `createAgentCommand` registers it
+only when `notifyOnFinish` is true and the initial prompt started, and `send_agent_prompt` subscribes
+whoever called it, parent or not. So two kinds of event are muted with nobody to speak for them:
+
+- **a child's later turns** — the user opens a finished worker and prompts it directly, and its next
+  question, error or finish is listed as "Not announced" and never reaches the parent;
+- **a child started without a finish notification** — `notifyOnFinish: false`, or no initial prompt —
+  which is muted from its first event.
+
+Herald cannot tell these apart from the covered case: `PluginHookAgent` carries the parent id and
+nothing about subscriptions, `agent.turn_started` does not say who prompted the turn, and a
+`user_message` timeline item has no origin. Muting by parentage was chosen over announcing by default
+(or guessing from the parent's timeline) and is pinned by the tests in `server/hooks.test.ts`. If the
+plugin API ever exposes the subscription or a turn's origin, gate on that instead.
 
 ## `turn_ended` can repeat
 

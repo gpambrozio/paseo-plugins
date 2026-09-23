@@ -191,6 +191,21 @@ export const DEFAULT_CLEANUP = {
   deleteHelpers: true,
 };
 
+/**
+ * Whether an agent another agent started is announced. Paseo records the one
+ * that started it as its parent (`paseo.parent-agent-id`) and tells the parent
+ * when it finishes, fails or asks for a permission, so the parent's own
+ * announcement already covers it — a FirstMate worker's news reaches the user
+ * in the first mate's words. Off by default; on announces both.
+ *
+ * Off also mutes what the parent is never told: the child's later turns once its
+ * first one has finished or failed, and a child started without a finish
+ * notification. Those are listed in the panel and spoken by nobody.
+ */
+export const DEFAULT_SUBAGENTS = {
+  announce: false,
+};
+
 export const DEFAULT_ANNOUNCE: Record<AnnounceKey, boolean> = {
   question: true,
   plan: true,
@@ -223,6 +238,11 @@ export const HeraldConfigSchema = z.object({
       error: z.boolean().default(true),
     })
     .default(DEFAULT_ANNOUNCE),
+  subagents: z
+    .object({
+      announce: z.boolean().default(DEFAULT_SUBAGENTS.announce),
+    })
+    .default(DEFAULT_SUBAGENTS),
   cleanup: z
     .object({
       deleteHelpers: z.boolean().default(DEFAULT_CLEANUP.deleteHelpers),
@@ -234,6 +254,7 @@ export type HeraldConfig = z.infer<typeof HeraldConfigSchema>;
 export const DEFAULT_CONFIG: HeraldConfig = {
   summarizer: { ...DEFAULT_SUMMARIZER },
   announce: { ...DEFAULT_ANNOUNCE },
+  subagents: { ...DEFAULT_SUBAGENTS },
   cleanup: { ...DEFAULT_CLEANUP },
 };
 
