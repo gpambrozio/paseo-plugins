@@ -13,6 +13,7 @@ import { askMate, type AgentSummary } from "../shared/fleet";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
 import { useFollowEnd } from "./follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
+import { MateControls } from "./mate-controls";
 import { Markdown } from "./markdown";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
@@ -62,12 +63,15 @@ export function MateChat({
   theme,
   compact,
   onOpen,
+  onChanged,
 }: {
   mate: AgentSummary;
   theme: PluginTheme;
   compact: boolean;
   /** Opens the first mate in Paseo; absent where the host gives no navigation. */
   onOpen: (() => void) | null;
+  /** After a compact or a restart, so the board catches up without waiting for its poll. */
+  onChanged: () => void;
 }) {
   const ask = useRpc(askMate);
   const toast = useToast();
@@ -90,6 +94,9 @@ export function MateChat({
     if (keyboard > 0) follow.keepAtEnd();
   }, [keyboard]);
   const submitOnEnter = Platform.OS === "web" && !compact;
+  /** The timeline's snapshot is re-read with every stream event; the board's poll is the fallback. */
+  const status = timeline.agent?.status ?? mate.status;
+  const usage = timeline.agent?.lastUsage;
 
   function setDraft(text: string): void {
     cachedDraft = text;
@@ -288,6 +295,14 @@ export function MateChat({
             {onOpen === null ? null : (
               <IconButton icon="ExternalLink" label="Open in Paseo" showLabel theme={theme} onPress={onOpen} />
             )}
+            <MateControls
+              theme={theme}
+              compact={compact}
+              usedTokens={usage?.contextWindowUsedTokens}
+              maxTokens={usage?.contextWindowMaxTokens}
+              running={status === "running" || status === "initializing"}
+              onChanged={onChanged}
+            />
           </View>
           <View style={styles.inputRow}>
             <TextInput

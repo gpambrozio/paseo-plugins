@@ -242,6 +242,29 @@ export const markMateSeen = defineRpc({
   output: z.object({ cleared: z.boolean() }),
 });
 
+/**
+ * Starts the first mate afresh: the current one is archived — its
+ * conversation stays in Paseo's history — and a new one is launched in the
+ * home with the same model, mode and thinking, told that it is taking over.
+ * Its records carry what the old one knew.
+ */
+export const restartMate = defineRpc({
+  name: "firstmate.mate.restart",
+  input: z.object({}),
+  output: z.object({ agentId: z.string(), workspaceId: z.string().nullable() }),
+});
+
+/**
+ * Asks the first mate's provider to compact its context, with the same
+ * `/compact` Paseo's own composer sends. Refused while a turn is running: a
+ * slash command is a turn of its own, not a message to join one.
+ */
+export const compactMate = defineRpc({
+  name: "firstmate.mate.compact",
+  input: z.object({}),
+  output: z.object({ agentId: z.string() }),
+});
+
 /** Delivers the captain's words to the first mate. */
 export const askMate = defineRpc({
   name: "firstmate.mate.ask",

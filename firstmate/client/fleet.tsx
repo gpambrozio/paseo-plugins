@@ -418,7 +418,9 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       onMoveColumn={(id: ColumnId, delta: number) => save({ columnOrder: moveColumn(order, id, delta) })}
     />
   );
-  const chat = <MateChat key={mate.id} mate={mate} theme={theme} compact={compact} onOpen={openMate} />;
+  const chat = (
+    <MateChat key={mate.id} mate={mate} theme={theme} compact={compact} onOpen={openMate} onChanged={refresh} />
+  );
   const crew =
     watching === null ? (
       board

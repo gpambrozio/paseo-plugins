@@ -79,6 +79,27 @@ export function toolDisplayName(name: string): string {
   return name.replace(/^mcp__[^_]+__/, "").replace(/_/g, " ");
 }
 
+const COMPACTING = "Compacting context…";
+
+/**
+ * Adds a compaction's line to `rows`. A compaction arrives as two entries, one
+ * as it starts and one as it ends, and the second takes the first's place, so
+ * a finished compaction is one line rather than two.
+ */
+export function pushCompaction<Row extends { kind: string; text?: string; key: string }>(
+  rows: Row[],
+  key: string,
+  status: "loading" | "completed",
+  make: (key: string, text: string) => Row,
+): void {
+  const last = rows[rows.length - 1];
+  if (status === "completed" && last !== undefined && last.kind === "event" && last.text === COMPACTING) {
+    rows[rows.length - 1] = make(last.key, "Context compacted");
+    return;
+  }
+  rows.push(make(key, status === "loading" ? COMPACTING : "Context compacted"));
+}
+
 /**
  * A row's key: where its entry starts in the timeline. The end moves while a
  * reply streams or a tool call runs, and a position in the page shifts once
@@ -120,7 +141,7 @@ export function transcriptRows(entries: readonly TimelineEntry[]): TranscriptRow
         rows.push({ key, kind: item.level === "error" ? "error" : "event", text: item.message });
         break;
       case "compaction":
-        rows.push({ key, kind: "event", text: item.status === "loading" ? "Compacting context…" : "Context compacted" });
+        pushCompaction(rows, key, item.status, (rowKey, text) => ({ key: rowKey, kind: "event" as const, text }));
         break;
       default:
         break;

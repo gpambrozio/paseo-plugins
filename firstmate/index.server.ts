@@ -12,10 +12,20 @@ import {
 import { ReportCache, loadFleet, readAgentTools } from "./server/fleet";
 import { listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
 import { isHomeReady, prepareHome } from "./server/home";
-import { adoptMate, askMate, launchMate, listCandidates, markMateSeen, releaseMate } from "./server/mate";
+import {
+  adoptMate,
+  askMate,
+  compactMate,
+  launchMate,
+  listCandidates,
+  markMateSeen,
+  releaseMate,
+  restartMate,
+} from "./server/mate";
 import {
   adoptMate as adoptMateRpc,
   askMate as askMateRpc,
+  compactMate as compactMateRpc,
   enableAgentTools,
   exitCrew as exitCrewRpc,
   interruptCrew as interruptCrewRpc,
@@ -26,6 +36,7 @@ import {
   readConfig,
   relaunchCrew as relaunchCrewRpc,
   releaseMate as releaseMateRpc,
+  restartMate as restartMateRpc,
   steerCrew as steerCrewRpc,
   writeConfig,
 } from "./shared/fleet";
@@ -58,6 +69,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(launchMateRpc, (input, { paseo }) => launchMate(paseo, input));
   server.handle(adoptMateRpc, async ({ agentId }, { paseo }) => ({ config: await adoptMate(paseo, agentId) }));
   server.handle(releaseMateRpc, async () => ({ config: await releaseMate() }));
+  server.handle(restartMateRpc, (_input, { paseo }) => restartMate(paseo));
+  server.handle(compactMateRpc, async (_input, { paseo }) => ({ agentId: await compactMate(paseo) }));
   server.handle(listCandidatesRpc, (_input, { paseo }) => listCandidates(paseo));
   server.handle(askMateRpc, async ({ text }, { paseo }) => ({ agentId: await askMate(paseo, text) }));
   server.handle(markMateSeenRpc, (_input, { paseo }) => markMateSeen(paseo));

@@ -20,6 +20,10 @@ read before you move.
   have the first mate relaunch it, from its card.
 - **`/fm`, `/bearings` and `/ahoy`** in any composer: talk to the first mate from anywhere, get a
   four-part catch-up on where everything stands, or a recap of what happened with every open decision.
+- **See how full the first mate's memory is, and do something about it.** A meter beside the chat
+  shows how much of its context window is used, as Paseo's own chat does. Compact it to free room, or
+  restart it from scratch with the same settings; its records carry over, and the old conversation stays
+  in Paseo's history.
 - **Watch a worker without leaving FirstMate.** A worker's card opens beside its live activity — its
   brief, reasoning, every command and file edit with what came back, its plan and its replies — in
   place of the board, with the chat still beside it. Answer its questions and permissions right there.

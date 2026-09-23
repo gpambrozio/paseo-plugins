@@ -5,7 +5,17 @@ import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
-import { errorText, moveColumn, orderedColumns, relativeTime, shortPath, splitRows } from "./format";
+import {
+  contextPercent,
+  contextTone,
+  errorText,
+  formatTokenCount,
+  moveColumn,
+  orderedColumns,
+  relativeTime,
+  shortPath,
+  splitRows,
+} from "./format";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
@@ -36,6 +46,19 @@ describe("transcriptRows", () => {
       ["mate", "Aye, captain."],
       ["event", "Agent a1 (Fix login) finished."],
     ]);
+  });
+
+  it("shows a compaction as one line once it has finished", () => {
+    const rows = transcriptRows([
+      entry({ type: "user_message", text: "/compact" }, 1),
+      entry({ type: "compaction", status: "loading" }, 2),
+      entry({ type: "compaction", status: "completed", trigger: "manual" }, 3),
+    ]);
+    expect(rows.map((row) => [row.kind, row.text])).toEqual([
+      ["captain", "/compact"],
+      ["event", "Context compacted"],
+    ]);
+    expect(transcriptRows([entry({ type: "compaction", status: "loading" }, 2)])[0]?.text).toBe("Compacting context…");
   });
 
   it("recognises both envelopes and nothing else", () => {
@@ -179,6 +202,27 @@ describe("formatting", () => {
     expect(bearingsPrompt("")).toBe("Bearings, please.");
     expect(bearingsPrompt(" file include PRs ")).toBe("Bearings, please — file include PRs.");
     expect(ahoyPrompt("")).toBe("Ahoy!");
+  });
+});
+
+describe("context meter", () => {
+  it("counts tokens and the share used the way Paseo's meter does", () => {
+    expect(formatTokenCount(840)).toBe("840");
+    expect(formatTokenCount(84_400)).toBe("84k");
+    expect(formatTokenCount(1_000_000)).toBe("1m");
+    expect(contextPercent(84_000, 200_000)).toBe(42);
+    expect(contextPercent(null, 200_000)).toBeNull();
+    expect(contextPercent(10, 0)).toBeNull();
+  });
+
+  it("warns from 70% and alarms past 90%", () => {
+    const theme = {
+      colors: { foregroundMuted: "muted", statusWarning: "warning", statusDanger: "danger" },
+    } as unknown as Parameters<typeof contextTone>[0];
+    expect(contextTone(theme, 69)).toBe("muted");
+    expect(contextTone(theme, 70)).toBe("warning");
+    expect(contextTone(theme, 90)).toBe("warning");
+    expect(contextTone(theme, 91)).toBe("danger");
   });
 });
 

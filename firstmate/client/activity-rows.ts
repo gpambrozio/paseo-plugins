@@ -7,7 +7,7 @@
  * what came back, and the plan — the latest one only, since each update
  * restates the whole list.
  */
-import { clip, injectedSummary, rowKey, toolDisplayName, type TimelineEntry } from "./transcript-rows";
+import { clip, injectedSummary, pushCompaction, rowKey, toolDisplayName, type TimelineEntry } from "./transcript-rows";
 
 type TimelineItem = TimelineEntry["item"];
 type ToolCallItem = Extract<TimelineItem, { type: "tool_call" }>;
@@ -246,7 +246,7 @@ export function activityRows(entries: readonly TimelineEntry[]): ActivityRow[] {
         rows.push({ key, kind: item.level === "error" ? "error" : "event", text: item.message });
         break;
       case "compaction":
-        rows.push({ key, kind: "event", text: item.status === "loading" ? "Compacting context…" : "Context compacted" });
+        pushCompaction(rows, key, item.status, (rowKey, text) => ({ key: rowKey, kind: "event" as const, text }));
         break;
       default:
         break;

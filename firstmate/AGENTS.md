@@ -42,6 +42,8 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
 | `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
 | `client/activity-rows.ts`     | Timeline entries → Watch rows, machinery kept: reasoning, tool detail, the latest plan. Pure. |
+| `client/mate-controls.tsx`    | The context meter, Compact and Restart (with its confirmation), at the end of the chat's buttons. |
+| `client/context-meter.tsx`    | How full the first mate's context is: a bar, the share, the tokens — Paseo's thresholds.    |
 | `client/follow-end.ts`        | A streaming transcript that follows its end, brings a new request into view, jumps back.   |
 | `client/launch.tsx`           | What shows before there is a first mate: launch one, or adopt a running agent.             |
 | `client/panels.tsx`           | The workspace and agent panels: the crewmate's card beside its own tab.                    |
@@ -253,6 +255,38 @@ are kept in module scope, like the chat's draft, so a remount does not lose an e
 
 Errors from any RPC reach the app wrapped as `Request failed: … requestType=… code=…`;
 `errorText` (`client/format.ts`) strips that, so the panel shows the handler's own sentence.
+
+## Context, Compact and Restart
+
+The chat's button row ends with how full the first mate's context window is, the way Paseo's composer
+shows it: `lastUsage.contextWindowUsedTokens` over `contextWindowMaxTokens`, read from the agent snapshot
+every timeline page carries (so it moves with the stream, and the board's poll re-reads it too), coloured
+at Paseo's thresholds — a warning from 70%, danger past 90%. Paseo draws an SVG ring; `react-native-svg`
+is not a module a plugin may import, so this is a bar. No usage yet — before the first turn ends — draws
+nothing, as Paseo's does.
+
+- **Compact** (`firstmate.mate.compact`) sends `/compact`, the command Paseo's own composer sends; Claude
+  Code (a root-only command there, and the first mate is a root agent), Codex and OpenCode each compact on
+  it. It is a plain send and refused while a turn runs: a slash command must be a turn of its own, where a
+  send would interrupt the running turn and a steer would bury the command inside it. The compaction's
+  two timeline entries — started, finished — fold into one line (`pushCompaction`).
+- **Restart** (`firstmate.mate.restart`) archives the first mate and launches a new one in the home with
+  the live agent's model, mode and thinking — not the config's, since they can be changed in its tab and
+  an adopted first mate has none there — and `RESTART_PROMPT`, which tells it it is taking over. Archived
+  *first*, under the same lock as a launch, so two first mates never hold the helm at once; a launch that
+  then fails leaves none, and says so. Archiving stops its turn and retires its heartbeat, because Paseo
+  completes a schedule whose agent is archived; the conversation stays readable in Paseo's history.
+
+What a restart costs: **crewmates the old first mate started no longer wake anyone.** Paseo's finish
+notification goes to the agent that created or prompted the crewmate and is dropped when that agent is
+archived (`setupFinishNotification` in Paseo returns early for an archived caller), and archiving a first
+mate also takes the parent label off its cross-workspace children — which is why Herald 0.5 announces
+them from then on. `RESTART_PROMPT` and charter §7 tell the new first mate to keep a heartbeat while any
+are in flight, which is how it finds out.
+
+Checked on a throwaway 0.9.1 daemon with a Haiku first mate: 33,969 of 200,000 tokens after launch,
+4,949 after Compact, and Restart archived it and brought up the same model and mode, with the config
+pointing at the new one.
 
 ## Opening the panel marks the first mate seen
 

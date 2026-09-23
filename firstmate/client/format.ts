@@ -100,6 +100,27 @@ export function agentStatusTone(theme: PluginTheme, agent: AgentSummary): string
   return theme.colors.foregroundMuted;
 }
 
+/** A token count as Paseo's own context meter writes it: "840", "84k", "1m". */
+export function formatTokenCount(value: number): string {
+  if (value >= 1_000_000) return `${Math.round(value / 1_000_000)}m`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
+  return Math.round(value).toString();
+}
+
+/** How full a context window is, in percent, or null while the provider has not said. */
+export function contextPercent(used: number | null | undefined, max: number | null | undefined): number | null {
+  if (typeof used !== "number" || typeof max !== "number") return null;
+  if (!Number.isFinite(used) || !Number.isFinite(max) || used < 0 || max <= 0) return null;
+  return (used / max) * 100;
+}
+
+/** The meter's colour, at Paseo's own thresholds: past 90% it is danger, from 70% a warning. */
+export function contextTone(theme: PluginTheme, percent: number): string {
+  if (percent > 90) return theme.colors.statusDanger;
+  if (percent >= 70) return theme.colors.statusWarning;
+  return theme.colors.foregroundMuted;
+}
+
 /** "just now", "5m ago", "3h ago", "2d ago". */
 export function relativeTime(iso: string, now: number = Date.now()): string {
   const then = Date.parse(iso);
