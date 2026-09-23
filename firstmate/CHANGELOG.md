@@ -34,6 +34,8 @@ read before you move.
 - **The first mate's files, in the panel.** Browse its home, read any file — its instructions, your
   standing orders, the backlog, each worker's brief and report — and edit and save it there. If the
   first mate changed a file while you were editing it, you choose which version to keep.
+- **The first mate's home is easy to spot in Paseo's sidebar**: it is called FirstMate, with a ship
+  for its icon, rather than "home" under a folder. A name or icon you give it yourself is kept.
 - **Opening the panel marks the first mate as seen**, so its workspace in the sidebar reads as done
   rather than waiting for you, just as if you had opened the first mate itself.
 - **Standing orders you write yourself**, in the first mate's home, which it reads every session and

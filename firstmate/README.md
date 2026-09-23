@@ -114,7 +114,8 @@ choose in the settings. It writes there and nowhere else; your projects are read
 change is a worker's job.
 
 In Paseo's sidebar the first mate's project and workspace are called **FirstMate** rather than after
-the folder. Rename either and your name is kept.
+the folder, and the project has FirstMate's ship as its icon. Rename either, or give the project an icon
+of your own, and your choice is kept.
 
 - `AGENTS.md` — its charter: how it takes requests, briefs and supervises workers, and talks to you.
   Rewritten every time it is launched, so it follows the plugin as it changes.

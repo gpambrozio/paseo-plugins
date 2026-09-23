@@ -27,7 +27,8 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
 | `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
 | `server/cli.ts`               | `paseo stop` and `paseo project rename`, for what the SDK does not have.                   |
-| `server/home-name.ts`         | Names the home's project and workspace "FirstMate" instead of the folder's "home".         |
+| `server/home-brand.ts`        | Names the home's project and workspace "FirstMate", and gives the project the ship icon.   |
+| `server/home-icon.ts`         | That icon: a 128×128 PNG, inline as base64.                                                 |
 | `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing the first mate's attention.    |
 | `server/config.ts`            | `$PASEO_HOME/plugins/firstmate/config.json`, read on every call.                           |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
@@ -165,20 +166,27 @@ The backlog format is the contract between an agent and `server/backlog.ts`. Cha
 changing both, and the parser stays lenient: unknown groups are ignored, a line it cannot read is
 skipped, and `(since …)` is accepted without the colon because that is how the charter spells it.
 
-## The home is called FirstMate in the sidebar
+## The home is called FirstMate in the sidebar, with a ship for its icon
 
 Paseo names a project and its workspace after their directory, and the default home is
-`…/plugins/firstmate/home`, so the sidebar said "home" twice. `nameHome` (`server/home-name.ts`) calls
-both "FirstMate": the workspace through the SDK's `setTitle`, the project through `paseo project rename`,
-since the SDK has no call for it. It runs on every launch and restart, and — for a first mate launched
+`…/plugins/firstmate/home`, so the sidebar said "home" twice under a generic folder icon. `brandHome`
+(`server/home-brand.ts`) calls both "FirstMate" — the workspace through the SDK's `setTitle`, the project
+through `paseo project rename`, since the SDK has no call for it — and gives the project an icon: the
+plugin's own sidebar ship, white on blue (`server/home-icon.ts`), sent with the daemon's
+`project.icon.set.request` over the plugin's channel (`daemon-session.ts`), since neither the SDK nor the
+CLI can set one. Paseo takes a square PNG, JPEG, GIF, WebP or ICO up to 1024×1024 and 512 KB, as base64;
+the icon is inline rather than a file because the daemon bundles the server half and the bundle does not
+run from this directory. It runs on every launch and restart, and — for a first mate launched
 before this existed — once per plugin process from the board's first `firstmate.fleet.load`, only when the
 first mate works in its home (an adopted agent's workspace elsewhere is not the plugin's to name).
-A title or project name the captain set is kept, and the project is renamed only when its root is the
-home itself: a home chosen inside another project leaves that project's name alone. A failure is logged
-and never fails the launch or the board.
+A title, project name or icon the captain set is kept (`projectCustomIconRevision` is non-null for any
+custom icon, including ours, so it is set once), and the project is touched only when its root is the
+home itself: a home chosen inside another project keeps that project's name and icon. A failure is
+logged and never fails the launch or the board.
 
-Checked on a throwaway 0.9.1 daemon: a launch made both "FirstMate", and with the project reset to its
-directory name, a plugin reload and one board load named it again.
+Checked on a throwaway 0.9.1 daemon: a launch made both "FirstMate" and the daemon's stored icon was
+byte-for-byte this one; with the project reset to its directory name, a plugin reload and one board load
+named it again.
 
 ## Interrupting needs the CLI
 
