@@ -110,7 +110,7 @@ against the live crew, and carries on.
 **Settings › Plugins › FirstMate** — or the gear in the panel's header, or *FirstMate settings* in ⌘K.
 
 - **First mate** — which agent it is, and *Release* to forget it (the agent keeps running).
-- **Home directory** — where the first mate lives. Takes effect at the next launch.
+- **Home directory** — where the first mate lives. It can be moved only while no first mate is aboard.
 - **Crew model and mode** — what every worker runs, unless you tell the first mate otherwise for a
   task. "Let the first mate choose" gives workers its own model.
 - **Agent tools** — Paseo's switch, described above.

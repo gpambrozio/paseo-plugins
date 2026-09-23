@@ -28,8 +28,31 @@ export const LAUNCH_PROMPT = [
 
 const NO_MATE = "There is no first mate yet. Open the FirstMate board and launch one.";
 
-/** Refused when a first mate is already aboard, so a second click cannot start a second one. */
+/**
+ * The launch in progress, if any. The "already aboard" check below reads the
+ * config, which is only written once the agent exists, so two launches that
+ * overlap — a double press, the desktop and a phone — would both pass it.
+ * Every client of this daemon reaches the same plugin process, so holding the
+ * launch here is enough to make the second one wait for the first and refuse.
+ */
+let launching: Promise<unknown> | null = null;
+
+/** Refused when a first mate is already aboard, so a second launch cannot start a second one. */
 export async function launchMate(
+  paseo: PaseoApi,
+  input: { provider: string; modeId: string },
+): Promise<{ agentId: string; workspaceId: string | null }> {
+  while (launching !== null) await launching.catch(() => {});
+  const launch = launchOnce(paseo, input);
+  launching = launch;
+  try {
+    return await launch;
+  } finally {
+    if (launching === launch) launching = null;
+  }
+}
+
+async function launchOnce(
   paseo: PaseoApi,
   input: { provider: string; modeId: string },
 ): Promise<{ agentId: string; workspaceId: string | null }> {

@@ -73,9 +73,16 @@ export type FirstmateConfigPatch = { [Key in keyof FirstmateConfig]?: FirstmateC
  */
 export async function updateFirstmateConfig(patch: FirstmateConfigPatch): Promise<FirstmateConfig> {
   const defined = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
-  const next = FirstmateConfigSchema.parse({ ...(await readFirstmateConfig()), ...defined });
+  const previous = await readFirstmateConfig();
+  const next = FirstmateConfigSchema.parse({ ...previous, ...defined });
   // Validated before it is saved, so a relative home is refused rather than stored.
-  resolveHome(next);
+  const home = resolveHome(next);
+  // The board reads the home the config names, and a running first mate keeps
+  // writing the one it was launched in; moving it under one would show an
+  // empty backlog while the real one carried on out of sight.
+  if (next.mateAgentId !== "" && home !== resolveHome(previous)) {
+    throw new Error("Release the first mate before moving its home; it keeps working in the one it was launched in.");
+  }
   const path = configPath();
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${process.pid}.tmp`;

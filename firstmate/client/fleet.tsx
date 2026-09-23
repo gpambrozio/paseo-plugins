@@ -14,7 +14,7 @@ import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import { enableAgentTools, loadFleet, type ColumnId, type Fleet } from "../shared/fleet";
@@ -42,6 +42,7 @@ export function bindSettingsOpener(opener: ((id: string) => void) | null): void 
 }
 
 const DEFAULT_DISPLAY: DisplaySettings = displaySettings.schema.parse({});
+const SAVE_DELAY_MS = 400;
 
 /** The fleet query, shared by the surface and the workspace panels so they poll once between them. */
 export function useFleet(pollSeconds: number) {
@@ -82,13 +83,53 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
     void queryClient.invalidateQueries({ queryKey: FLEET_QUERY_KEY });
   }, [queryClient]);
 
-  function save(patch: Partial<DisplaySettings>): void {
-    setOverride((current) => ({ ...current, ...patch }));
-    if (display.status !== "ready") return;
-    void display.save({ ...display.values, ...override, ...patch }, display.revision).then((ok) => {
-      if (!ok) console.warn("[firstmate] could not save the board layout:", display.saveError);
+  /**
+   * Layout changes are drawn at once and saved behind, batched: a save is
+   * checked against the document revision it was made from, so a second fold
+   * sent before the first came back would be refused as stale. Changes inside
+   * `SAVE_DELAY_MS` become one save, made from whatever revision is current
+   * when it goes out, and a refused one is tried once more from the next.
+   */
+  const displayRef = useRef(display);
+  displayRef.current = display;
+  const pending = useRef<Partial<DisplaySettings>>({});
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(saveTimer.current), []);
+
+  function flush(attempt: number): void {
+    const current = displayRef.current;
+    if (current.status !== "ready") return;
+    const patch = pending.current;
+    pending.current = {};
+    void current.save({ ...current.values, ...patch }, current.revision).then((ok) => {
+      if (ok) return;
+      if (attempt === 0) {
+        pending.current = { ...patch, ...pending.current };
+        saveTimer.current = setTimeout(() => flush(1), SAVE_DELAY_MS);
+      } else {
+        console.warn("[firstmate] could not save the board layout:", displayRef.current.saveError);
+      }
     });
   }
+
+  function save(patch: Partial<DisplaySettings>): void {
+    setOverride((current) => ({ ...current, ...patch }));
+    pending.current = { ...pending.current, ...patch };
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => flush(0), SAVE_DELAY_MS);
+  }
+
+  // Once the stored document says what was drawn, the local copy has done its
+  // job; dropping it lets a change made on another device show here.
+  useEffect(() => {
+    if (display.status !== "ready") return;
+    setOverride((current) => {
+      const entries = Object.entries(current).filter(
+        ([key, value]) => JSON.stringify(display.values[key as keyof DisplaySettings]) !== JSON.stringify(value),
+      );
+      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
+    });
+  }, [display]);
 
   function setTab(next: "chat" | "board"): void {
     cachedTab = next;

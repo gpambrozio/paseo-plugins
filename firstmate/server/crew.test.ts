@@ -4,13 +4,28 @@ import { CREW_LABELS } from "../shared/fleet";
 import { CaptainSteers, relaunchText, relayText } from "./crew";
 
 describe("CaptainSteers", () => {
-  it("hands back everything said to a crewmate once, then forgets it", () => {
+  it("hands a steer over only to a turn that read it, once", () => {
     const steers = new CaptainSteers();
     steers.record("a1", "use pnpm");
     steers.record("a1", "and skip the e2e suite");
-    expect(steers.take("a1")).toEqual(["use pnpm", "and skip the e2e suite"]);
-    expect(steers.take("a1")).toBeNull();
-    expect(steers.take("a2")).toBeNull();
+    // The turn that was running when the steer was sent ends first, without it.
+    expect(steers.take("a1", ["fix the login"])).toBeNull();
+    expect(steers.take("a1", ["fix the login", "use pnpm"])).toEqual(["use pnpm"]);
+    expect(steers.take("a1", ["use pnpm", "and skip the e2e suite"])).toEqual(["and skip the e2e suite"]);
+    expect(steers.take("a1", ["use pnpm", "and skip the e2e suite"])).toBeNull();
+    expect(steers.take("a2", ["anything"])).toBeNull();
+  });
+
+  it("forgets a steer whose send failed, and one nobody answered within the hour", () => {
+    let now = 0;
+    const steers = new CaptainSteers(() => now);
+    steers.record("a1", "never delivered");
+    steers.forget("a1", "never delivered");
+    expect(steers.take("a1", ["never delivered"])).toBeNull();
+
+    steers.record("a1", "too old");
+    now = 61 * 60 * 1000;
+    expect(steers.take("a1", ["too old"])).toBeNull();
   });
 });
 

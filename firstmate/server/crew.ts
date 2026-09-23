@@ -32,29 +32,65 @@ async function requireCrew(paseo: PaseoApi, agentId: string): Promise<PaseoAgent
   return agent;
 }
 
+/** A steer nobody answered in this long is forgotten, so the map cannot grow for the life of the daemon. */
+const STEER_TTL_MS = 60 * 60 * 1000;
+
 /**
- * Crewmates the captain has spoken to since their last turn ended, and what
- * was said. In memory: a plugin reload forgets them, and the first mate then
+ * What the captain has said to each crewmate that the first mate has not yet
+ * been told about. In memory: a plugin reload forgets it, and the first mate
  * learns of the exchange the next time it looks at that crewmate.
+ *
+ * A steer is handed over only by a turn that *contains* it — its text is one
+ * of the ended turn's user messages. The first `turn_ended` after a steer is
+ * not always the answer: the turn that was running when it was sent may end
+ * first, and a provider that cannot join a running turn cancels it and starts
+ * a new one, so the ended turn has to show it read the words.
  */
 export class CaptainSteers {
-  private readonly pending = new Map<string, string[]>();
+  private readonly pending = new Map<string, Array<{ text: string; at: number }>>();
+
+  constructor(private readonly now: () => number = Date.now) {}
 
   record(agentId: string, text: string): void {
-    this.pending.set(agentId, [...(this.pending.get(agentId) ?? []), text]);
+    this.pending.set(agentId, [...this.fresh(agentId), { text, at: this.now() }]);
   }
 
-  take(agentId: string): string[] | null {
-    const texts = this.pending.get(agentId) ?? null;
-    this.pending.delete(agentId);
-    return texts;
+  /** Takes back a steer whose send failed, so it is never relayed as said. */
+  forget(agentId: string, text: string): void {
+    const kept = this.fresh(agentId).filter((entry) => entry.text !== text);
+    if (kept.length === 0) this.pending.delete(agentId);
+    else this.pending.set(agentId, kept);
+  }
+
+  /** The steers `userMessages` shows were read, removed; null when it shows none of them. */
+  take(agentId: string, userMessages: readonly string[]): string[] | null {
+    const entries = this.fresh(agentId);
+    const read = entries.filter((entry) => userMessages.some((message) => message.includes(entry.text.trim())));
+    const left = entries.filter((entry) => !read.includes(entry));
+    if (left.length === 0) this.pending.delete(agentId);
+    else this.pending.set(agentId, left);
+    return read.length === 0 ? null : read.map((entry) => entry.text);
+  }
+
+  private fresh(agentId: string): Array<{ text: string; at: number }> {
+    const cutoff = this.now() - STEER_TTL_MS;
+    return (this.pending.get(agentId) ?? []).filter((entry) => entry.at >= cutoff);
   }
 }
 
+/**
+ * Recorded before the send, so a turn that ends the instant the message lands
+ * still finds it; taken back if the send fails.
+ */
 export async function steerCrew(paseo: PaseoApi, steers: CaptainSteers, agentId: string, text: string): Promise<void> {
   await requireCrew(paseo, agentId);
   steers.record(agentId, text);
-  await sendWithoutInterrupting(paseo, agentId, text);
+  try {
+    await sendWithoutInterrupting(paseo, agentId, text);
+  } catch (error) {
+    steers.forget(agentId, text);
+    throw error;
+  }
 }
 
 export async function interruptCrew(paseo: PaseoApi, agentId: string): Promise<void> {
@@ -118,7 +154,10 @@ export function registerSteerRelay(
   readConfig: () => Promise<FirstmateConfig>,
 ): () => void {
   return server.on("agent.turn_ended", async (event, { paseo }) => {
-    const captain = steers.take(event.agent.id);
+    // A cancelled turn is the one a steer replaced, not the one that answers it.
+    if (event.outcome.kind === "canceled") return;
+    const userMessages = event.timeline.flatMap((item) => (item.type === "user_message" ? [item.text] : []));
+    const captain = steers.take(event.agent.id, userMessages);
     if (captain === null) return;
     try {
       const mate = await resolveMate(paseo, await readConfig());

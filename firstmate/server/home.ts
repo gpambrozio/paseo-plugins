@@ -85,29 +85,28 @@ export async function readBacklog(home: string): Promise<BacklogItem[]> {
 
 /**
  * `- <name> [<mode> +yolo] - <location> - <description>`, as the charter asks.
- * The bracket, the location and the description are each optional, and a
- * line that is not a list item is not a project.
+ * The line splits on ` - ` first, and only the name part is read for the
+ * bracket, so a Markdown link or a `[WIP]` in the description stays text. The
+ * bracket, the location and the description are each optional, and a line
+ * that is not a list item is not a project.
  */
 export function parseProjects(markdown: string): Project[] {
   const projects: Project[] = [];
   for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
     const item = /^\s*[-*]\s+(?!\[[ xX]\])(.+)$/.exec(line);
     if (item === null) continue;
-    const body = item[1] ?? "";
-    const bracket = /\[([^\]]*)\]/.exec(body);
-    const name = (bracket === null ? body.split(/\s+[-–—]\s+/)[0] : body.slice(0, bracket.index))?.trim() ?? "";
-    if (name === "" || name.startsWith("(")) continue;
-    const flags = (bracket?.[1] ?? "").split(/\s+/).filter((flag) => flag !== "");
-    const rest = (bracket === null ? body.slice(name.length) : body.slice(bracket.index + bracket[0].length))
-      .split(/\s+[-–—]\s+/)
-      .map((part) => part.trim())
-      .filter((part) => part !== "" && part !== "-");
+    const [head = "", ...rest] = (item[1] ?? "").split(/\s+[-–—]\s+/).map((part) => part.trim());
+    const bracket = /^(.*?)\s*\[([^\]]*)\]\s*$/.exec(head);
+    const name = (bracket?.[1] ?? head).replace(/[`*]/g, "").trim();
+    if (name === "" || name.startsWith("(") || /\s/.test(name)) continue;
+    const flags = (bracket?.[2] ?? "").split(/\s+/).filter((flag) => flag !== "");
+    const parts = rest.filter((part) => part !== "");
     projects.push({
-      name: name.replace(/[`*]/g, ""),
+      name,
       mode: flags.find((flag) => !flag.startsWith("+")) ?? null,
       yolo: flags.includes("+yolo"),
-      location: rest[0] ?? null,
-      description: rest.slice(1).join(" - ") || null,
+      location: parts[0] ?? null,
+      description: parts.slice(1).join(" - ") || null,
     });
   }
   return projects;

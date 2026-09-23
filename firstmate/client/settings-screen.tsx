@@ -126,7 +126,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
             <Text style={styles.note}>
               The directory the first mate runs in and the only one it writes to: its charter (AGENTS.md, rewritten on
               every launch), its standing orders (data/captain.md — yours to edit), the project registry and the
-              backlog. Changing it takes effect at the next launch.
+              backlog. It can only be moved while no first mate is aboard — release it first.
             </Text>
           }
         >
@@ -138,13 +138,15 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
               initialValue={current.home}
               placeholder={config.data?.resolvedHome ?? ""}
               onChangeText={setHomeDraft}
-              disabled={busy}
+              disabled={busy || current.mateAgentId !== ""}
             />
           )}
           <SettingsAction
             label="Save the home"
             actionLabel="Save"
-            disabled={busy || homeDraft === null || homeDraft.trim() === (current?.home ?? "")}
+            disabled={
+              busy || current?.mateAgentId !== "" || homeDraft === null || homeDraft.trim() === (current?.home ?? "")
+            }
             onPress={() => {
               if (homeDraft === null) return;
               apply({ home: homeDraft.trim() }, "Home saved.");

@@ -60,11 +60,14 @@ One line per project: \`- <name> [<mode> +yolo] - <path or clone URL> - <descrip
 - web [direct-PR +yolo] - /Users/me/code/web - The storefront
 - api [local-only] - /Users/me/code/api
 - docs - https://github.com/me/docs - Written by hand
+- site - ~/src/site - see [the docs](https://x) [WIP]
+- One line of prose that is not a project.
 `);
     expect(projects).toEqual([
       { name: "web", mode: "direct-PR", yolo: true, location: "/Users/me/code/web", description: "The storefront" },
       { name: "api", mode: "local-only", yolo: false, location: "/Users/me/code/api", description: null },
       { name: "docs", mode: null, yolo: false, location: "https://github.com/me/docs", description: "Written by hand" },
+      { name: "site", mode: null, yolo: false, location: "~/src/site", description: "see [the docs](https://x) [WIP]" },
     ]);
   });
 });

@@ -25,7 +25,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
-| `server/send.ts`              | Sending to an agent without interrupting its turn (`activeTurnBehavior: "steer"`).         |
+| `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
 | `server/cli.ts`               | `paseo stop`, for the interrupt the SDK does not have.                                     |
 | `server/config.ts`            | `$PASEO_HOME/plugins/firstmate/config.json`, read on every call.                           |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
@@ -62,15 +62,19 @@ What that costs:
 FirstMate's "zero-token supervision" was a bash watcher sleeping on status files. Paseo already has it:
 when an agent creates or prompts another through the MCP tools with `notifyOnFinish` (on by default
 for agent-scoped calls), the daemon sends the creator a `<paseo-system>` note when the child finishes,
-errors, is closed or asks for a permission — with the child's last message, and with
-`activeTurnBehavior: "steer"`, so it never interrupts the creator's turn. The charter tells the first
+errors, is closed or asks for a permission — with the child's last message, delivered with the same
+`activeTurnBehavior: "steer"` described under *Sending without interrupting*. The charter tells the first
 mate to keep it on and to read the crewmate's **status line**, the last line of that message.
 
 Two gaps, and what fills them:
 
 - **A turn the captain started from the board** was prompted by nobody Paseo knows to notify.
-  `registerSteerRelay` remembers each steer (`CaptainSteers`, in memory) and, on that crewmate's next
-  `agent.turn_ended`, sends the first mate a `<firstmate-board>` note with what was said and answered.
+  `registerSteerRelay` remembers each steer (`CaptainSteers`, in memory, an hour at most) and sends
+  the first mate a `<firstmate-board>` note with what was said and answered — on the first
+  `agent.turn_ended` whose timeline **contains** the steer as a user message, and never on a cancelled
+  one. The first turn to end is not always the answer: the one that was running may end first, and a
+  provider that cannot steer cancels it. A steer whose send failed is taken back, so it is never
+  relayed as said.
 - **Nothing wakes a first mate whose crew went quiet.** The charter has it keep one `create_heartbeat`
   while work is under way.
 
@@ -84,6 +88,12 @@ may be halfway through a dispatch — so `server/send.ts` sets `activeTurnBehavi
 SDK's options type does not declare but the handle passes through to the daemon (read in the 0.9.0 and
 0.9.1 client). Everything the plugin sends goes through it. If a later SDK drops the field, the message
 still arrives, as an interruption.
+
+"Steer" is only as gentle as the provider. The message joins the running turn where the provider
+can take one mid-turn; where it cannot, the daemon's `steerOrReplaceActiveTurn` **cancels** the turn
+and starts a new one from the message. That is the same path Paseo's own finish notifications take,
+so it is no worse than what the first mate already lives with, but it is not a guarantee — and it is
+why the steer relay above cannot assume the first `turn_ended` after a steer is the answer to it.
 
 ## The crew is found by label
 

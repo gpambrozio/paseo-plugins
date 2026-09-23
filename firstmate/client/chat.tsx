@@ -120,16 +120,23 @@ export function MateChat({
     };
   }, [theme, compact]);
 
-  function send(text: string, clearDraft: boolean): void {
+  /**
+   * The draft is cleared as the message goes, not when the daemon answers:
+   * the box stays editable while it is in flight, and a follow-up typed in
+   * that second must not be wiped by the reply. A failed send puts the text
+   * back, unless something new has been typed since.
+   */
+  function send(text: string, fromDraft: boolean): void {
     const trimmed = text.trim();
     if (trimmed === "" || sending) return;
     setSending(true);
     pinnedToEnd.current = true;
+    if (fromDraft) setDraft("");
     ask({ text: trimmed })
-      .then(() => {
-        if (clearDraft) setDraft("");
+      .catch((caught: unknown) => {
+        toast.error(errorText(caught));
+        if (fromDraft && cachedDraft.trim() === "") setDraft(text);
       })
-      .catch((caught: unknown) => toast.error(errorText(caught)))
       .finally(() => setSending(false));
   }
 
