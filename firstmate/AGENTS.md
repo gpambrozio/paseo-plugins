@@ -26,7 +26,8 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
 | `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
-| `server/cli.ts`               | `paseo stop`, for the interrupt the SDK does not have.                                     |
+| `server/cli.ts`               | `paseo stop` and `paseo project rename`, for what the SDK does not have.                   |
+| `server/home-name.ts`         | Names the home's project and workspace "FirstMate" instead of the folder's "home".         |
 | `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing the first mate's attention.    |
 | `server/config.ts`            | `$PASEO_HOME/plugins/firstmate/config.json`, read on every call.                           |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
@@ -163,6 +164,21 @@ already in its instructions, for a harness that reads neither.
 The backlog format is the contract between an agent and `server/backlog.ts`. Changing one means
 changing both, and the parser stays lenient: unknown groups are ignored, a line it cannot read is
 skipped, and `(since …)` is accepted without the colon because that is how the charter spells it.
+
+## The home is called FirstMate in the sidebar
+
+Paseo names a project and its workspace after their directory, and the default home is
+`…/plugins/firstmate/home`, so the sidebar said "home" twice. `nameHome` (`server/home-name.ts`) calls
+both "FirstMate": the workspace through the SDK's `setTitle`, the project through `paseo project rename`,
+since the SDK has no call for it. It runs on every launch and restart, and — for a first mate launched
+before this existed — once per plugin process from the board's first `firstmate.fleet.load`, only when the
+first mate works in its home (an adopted agent's workspace elsewhere is not the plugin's to name).
+A title or project name the captain set is kept, and the project is renamed only when its root is the
+home itself: a home chosen inside another project leaves that project's name alone. A failure is logged
+and never fails the launch or the board.
+
+Checked on a throwaway 0.9.1 daemon: a launch made both "FirstMate", and with the project reset to its
+directory name, a plugin reload and one board load named it again.
 
 ## Interrupting needs the CLI
 

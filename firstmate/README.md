@@ -27,8 +27,8 @@ There is nothing else to install.
   *Agent tools* switch in the FirstMate settings too.
 - A capable model for the first mate. It spends its day reading records and deciding who does what,
   and a small model gets the tools wrong. Claude Sonnet or better, or a comparable Codex model, works.
-- The `paseo` command on the daemon machine, which a Paseo install puts there. It is used only to
-  interrupt a worker from the board.
+- The `paseo` command on the daemon machine, which a Paseo install puts there. It is used to interrupt
+  a worker from the board and to name the first mate's project in Paseo's sidebar.
 
 ## Install
 
@@ -112,6 +112,9 @@ it changed, and choose to load theirs or overwrite it with yours.
 The first mate lives in a directory of its own — by default inside Paseo's plugin data, or anywhere you
 choose in the settings. It writes there and nowhere else; your projects are read-only to it, and every
 change is a worker's job.
+
+In Paseo's sidebar the first mate's project and workspace are called **FirstMate** rather than after
+the folder. Rename either and your name is kept.
 
 - `AGENTS.md` — its charter: how it takes requests, briefs and supervises workers, and talks to you.
   Rewritten every time it is launched, so it follows the plugin as it changes.

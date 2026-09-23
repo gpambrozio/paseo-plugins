@@ -57,6 +57,10 @@ function fakePaseo(agents: Record<string, Snapshot>) {
       },
     },
     workspaces: {
+      // Naming the home's workspace is `home-name.test.ts`'s business; here it finds nothing to name.
+      ref() {
+        return { refresh: async () => null };
+      },
       async open(cwd: string) {
         calls.push(`open ${cwd}`);
         return {

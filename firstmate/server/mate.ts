@@ -10,6 +10,7 @@ import { CREW_LABELS, type AgentSummary, type FirstmateConfig } from "../shared/
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import { fetchLiveAgent, listAgents, resolveMate, summarizeAgent } from "./fleet";
 import { prepareHome } from "./home";
+import { nameHomeOnce } from "./home-name";
 import type { PaseoApi } from "./host-types";
 import { sendSessionRequest } from "./daemon-session";
 import { sendWithoutInterrupting } from "./send";
@@ -140,6 +141,7 @@ async function startMate(
   await prepareHome(home, config);
 
   const workspace = await paseo.workspaces.open(home);
+  nameHomeOnce(paseo, workspace.id, home);
   const modeId = setup.modeId.trim();
   const thinkingOptionId = setup.thinkingOptionId.trim();
   const agent = await workspace.agents.create({

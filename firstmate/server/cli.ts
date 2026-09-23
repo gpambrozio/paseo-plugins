@@ -1,11 +1,12 @@
 /**
- * The `paseo` CLI, for the one crew action the plugin SDK does not offer.
+ * The `paseo` CLI, for what the plugin SDK does not offer.
  *
  * `PaseoAgentHandle` can send, archive and answer a permission, but it cannot
  * stop a turn — the handle has no cancel. The CLI can (`paseo stop <id>`, a
  * no-op for an idle agent), and plugin code runs unsandboxed next to the
- * daemon, so that is the way in. `herald` deletes its helpers the same way;
- * the lookup below is the same one.
+ * daemon, so that is the way in. Likewise the SDK can title a workspace but
+ * not rename a project. `herald` deletes its helpers the same way; the lookup
+ * below is the same one.
  */
 import { spawn } from "node:child_process";
 import { access, constants } from "node:fs/promises";
@@ -17,7 +18,7 @@ import { paseoHome } from "./config";
 /** Where an install puts the binary, for a daemon started with a bare PATH. */
 const EXTRA_CLI_DIRS = ["/usr/local/bin", "/opt/homebrew/bin"];
 
-const STOP_TIMEOUT_MS = 30_000;
+const CLI_TIMEOUT_MS = 30_000;
 
 export interface CliResult {
   code: number | null;
@@ -108,6 +109,18 @@ export async function stopAgent(agentId: string): Promise<void> {
   if (cli === null) {
     throw new Error("The `paseo` command is not on the daemon's PATH, so a turn cannot be interrupted from here.");
   }
-  const result = await spawnCli(cli, ["stop", agentId, "--home", paseoHome(), "--json"], STOP_TIMEOUT_MS);
+  const result = await spawnCli(cli, ["stop", agentId, "--home", paseoHome(), "--json"], CLI_TIMEOUT_MS);
   if (result.code !== 0) throw new Error(`paseo stop failed: ${cliError(result)}`);
+}
+
+/** Sets the name Paseo shows for a project, as `paseo project rename` does. */
+export async function renameProject(projectId: string, name: string): Promise<void> {
+  const cli = await paseoCli();
+  if (cli === null) throw new Error("The `paseo` command is not on the daemon's PATH, so a project cannot be renamed.");
+  const result = await spawnCli(
+    cli,
+    ["project", "rename", projectId, name, "--home", paseoHome(), "--json"],
+    CLI_TIMEOUT_MS,
+  );
+  if (result.code !== 0) throw new Error(`paseo project rename failed: ${cliError(result)}`);
 }
