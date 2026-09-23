@@ -1,0 +1,7 @@
+{
+  "id": "firstmate",
+  "description": "Talk to one first mate; it runs a crew of agents in their own worktrees",
+  "requirements": {
+    "paseo": ">=0.9.0"
+  }
+}

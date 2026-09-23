@@ -9,6 +9,7 @@ Plugins for [Paseo](https://paseo.sh). One folder per plugin, each self-containe
 | [`launchd-jobs/`](launchd-jobs) | `launchd-jobs` | Schedules shell commands through launchd on the daemon's Mac — a cron expression or an interval, run whether or not Paseo is open, with run history and logs. macOS only. |
 | [`herald/`](herald) | `herald` | A sidebar panel of every agent waiting on you — a question, a permission, a finished turn — each with a one-sentence summary a helper agent wrote, and the Paseo app speaks that sentence when it happens. |
 | [`model-pricing/`](model-pricing) | `model-pricing` | One sidebar table of what every model costs, across Anthropic, OpenAI, Fireworks AI, Ollama Cloud and OpenRouter, with the context window and capabilities beside each price. |
+| [`firstmate/`](firstmate) | `firstmate` | Talk to one first mate agent and it runs a crew of worker agents, each in its own git worktree, with a sidebar board of the crew beside the conversation. A Paseo-native take on [firstmate](https://github.com/kunchenguid/firstmate). |
 
 ## Install
 
@@ -21,6 +22,7 @@ paseo plugin install npm:@gpambrozio/paseo-github-board
 paseo plugin install npm:@gpambrozio/paseo-launchd-jobs
 paseo plugin install npm:@gpambrozio/paseo-herald
 paseo plugin install npm:@gpambrozio/paseo-model-pricing
+paseo plugin install npm:@gpambrozio/paseo-firstmate
 ```
 
 Add `@<version>` to install an exact one. npm is only how the daemon fetches the

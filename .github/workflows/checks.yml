@@ -47,7 +47,7 @@ jobs:
           package-manager-cache: false
 
       - name: Check every plugin's declarations against each other
-        run: node .github/scripts/check-plugin-consistency.mjs skills github-board launchd-jobs herald model-pricing
+        run: node .github/scripts/check-plugin-consistency.mjs skills github-board launchd-jobs herald model-pricing firstmate
 
   plugin:
     name: ${{ matrix.plugin }}
@@ -55,13 +55,13 @@ jobs:
     permissions:
       contents: read
     strategy:
-      # One plugin failing says nothing about the other four, and seeing all five verdicts at once
+      # One plugin failing says nothing about the others, and seeing every verdict at once
       # is worth more than stopping early.
       fail-fast: false
       matrix:
         # Spelled out rather than read from an `env`, because a matrix is evaluated before workflow
         # env exists. Adding a plugin means editing this list and `publish.yml`'s.
-        plugin: [skills, github-board, launchd-jobs, herald, model-pricing]
+        plugin: [skills, github-board, launchd-jobs, herald, model-pricing, firstmate]
     defaults:
       run:
         working-directory: ${{ matrix.plugin }}
@@ -81,7 +81,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      # `--if-present` so that a plugin without a test script is not a failure. All five have one.
+      # `--if-present` so that a plugin without a test script is not a failure. All of them have one.
       - name: Test
         run: npm run test --if-present
 

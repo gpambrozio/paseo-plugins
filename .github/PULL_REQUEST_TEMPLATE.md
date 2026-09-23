@@ -9,6 +9,7 @@
 - [ ] `launchd-jobs`
 - [ ] `herald`
 - [ ] `model-pricing`
+- [ ] `firstmate`
 - [ ] Repo-level (docs, CI, config)
 
 ## Checks
