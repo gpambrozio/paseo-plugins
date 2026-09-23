@@ -10,6 +10,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   Platform,
   Pressable,
+  SafeAreaView,
   ScrollView,
   Text,
   View,
@@ -114,13 +115,12 @@ export function MateChat({
       more: { color: colors.accent, fontSize: 11 },
       error: { color: colors.statusDanger, fontSize: 12 },
       hint: { color: colors.foregroundMuted, fontSize: 12, textAlign: "center" as const, padding: 16 },
-      composer: {
+      composerFrame: {
         borderTopWidth: 1,
         borderTopColor: colors.border,
-        padding: compact ? 8 : 10,
-        gap: 8,
         backgroundColor: colors.surface0,
       },
+      composer: { padding: compact ? 8 : 10, gap: 8 },
       quick: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6 },
       inputRow: { flexDirection: "row" as const, alignItems: "flex-end" as const, gap: 8 },
       input: {
@@ -251,61 +251,73 @@ export function MateChat({
           groups.map(renderGroup)
         )}
       </ScrollView>
-      <View style={styles.composer}>
-        <View style={styles.quick}>
-          <IconButton
-            icon="Compass"
-            label="Bearings"
-            showLabel
-            theme={theme}
-            disabled={sending}
-            onPress={() => send(bearingsPrompt(""), false)}
-          />
-          <IconButton
-            icon="Anchor"
-            label="Ahoy"
-            showLabel
-            theme={theme}
-            disabled={sending}
-            onPress={() => send(ahoyPrompt(""), false)}
-          />
-          {onOpen === null ? null : (
-            <IconButton icon="ExternalLink" label="Open in Paseo" showLabel theme={theme} onPress={onOpen} />
-          )}
+      {/*
+        The host pads a surface's top, under its header, but not its bottom, so
+        on a phone the composer would sit on the home indicator. React Native's
+        own SafeAreaView is the one inset source a plugin can import — the
+        safe-area-context library is not among the host's modules. It pads
+        only the edges it overlaps, and it replaces any padding in its own
+        style, which is why the composer's padding is on the view inside.
+        Deprecated in React Native 0.81 but present; the web renderer pads by
+        the browser's safe-area insets, which are zero on a desktop.
+      */}
+      <SafeAreaView style={styles.composerFrame}>
+        <View style={styles.composer}>
+          <View style={styles.quick}>
+            <IconButton
+              icon="Compass"
+              label="Bearings"
+              showLabel
+              theme={theme}
+              disabled={sending}
+              onPress={() => send(bearingsPrompt(""), false)}
+            />
+            <IconButton
+              icon="Anchor"
+              label="Ahoy"
+              showLabel
+              theme={theme}
+              disabled={sending}
+              onPress={() => send(ahoyPrompt(""), false)}
+            />
+            {onOpen === null ? null : (
+              <IconButton icon="ExternalLink" label="Open in Paseo" showLabel theme={theme} onPress={onOpen} />
+            )}
+          </View>
+          <View style={styles.inputRow}>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder={
+                submitOnEnter
+                  ? "Tell the first mate what you need, captain… (Enter sends, Shift+Enter for a new line)"
+                  : "Tell the first mate what you need, captain…"
+              }
+              placeholderTextColor={theme.colors.foregroundMuted}
+              multiline
+              onKeyPress={
+                submitOnEnter
+                  ? (event: WebKeyPressEvent) => {
+                      // Nothing to send, or a send in flight: Enter is left alone, as Paseo leaves it.
+                      if (!isSendKey(event.nativeEvent) || sending || draft.trim() === "") return;
+                      event.preventDefault();
+                      send(draft, true);
+                    }
+                  : undefined
+              }
+              style={styles.input}
+            />
+            <IconButton
+              icon="Send"
+              label="Send"
+              tone="accent"
+              theme={theme}
+              disabled={sending || draft.trim() === ""}
+              onPress={() => send(draft, true)}
+            />
+          </View>
         </View>
-        <View style={styles.inputRow}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder={
-              submitOnEnter
-                ? "Tell the first mate what you need, captain… (Enter sends, Shift+Enter for a new line)"
-                : "Tell the first mate what you need, captain…"
-            }
-            placeholderTextColor={theme.colors.foregroundMuted}
-            multiline
-            onKeyPress={
-              submitOnEnter
-                ? (event: WebKeyPressEvent) => {
-                    // Nothing to send, or a send in flight: Enter is left alone, as Paseo leaves it.
-                    if (!isSendKey(event.nativeEvent) || sending || draft.trim() === "") return;
-                    event.preventDefault();
-                    send(draft, true);
-                  }
-                : undefined
-            }
-            style={styles.input}
-          />
-          <IconButton
-            icon="Send"
-            label="Send"
-            tone="accent"
-            theme={theme}
-            disabled={sending || draft.trim() === ""}
-            onPress={() => send(draft, true)}
-          />
-        </View>
-      </View>
+      </SafeAreaView>
     </View>
   );
 }
