@@ -99,11 +99,12 @@ how far behind on the branch line: `feature → main · 12 commits behind`.
 
 Where GitHub would let you bring it up to date, the card and the panel also
 offer **Update branch** — on a card it appears on hover beside **Send to chat**,
-and on a phone it sits in the card's button row. It does what GitHub's own
-button does, merging the base branch into the pull request's branch on GitHub;
-it never rebases, so a checkout of the branch elsewhere still pulls cleanly. The
-pill goes away once GitHub accepts the update. If the branch has conflicts,
-GitHub refuses and the message says why.
+and on a phone it sits in the card's button row. In a tablet's browser, where
+nothing hovers, open the card and use the button in the panel. It does what
+GitHub's own button does, merging the base branch into the pull request's branch
+on GitHub; it never rebases, so a checkout of the branch elsewhere still pulls
+cleanly. The pill goes away once GitHub accepts the update. If the branch has
+conflicts, GitHub refuses and the message says why.
 
 Some out-of-date pull requests show the pill and no button. That is GitHub's
 answer, not the plugin's: it offers no update when the branch has conflicts,

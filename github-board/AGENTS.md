@@ -210,12 +210,29 @@ default and rewrites nothing, where a rebase would break every checkout of the b
 `expectedHeadOid` is left off: it refuses the update whenever the branch moved since the board was
 loaded, and merging the base into the newer head is still what the button said it would do.
 
-**A success is taken at its word.** The handler answers `{ behindBy: 0, canUpdate: false }` rather
-than comparing again, because GitHub makes the merge commit on its own side and an immediate
-comparison can still see the old head — putting the pill straight back on a branch that was just
-updated. The next refresh reads the real state. Both caches are patched with that answer, exactly as
-for a label (`patchCachedItem` on the server, `patchItem` on the client), and for the same reason.
-The checks on the card describe the old head until then; they are left alone rather than guessed at.
+**A success is taken at its word, for two minutes.** The handler answers `{ behindBy: 0,
+canUpdate: false }` rather than comparing again, because GitHub makes the merge commit on its own
+side and an immediate comparison can still see the old head — putting the pill straight back on a
+branch that was just updated. Both caches are patched with that answer, exactly as for a label
+(`patchCachedItem` on the server, `patchBoardItem` on the client), and for the same reason.
+
+Patching is not enough on its own: a refresh already running when the update lands compared the
+branch *before* it, and caching its board would undo the patch. So `updateBranchHandler` also
+stamps `recentBranchUpdates`, and `loadBoardHandler` runs every pull request through
+`settledBranch` after its last `await` and before it caches — within `BRANCH_UPDATE_SETTLE_MS` of an
+update the answer stays "up to date" whatever the comparison said. That covers the in-flight race
+and a Refresh pressed before GitHub has caught up; after the window, the comparison is believed
+again. The checks on the card describe the old head until a refresh; they are left alone rather
+than guessed at.
+
+**The answer reaches whichever board is mounted when it arrives**, not the one that asked. Press
+Update branch, switch workspace and come back, and the reply lands after the remount — calling the
+old instance's `setBoard` would do nothing and leave the new one showing the pill. So
+`patchBoardItem` is module-scope and goes through `setMountedBoard`, which the mounted board
+registers on mount and clears on unmount. Labels take the same path. The in-flight set is *not*
+module-scope: a board remounted mid-update shows the button active again, and a second press there
+sends the mutation a second time. Accepted rather than adding a subscription for a window of a
+second or two; what GitHub answers to an update with nothing left to merge has not been checked.
 
 The in-flight set, `updatingBranches`, lives on the board rather than in a card, so the card and
 the panel show the same "Updating…" and a second press from either is ignored. A failure — merge
@@ -225,9 +242,17 @@ On the wide layout **Update branch** joins Send to chat in the hover overlay, no
 (`cardOverlay`) whose `pointerEvents: "box-none"` lets the gap between the two fall through to the
 card. Each button tracks its own hover, for the reason in *Send to chat* below. The overlay's
 Update branch is never `disabled` — a disabled Pressable stops reporting hover on web, so a pointer
-leaving mid-update would strand the overlay revealed — and an effect clears its hover state when a
-successful update unmounts it under the pointer. On compact it is an outlined button in the action
-row, left of Send.
+leaving mid-update would strand the overlay revealed. When a successful update unmounts it under
+the pointer, an effect clears its hover and hands the card its hover back: on web a child that takes
+the pointer ends the card's hover and only the child's hover-out restores it, so without that the
+overlay would hide under a pointer that is still on the card. On compact it is an outlined button in
+the action row, left of Send.
+
+**Unlike Send, the overlay's Update branch does nothing while hidden.** Send only opens a dialog;
+this pushes a commit. React Native Web's hover ignores touch pointers, so on a wide layout driven by
+touch — a tablet browser — the overlay never shows, yet a tap on the card's bottom-right corner would
+still land on it, as would Enter on a focused button nobody can see. There the panel's button is the
+way to update a branch.
 
 The pill takes `statusWarning`: nothing is broken, it is work waiting to be done.
 

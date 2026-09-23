@@ -148,6 +148,31 @@ function renderTemplate(template: string, item: BoardItem): string {
 let cachedBoard: Board | null = null;
 let cachedFetchedAt = 0;
 /**
+ * The mounted board's own `setBoard`, or null while none is mounted. An edit
+ * outlives the surface that started it — press Update branch, switch workspace
+ * and come back, and the answer arrives after the remount — so `patchBoardItem`
+ * reaches whichever board is on screen *now* instead of the one that asked.
+ */
+let setMountedBoard: ((update: (current: Board | null) => Board | null) => void) | null = null;
+
+/**
+ * Adopts what GitHub reported after an edit — a label toggled, a branch
+ * updated. The cached board is patched alongside the rendered one, or the
+ * next remount — which happens on every workspace switch — would repaint what
+ * the edit replaced.
+ */
+function patchBoardItem(itemId: string, patch: Partial<BoardItem>): void {
+  const apply = (current: Board): Board => ({
+    ...current,
+    columns: current.columns.map((column) => ({
+      ...column,
+      items: column.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
+    })),
+  });
+  if (cachedBoard !== null) cachedBoard = apply(cachedBoard);
+  setMountedBoard?.((current) => (current === null ? current : apply(current)));
+}
+/**
  * Whether the one-way migration out of the daemon's old settings file has been
  * attempted in this app session. Module scope because the surface remounts on
  * every workspace switch and the answer cannot change underneath us: the
@@ -1553,12 +1578,18 @@ function Card({
 
   /**
    * A successful update unmounts its button under the pointer, and an
-   * unmounted button never reports the hover-out that would clear its state —
-   * which would keep the actions revealed after the pointer had left the card.
+   * unmounted button never reports the hover-out that would clear its state.
+   * Nor does the card get its own hover back: on web a child that takes the
+   * pointer ends the card's hover, and only the child's hover-out restores it.
+   * The pointer is over the card at that moment, so the card takes it back —
+   * otherwise the actions would hide under the pointer until it left and
+   * returned.
    */
   useEffect(() => {
-    if (!canUpdate) setUpdateHovered(false);
-  }, [canUpdate]);
+    if (canUpdate || !updateHovered) return;
+    setUpdateHovered(false);
+    setCardHovered(true);
+  }, [canUpdate, updateHovered]);
 
   /**
    * Revealed by style rather than by mounting: an action that unmounts under the
@@ -1724,7 +1755,12 @@ function Card({
               // Not `disabled`: a disabled Pressable stops reporting hover, so
               // the pointer leaving mid-update would leave the actions stuck
               // revealed. The board ignores a second press while one runs.
-              onPress={update}
+              //
+              // Inert while hidden, unlike Send: this one pushes a commit with
+              // no dialog to cancel, and on touch web nothing ever hovers, so
+              // a tap on the card's corner — or Enter on a focused, invisible
+              // button — would otherwise merge without the user seeing it.
+              onPress={revealed ? update : undefined}
               onHoverIn={() => setUpdateHovered(true)}
               onHoverOut={() => setUpdateHovered(false)}
               style={({ pressed }) => [
@@ -3887,6 +3923,12 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   }, [ackLegacy, display, prompts, takeLegacy, toast]);
 
   const [board, setBoard] = useState<Board | null>(cachedBoard);
+  useEffect(() => {
+    setMountedBoard = setBoard;
+    return () => {
+      if (setMountedBoard === setBoard) setMountedBoard = null;
+    };
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(cachedBoard === null);
   const [loginDraft, setLoginDraft] = useState(cachedBoard?.login ?? "");
@@ -4153,27 +4195,9 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     });
   }, []);
 
-  /**
-   * Adopts what GitHub reported after an edit — a label toggled, a branch
-   * updated. The cached board is patched alongside the rendered one, or the
-   * next remount — which happens on every workspace switch — would repaint
-   * what the edit replaced.
-   */
-  const patchItem = useCallback((itemId: string, patch: Partial<BoardItem>) => {
-    const apply = (current: Board): Board => ({
-      ...current,
-      columns: current.columns.map((column) => ({
-        ...column,
-        items: column.items.map((item) => (item.id === itemId ? { ...item, ...patch } : item)),
-      })),
-    });
-    if (cachedBoard !== null) cachedBoard = apply(cachedBoard);
-    setBoard((current) => (current === null ? current : apply(current)));
-  }, []);
-
   const applyItemLabels = useCallback(
-    (itemId: string, labels: string[]) => patchItem(itemId, { labels }),
-    [patchItem],
+    (itemId: string, labels: string[]) => patchBoardItem(itemId, { labels }),
+    [],
   );
 
   /**
@@ -4188,7 +4212,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
       setUpdatingBranches((current) => new Set(current).add(item.id));
       requestBranchUpdate({ id: item.id })
         .then((result) => {
-          patchItem(item.id, { branch: result.branch });
+          patchBoardItem(item.id, { branch: result.branch });
           toast.show(`Updated ${item.repository} #${item.number} with its base branch.`, {
             variant: "success",
           });
@@ -4208,7 +4232,7 @@ export function GitHubBoard(props: PluginSurfaceProps) {
           });
         });
     },
-    [patchItem, requestBranchUpdate, toast, updatingBranches],
+    [requestBranchUpdate, toast, updatingBranches],
   );
 
   const openDetails = useCallback((item: BoardItem, type: ColumnId) => {

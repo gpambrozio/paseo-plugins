@@ -782,6 +782,41 @@ export function toBranchStatus(node: unknown): BranchStatus | null {
 }
 
 /**
+ * Up to date from here on. GitHub accepts the update and makes the merge
+ * commit on its side, so comparing straight afterwards could still see the old
+ * head and put the pill back on a branch that was just updated; a success is
+ * taken at its word instead. A merge conflict fails the mutation itself, which
+ * is what the client then shows.
+ */
+const UPDATED_BRANCH: BranchStatus = { behindBy: 0, canUpdate: false };
+
+/**
+ * How long a success is taken at its word over a comparison — long enough for
+ * GitHub to have made the merge commit, after which a refresh reads the real
+ * state again.
+ */
+const BRANCH_UPDATE_SETTLE_MS = 2 * 60_000;
+
+/**
+ * When each pull request's branch was last updated from this daemon, by node
+ * id. Patching the cached board is not enough on its own: a refresh already
+ * running when the update lands compared the branch *before* it, and would
+ * replace the patched board with that answer — putting the pill and the button
+ * straight back. So `loadBoardHandler` consults this once every request has
+ * returned, just before it caches the board, which covers that race and a
+ * refresh pressed before GitHub has caught up.
+ */
+const recentBranchUpdates = new Map<string, number>();
+
+function settledBranch(item: BoardItem): BoardItem {
+  const updatedAt = recentBranchUpdates.get(item.id);
+  if (updatedAt === undefined) return item;
+  if (Date.now() - updatedAt < BRANCH_UPDATE_SETTLE_MS) return { ...item, branch: UPDATED_BRANCH };
+  recentBranchUpdates.delete(item.id);
+  return item;
+}
+
+/**
  * Whether each pull request has fallen behind its base, draft and open alike —
  * unlike checks, being out of date is worth knowing while the work is still a
  * draft, because that is when bringing it up to date is cheapest.
@@ -1031,10 +1066,22 @@ export async function loadBoardHandler(
     settle("discussions", "Discussions", () => fetchDiscussions(resolved, limit)),
   ]);
 
+  // After every await above, so an update that landed while they ran wins
+  // over what they saw.
   const columns: BoardColumn[] = [
     issues,
-    { id: "draft-prs", title: "Draft PRs", items: prs.split.draft, error: prs.error },
-    { id: "open-prs", title: "Open PRs", items: prs.split.open, error: prs.error },
+    {
+      id: "draft-prs",
+      title: "Draft PRs",
+      items: prs.split.draft.map(settledBranch),
+      error: prs.error,
+    },
+    {
+      id: "open-prs",
+      title: "Open PRs",
+      items: prs.split.open.map(settledBranch),
+      error: prs.error,
+    },
     discussions,
   ];
   const fetchedAt = new Date().toISOString();
@@ -1252,19 +1299,11 @@ const UPDATE_BRANCH_MUTATION = `mutation($id: ID!) {
   }
 }`;
 
-/**
- * Up to date from here on. GitHub accepts the update and makes the merge
- * commit on its side, so comparing straight afterwards could still see the old
- * head and put the pill back on a branch that was just updated; a success is
- * taken at its word instead, and the next refresh reads the real state. A merge
- * conflict fails the mutation itself, which is what the client then shows.
- */
-const UPDATED_BRANCH: BranchStatus = { behindBy: 0, canUpdate: false };
-
 export async function updateBranchHandler({
   id,
 }: z.output<typeof updateBranch.input>): Promise<z.input<typeof updateBranch.output>> {
   await gh(["api", "graphql", "-f", `query=${UPDATE_BRANCH_MUTATION}`, "-f", `id=${id}`]);
+  recentBranchUpdates.set(id, Date.now());
   patchCachedItem(id, { branch: UPDATED_BRANCH });
   return { branch: UPDATED_BRANCH };
 }
