@@ -67,6 +67,61 @@ export function IconButton({
   );
 }
 
+/**
+ * A two-or-more-way switch, drawn to sit in a row of `IconButton`s: the same
+ * 28-point height (a 14-point icon, 6 points of padding each side, a 1-point
+ * border), radius and border, with the selected segment in the accent colour.
+ */
+export function Segmented<Value extends string>({
+  theme,
+  value,
+  options,
+  onChange,
+}: {
+  theme: PluginTheme;
+  value: Value;
+  options: ReadonlyArray<{ value: Value; label: string }>;
+  onChange: (value: Value) => void;
+}) {
+  const colors = theme.colors;
+  const styles = useMemo(
+    () => ({
+      frame: {
+        flexDirection: "row" as const,
+        height: 28,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
+        overflow: "hidden" as const,
+      },
+      segment: { justifyContent: "center" as const, paddingHorizontal: 12 },
+      selected: { backgroundColor: colors.accent },
+      label: { color: colors.foreground, fontSize: 12, fontWeight: "500" as const },
+      labelSelected: { color: colors.accentForeground, fontWeight: "600" as const },
+    }),
+    [colors],
+  );
+  return (
+    <View style={styles.frame} accessibilityRole="tablist">
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            style={[styles.segment, selected ? styles.selected : null]}
+            onPress={() => onChange(option.value)}
+          >
+            <Text style={[styles.label, selected ? styles.labelSelected : null]}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 /** A full-width notice under the header. */
 export function Banner({
   theme,

@@ -25,7 +25,7 @@ import { MateChat } from "./chat";
 import { agentStatusLabel, agentStatusTone, groupCards, moveColumn, orderedColumns, shortPath } from "./format";
 import { LaunchPanel } from "./launch";
 import { ResizeHandle, clampShare } from "./resize-handle";
-import { Banner, Chip, IconButton, errorText } from "./ui";
+import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 
 export const FLEET_QUERY_KEY = ["firstmate", "fleet"] as const;
 
@@ -190,8 +190,6 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
         borderRadius: 8,
         overflow: "hidden" as const,
       },
-      /** The Crew / Files switch over the right-hand pane: narrower than the phone's tabs. */
-      paneTabs: { alignSelf: "flex-start" as const, marginBottom: 0, minWidth: 220 },
       tab: { flex: 1, paddingVertical: 7, alignItems: "center" as const },
       tabActive: { backgroundColor: colors.accent },
       tabText: { color: colors.foreground, fontSize: 13 },
@@ -311,6 +309,17 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
           <Chip theme={theme} text={`First mate · ${agentStatusLabel(mate)}`} color={agentStatusTone(theme, mate)} />
         )}
         <View style={styles.spacer} />
+        {!compact && mate !== null && data !== null && !values.boardCollapsed ? (
+          <Segmented
+            theme={theme}
+            value={rightPane}
+            options={[
+              { value: "board", label: `Crew (${data.cards.length})` },
+              { value: "files", label: "Files" },
+            ]}
+            onChange={setRightPane}
+          />
+        ) : null}
         {!compact && mate !== null ? (
           <>
             <IconButton
@@ -466,24 +475,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
           </View>
         ) : (
           <View style={{ flex: 1, minWidth: 0 }}>
-            <View style={[styles.tabs, styles.paneTabs]}>
-              {(["board", "files"] as const).map((id) => (
-                <Pressable
-                  key={id}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: rightPane === id }}
-                  style={[styles.tab, rightPane === id ? styles.tabActive : null]}
-                  onPress={() => setRightPane(id)}
-                >
-                  <Text style={[styles.tabText, rightPane === id ? styles.tabTextActive : null]}>
-                    {id === "board" ? `Crew (${data.cards.length})` : "Files"}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <View style={{ flex: 1, minHeight: 0 }}>
-              {rightPane === "board" ? board : <FilesView theme={theme} compact={false} />}
-            </View>
+            {rightPane === "board" ? board : <FilesView theme={theme} compact={false} />}
           </View>
         )}
       </View>
