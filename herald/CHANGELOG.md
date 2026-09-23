@@ -16,6 +16,11 @@ read before you move.
   when it finishes, fails or needs your permission. You now hear that agent's announcement, in its
   words, instead of both. These agents still appear in the Herald panel, without a spoken summary.
   To hear them as before, turn on *Agents started by another agent* in Herald's settings.
+- **Some of those agents' news is not spoken by anyone.** Paseo tells the starting agent only about
+  the task it handed over. So when you send a prompt yourself to an agent whose first task is done,
+  or when an agent was started without asking to be told when it finishes, its questions and
+  results stay in the Herald panel and are not spoken. Turn on *Agents started by another agent* if
+  you would rather hear them.
 
 ## [0.4.0] — 2026-09-22
 

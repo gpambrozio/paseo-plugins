@@ -197,6 +197,10 @@ export const DEFAULT_CLEANUP = {
  * when it finishes, fails or asks for a permission, so the parent's own
  * announcement already covers it — a FirstMate worker's news reaches the user
  * in the first mate's words. Off by default; on announces both.
+ *
+ * Off also mutes what the parent is never told: the child's later turns once its
+ * first one has finished or failed, and a child started without a finish
+ * notification. Those are listed in the panel and spoken by nobody.
  */
 export const DEFAULT_SUBAGENTS = {
   announce: false,

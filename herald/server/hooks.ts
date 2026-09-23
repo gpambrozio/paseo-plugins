@@ -79,6 +79,11 @@ export const INTERRUPT_GRACE_MS = 10_000;
  * tells the parent when it finishes, fails or asks for a permission — so unless
  * the user has asked for subagents too, the parent's announcement is the one
  * they hear. Herald's own helpers have a parent as well, but never get here.
+ *
+ * A parent is not a subscription, and nothing in the hook payload says which
+ * one this is: Paseo stops telling the parent after the child's first finish or
+ * error, and never tells it about a child started without `notifyOnFinish`. Both
+ * are muted anyway — a known gap, see "Agents another agent started" in AGENTS.md.
  */
 export function isAnnounced(agent: PluginHookAgent, reason: AttentionReason, config: HeraldConfig): boolean {
   if (agent.parentAgentId !== null && !config.subagents.announce) return false;

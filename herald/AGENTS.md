@@ -159,6 +159,24 @@ any other agent: there is nobody left to speak for it. A legacy `detached` creat
 and is announced throughout. Herald's own helpers have a parent too, but `isHelper` drops their events
 before any of this.
 
+**A parent is not a subscription, and the mute covers both anyway — a known gap, kept on purpose.**
+In Paseo 0.9.0 the note to the parent comes from `setupFinishNotification`
+(`packages/server/src/server/agent/agent-prompt.ts`), an in-memory subscription that stops at the
+child's first finish, error or close while the parent label stays. `createAgentCommand` registers it
+only when `notifyOnFinish` is true and the initial prompt started, and `send_agent_prompt` subscribes
+whoever called it, parent or not. So two kinds of event are muted with nobody to speak for them:
+
+- **a child's later turns** — the user opens a finished worker and prompts it directly, and its next
+  question, error or finish is listed as "Not announced" and never reaches the parent;
+- **a child started without a finish notification** — `notifyOnFinish: false`, or no initial prompt —
+  which is muted from its first event.
+
+Herald cannot tell these apart from the covered case: `PluginHookAgent` carries the parent id and
+nothing about subscriptions, `agent.turn_started` does not say who prompted the turn, and a
+`user_message` timeline item has no origin. Muting by parentage was chosen over announcing by default
+(or guessing from the parent's timeline) and is pinned by the tests in `server/hooks.test.ts`. If the
+plugin API ever exposes the subscription or a turn's origin, gate on that instead.
+
 ## `turn_ended` can repeat
 
 The reference says a turn id can repeat after a session reopens, and the community `top` plugin has

@@ -421,7 +421,7 @@ export function HeraldSettingsScreen(props: PluginSurfaceProps) {
           ))}
           <SettingsSwitch
             label="Agents started by another agent"
-            hint="Subagents and FirstMate workers report to the agent that started them, and Paseo tells it when they finish, fail or need a permission, so you hear that agent instead. On announces both."
+            hint="Subagents and FirstMate workers report to the agent that started them, and Paseo tells it when they finish, fail or need a permission, so you hear that agent instead. Off also silences what that agent is never told: their later turns you start yourself, and any started without a finish notification. On announces both."
             value={config?.subagents.announce ?? false}
             disabled={config === null}
             onValueChange={(value) => {
