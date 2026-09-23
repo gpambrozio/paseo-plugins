@@ -59,7 +59,8 @@ To hack on it, clone the repository and run `paseo plugin install "$PWD"` from t
   messages while you are at the bottom; scroll up to read, and the round button at the bottom brings
   you back.
 - **How full its memory is** — the ring at the end of the chat's buttons shows how much of the first
-  mate's context window is used, the way Paseo's own chat does: amber from 70%, red past 90%.
+  mate's context window is used, the way Paseo's own chat does: amber from 70%, red past 90%. Hover
+  over it, or tap it on a phone, for the share and the token counts.
   **Compact** has it summarise its conversation to free room, as `/compact` does in Paseo. **Restart**
   starts a new first mate from scratch, with the same model and settings, after asking you. Both wait
   until the first mate is between turns. On a restart its records carry over, the old conversation stays in

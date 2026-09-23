@@ -65,7 +65,7 @@ export function MateControls({
 
   return (
     <View style={styles.group}>
-      <ContextMeter theme={theme} used={usedTokens} max={maxTokens} compact={compact} />
+      <ContextMeter theme={theme} used={usedTokens} max={maxTokens} />
       <IconButton
         icon="Shrink"
         label="Compact"

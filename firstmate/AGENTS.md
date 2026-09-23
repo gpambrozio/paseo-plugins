@@ -43,7 +43,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
 | `client/activity-rows.ts`     | Timeline entries → Watch rows, machinery kept: reasoning, tool detail, the latest plan. Pure. |
 | `client/mate-controls.tsx`    | The context meter, Compact and Restart (with its confirmation), at the end of the chat's buttons. |
-| `client/context-meter.tsx`    | How full the first mate's context is: Paseo's ring, built from views, the share, the tokens. |
+| `client/context-meter.tsx`    | How full the first mate's context is: Paseo's ring, built from views; the numbers in a tooltip. |
 | `client/follow-end.ts`        | A streaming transcript that follows its end, brings a new request into view, jumps back.   |
 | `client/launch.tsx`           | What shows before there is a first mate: launch one, or adopt a running agent.             |
 | `client/panels.tsx`           | The workspace and agent panels: the crewmate's card beside its own tab.                    |
@@ -270,6 +270,13 @@ since its edge showed as a hairline on the seam. Rendered through react-native-w
 and at 14 points to check the angles; iOS and Android draw per-side border colours on a rounded view the
 same way, but have not been looked at. No usage yet — before the first turn ends — draws nothing, as
 Paseo's does.
+
+The ring is all the row shows, as in Paseo; the numbers — the share, the tokens — are in a tooltip above
+it. It opens on hover (`Pressable`'s `onHoverIn`/`onHoverOut`, the web renderer's) and toggles on a tap
+where there is no pointer, a phone; a tap under a hovering pointer is ignored, or clicking the ring would
+hide the tooltip being pointed at. The box has a fixed width because an absolutely positioned view is
+measured against its parent, the 28-point ring, and would wrap to it. Checked in Chromium through
+react-native-web, hover, click and leave.
 
 - **Compact** (`firstmate.mate.compact`) sends `/compact`, the command Paseo's own composer sends; Claude
   Code (a root-only command there, and the first mate is a root agent), Codex and OpenCode each compact on
