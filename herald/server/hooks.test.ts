@@ -467,6 +467,31 @@ describe("registerHooks", () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
+  // Known gap, kept on purpose: a parent id is not a subscription. Paseo stops
+  // notifying the parent after the child's first finish, and never starts for a
+  // child created without notifyOnFinish, but the hook payload says neither.
+  it("mutes a subagent's later turns too, though its parent is no longer told", async () => {
+    const child: PluginHookAgent = { ...agent, parentAgentId: "mate" };
+    const { store, summarize, publish, emit } = setup();
+    await emit("agent.turn_ended", { agent: child, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn_started", { agent: child, turnId: "t2" });
+    await emit("agent.turn_ended", { agent: child, turnId: "t2", outcome: { kind: "completed" }, timeline });
+    await settle();
+    expect(store.get("a1")?.summary.status).toBe("off");
+    expect(summarize).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("mutes a subagent whatever it waits on, though its parent may never be told", async () => {
+    const child: PluginHookAgent = { ...agent, parentAgentId: "mate" };
+    const { store, summarize, publish, emit } = setup();
+    await emit("agent.permission_requested", { agent: child, request: question });
+    await settle();
+    expect(store.get("a1")?.summary.status).toBe("off");
+    expect(summarize).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it("announces subagents too when the user asks for them", async () => {
     const child: PluginHookAgent = { ...agent, parentAgentId: "mate" };
     const config: HeraldConfig = { ...DEFAULT_CONFIG, subagents: { announce: true } };
