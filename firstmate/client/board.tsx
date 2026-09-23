@@ -165,7 +165,9 @@ export function Board(props: BoardProps) {
 
   if (compact) {
     return (
-      <ScrollView contentContainerStyle={styles.stack}>
+      // The steer and relaunch boxes on a card are inside this list; on iOS the
+      // system insets it for the keyboard and scrolls the focused box into view.
+      <ScrollView contentContainerStyle={styles.stack} automaticallyAdjustKeyboardInsets>
         {order.map((id) => {
           const entries = groups.get(id) ?? [];
           const folded = collapsed.includes(id);

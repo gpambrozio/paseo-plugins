@@ -112,7 +112,7 @@ function PanelBody({
   else summary = cards.length === 1 ? "A FirstMate worker." : `${cards.length} FirstMate workers.`;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content} automaticallyAdjustKeyboardInsets>
       <Text style={styles.title}>FirstMate</Text>
       <Text style={styles.muted}>{summary}</Text>
       {cards.map((card) => (

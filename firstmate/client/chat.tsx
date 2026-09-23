@@ -6,7 +6,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
   Pressable,
@@ -24,6 +24,7 @@ import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
 import { IconButton, errorText } from "./ui";
+import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
 
 /**
@@ -86,6 +87,13 @@ export function MateChat({
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
   const scroller = useRef<ScrollView>(null);
   const pinnedToEnd = useRef(true);
+  const pane = useRef<View>(null);
+  /** The keyboard's cover over this pane; padding it away lifts the composer above the keyboard. */
+  const keyboard = useKeyboardOverlap(pane);
+  // The transcript shrinks when the keyboard opens; keep its end in view if that is where the captain was.
+  useEffect(() => {
+    if (keyboard > 0 && pinnedToEnd.current) scroller.current?.scrollToEnd({ animated: false });
+  }, [keyboard]);
   const submitOnEnter = Platform.OS === "web" && !compact;
 
   function setDraft(text: string): void {
@@ -233,7 +241,7 @@ export function MateChat({
   }
 
   return (
-    <View style={styles.pane}>
+    <View ref={pane} style={[styles.pane, { paddingBottom: keyboard }]}>
       <ScrollView
         ref={scroller}
         style={styles.transcript}

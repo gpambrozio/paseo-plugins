@@ -32,6 +32,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
 | `client/fleet.tsx`            | The surface: header, banners, chat/board split, compact tabs, the shared fleet query.      |
 | `client/chat.tsx`             | The first mate's conversation, folded to the words, and the composer.                      |
+| `client/keyboard.ts`          | How far the on-screen keyboard covers a view, measured in window coordinates.              |
 | `client/keys.ts`              | Enter sends, Shift+Enter is a new line — web and wide layouts only, as in Paseo. Pure.     |
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
@@ -175,6 +176,27 @@ uses — and waits for the response carrying its own `requestId`. That is the pr
 interface: a daemon that changes the message answers with a timeout, which is logged and costs
 nothing. Only complete, valid session messages go this way; a malformed frame is a protocol
 violation, and the daemon closes the socket every other call from the plugin rides on.
+
+## Phones: the home indicator and the keyboard
+
+The host pads a surface's top, under its header, and nothing else: not the home indicator, and not
+the keyboard — Paseo moves its own composer with `react-native-keyboard-controller` and
+`react-native-safe-area-context`, and neither is a module a plugin may import. So the chat does both
+itself, with what `react-native` offers:
+
+- **The home indicator.** The composer is wrapped in `SafeAreaView` (deprecated in React Native
+  0.81, still present). It replaces the padding in its own style, which is why the composer's padding
+  is on the view inside it. It does nothing on Android.
+- **The keyboard.** `useKeyboardOverlap` (`client/keyboard.ts`) measures the chat pane with
+  `measureInWindow` — the space the keyboard's frame is reported in — and the pane pads its bottom
+  by the overlap. `KeyboardAvoidingView` is not used because it measures against its parent, which
+  inside the host's screen needs an offset nobody here knows. Lifted above the keyboard, the composer
+  no longer overlaps the home indicator, so its safe-area padding drops to zero instead of stacking.
+- **The lists with text boxes in them** — the compact board, the panels, the launch screen,
+  settings — use `automaticallyAdjustKeyboardInsets`, iOS-only, which insets a `ScrollView` and
+  scrolls the focused box into view.
+
+All of it was written against a screenshot and has to be checked on a device.
 
 ## What was left out
 

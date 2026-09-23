@@ -350,7 +350,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
     return (
       <View style={styles.screen}>
         {header}
-        <ScrollView>
+        <ScrollView automaticallyAdjustKeyboardInsets>
           {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
           <LaunchPanel theme={theme} compact={compact} home={data.home} onLaunched={refresh} />
         </ScrollView>

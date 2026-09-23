@@ -92,7 +92,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const tools = fleet.data?.agentTools ?? null;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content} automaticallyAdjustKeyboardInsets>
       <SettingsGroup title="The first mate">
         <SettingsSection title="Aboard">
           <SettingsRow
