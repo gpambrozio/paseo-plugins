@@ -338,3 +338,20 @@ only when that agent's composer is on screen, so the scan stays bounded to the a
 looking at instead of running once per agent on the host at every app connection. Cost if wrong: a
 box holding the registration the icon was built from, because the two are defined in terms of each
 other.
+
+Ruling 51 (2026-09-23, supersedes Ruling 48): on a Paseo 0.9 client the entrypoint OPENS ITS OWN
+agent observation instead of subscribing and seeding. Paseo 0.9 (getpaseo/paseo#4596) made
+`agents.subscribe()` a local listener that never asks the daemon for data, so Ruling 48's premise —
+subscribe reports change, list seeds the rest — no longer holds, and its one-shot seed missed
+every agent created after the plugin loaded. `client/agents.ts` calls
+`agents.list({ subscribe: {} })`, takes the returned observation, and rebuilds the pill set from
+its snapshot — which arrives on first connect and after every reconnect — while `agent_update`
+messages apply single changes. The path is chosen before any request by feature-detecting
+`observeEvents`, which shipped with observations in 0.9.0-beta.1: an 0.8 client must not send
+`subscribe` at all, because the daemon keeps one agents subscription slot per legacy connection
+and last query wins — the plugin would evict the app's own subscription — so it keeps Ruling 48's
+listen-and-seed shape. Paseo releases a failed observation itself, so it is reopened with backoff
+(2s to 60s) rather than left silent, and cleanup aborts the signal and releases the handle. The
+snapshot page stays at the default 200 with no pagination. Cost if wrong: one held observation
+per app connection instead of one list call, and a host with more than 200 agents gets pills for
+the first page only.
