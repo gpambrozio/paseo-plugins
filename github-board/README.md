@@ -93,9 +93,11 @@ what re-reads a run that has finished since.
 
 A draft or open pull request whose base branch has moved on since the branch was
 last updated shows an **Out of date** pill, in the theme's warning colour, next
-to its checks. The base is whatever the pull request targets — `main` for most,
-another branch for a stacked one. The detail panel shows the same pill and says
-how far behind on the branch line: `feature → main · 12 commits behind`.
+to its checks — or **Conflicts**, in the danger colour, when the branch and its
+base change the same lines and someone has to resolve them by hand. The base is
+whatever the pull request targets — `main` for most, another branch for a
+stacked one. The detail panel shows the same pill and says how far behind on the
+branch line: `feature → main · 12 commits behind`.
 
 Where GitHub would let you bring it up to date, the card and the panel also
 offer **Update branch** — on a card it appears on hover beside **Send to chat**,
@@ -103,16 +105,21 @@ and on a phone it sits in the card's button row. In a tablet's browser, where
 nothing hovers, open the card and use the button in the panel. It does what
 GitHub's own button does, merging the base branch into the pull request's branch
 on GitHub; it never rebases, so a checkout of the branch elsewhere still pulls
-cleanly. The pill goes away once GitHub accepts the update. If the branch has
-conflicts, GitHub refuses and the message says why.
+cleanly. The pill goes away once GitHub accepts the update.
 
-Some out-of-date pull requests show the pill and no button. That is GitHub's
-answer, not the plugin's: it offers no update when the branch has conflicts,
-when your login cannot push to it, or when the repository has **Always suggest
-updating pull request branches** turned off — which is the default for a new
-repository — and branch protection does not require an up-to-date branch. Turn
-that setting on under the repository's **Settings → General → Pull Requests** to
-get the button there.
+A pull request with conflicts never offers the button, since an automatic update
+cannot succeed there. GitHub only works out whether a branch has conflicts once
+somebody asks, so the first time the board loads a pull request it may not know
+yet; pressing **Update branch** checks again first, and if it finds conflicts it
+merges nothing, switches the pill to **Conflicts** and says so.
+
+Other out-of-date pull requests can show the pill and no button too. That is
+GitHub's answer, not the plugin's: it offers no update when your login cannot
+push to the branch, or when the repository has **Always suggest updating pull
+request branches** turned off — which is the default for a new repository — and
+branch protection does not require an up-to-date branch. Turn that setting on
+under the repository's **Settings → General → Pull Requests** to get the button
+there.
 
 This works for pull requests from forks too. How far behind a branch is comes
 from its own `gh` call, so if that fails the pills and buttons are left off and

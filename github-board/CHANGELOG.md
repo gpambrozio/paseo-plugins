@@ -17,9 +17,11 @@ to read before you move.
   Where GitHub would let you, both also offer an **Update branch** button — on a card it appears
   when you hover, next to Send to chat — which does exactly what GitHub's own button does: it
   merges the latest from the base branch into the pull request's branch, without rewriting any of
-  its history. A pull request with conflicts, one you cannot push to, or one in a repository that
-  does not have **Always suggest updating pull request branches** turned on shows the pill without
-  the button, the same as it would on GitHub.
+  its history. A pull request whose changes clash with the base branch says **Conflicts** instead
+  and offers no button, because those have to be resolved by hand; if the board did not know yet,
+  pressing the button checks first and tells you rather than trying. A pull request you cannot push
+  to, or one in a repository that does not have **Always suggest updating pull request branches**
+  turned on, shows the pill without the button, the same as it would on GitHub.
 
 ## [0.8.0] — 2026-09-22
 

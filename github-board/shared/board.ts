@@ -43,11 +43,17 @@ export const BranchStatusSchema = z.object({
   /** Commits on the base the head does not have yet. 0 is up to date. */
   behindBy: z.number().int().min(0),
   /**
-   * Behind, *and* this login may bring it up to date — GitHub's own
-   * `viewerCanUpdateBranch`, the condition behind its "Update branch" button.
-   * False on a branch that is behind but that the login cannot push to.
+   * Behind, free of known conflicts, *and* this login may bring it up to date —
+   * GitHub's own `viewerCanUpdateBranch`, the condition behind its "Update
+   * branch" button, less the conflicts that flag does not rule out.
    */
   canUpdate: z.boolean(),
+  /**
+   * The branch and its base change the same lines, so nothing can bring it up
+   * to date automatically: someone has to resolve them. False while GitHub has
+   * not worked it out yet — it computes this lazily, starting when first asked.
+   */
+  conflicts: z.boolean(),
 });
 
 export const BoardItemSchema = z.object({
@@ -411,7 +417,16 @@ export const updateBranch = defineRpc({
     /** The pull request's node id. */
     id: z.string().min(1),
   }),
-  output: z.object({ branch: BranchStatusSchema }),
+  output: z.object({
+    /**
+     * False when a last look before merging found nothing the update could do
+     * — conflicts, most likely, or a branch already brought up to date — and
+     * nothing was sent. `branch` is then that look's answer, so the card stops
+     * offering what would have failed.
+     */
+    updated: z.boolean(),
+    branch: BranchStatusSchema,
+  }),
 });
 
 /**

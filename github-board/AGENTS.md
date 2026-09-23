@@ -168,8 +168,9 @@ vision.
 
 ## Out-of-date branches, and updating them
 
-`BoardItem.branch` is `{ behindBy, canUpdate }` on draft and open pull requests alike, null
-elsewhere. A pull request with `behindBy > 0` shows an **Out of date** pill, beside the checks on
+`BoardItem.branch` is `{ behindBy, canUpdate, conflicts }` on draft and open pull requests alike,
+null elsewhere. A pull request with `behindBy > 0` shows an **Out of date** pill (`statusWarning`),
+or **Conflicts** (`statusDanger`) when GitHub reports `mergeable: CONFLICTING`, beside the checks on
 the card and in the panel's pill row; the panel's branch line adds the count. Where `canUpdate` is
 true, the card and the panel both offer **Update branch**, which is `board.update-branch` — GitHub's
 own `updatePullRequestBranch` mutation. Drafts are included deliberately, unlike checks: a draft is
@@ -194,16 +195,29 @@ repository (`refs/pull/<n>/head`), so the SHA resolves for both. Checked against
 pull requests opened from `gpambrozio/paseo`. `baseRefOid` looks like it could replace the
 comparison and cannot: it is the base as of the pull request's last update, not the base's tip.
 
-**`canUpdate` is GitHub's `viewerCanUpdateBranch`, not a reconstruction of it.** GitHub answers
-false for three reasons it does not distinguish: merge conflicts, no push access, and — the one that
-surprises — a repository with **"Always suggest updating pull request branches"** turned off, which
-is the default for a new repository. There, GitHub's own page offers no Update branch button unless
-branch protection demands an up-to-date branch, and neither does the board: such a pull request
-shows the pill and no button. Guessing past that from `mergeable` and `viewerPermission` would
-mean a button GitHub itself does not offer, and `mergeable` answers `UNKNOWN` until GitHub has
-computed it, so the guess would change between two refreshes of the same pull request.
-`toBranchStatus` additionally requires `behindBy > 0`, which GitHub's flag implies, so a button can
-never appear without its pill.
+**`canUpdate` is GitHub's `viewerCanUpdateBranch`, narrowed by conflicts.** GitHub answers false
+for no push access and — the one that surprises — a repository with **"Always suggest updating pull
+request branches"** turned off, which is the default for a new repository. There, GitHub's own page
+offers no Update branch button unless branch protection demands an up-to-date branch, and neither
+does the board: such a pull request shows the pill and no button. Guessing past that from
+`viewerPermission` would mean a button GitHub itself does not offer.
+
+**The flag does not account for conflicts**, which is why `mergeable` is in the same query.
+`getpaseo/paseo#3339` answered `viewerCanUpdateBranch: true` with `mergeable: CONFLICTING`, and
+pressing the update GitHub offered there failed. So `toBranchStatus` clears `canUpdate` for a
+conflicting branch, and the pill says **Conflicts** instead. It also requires `behindBy > 0`, which
+GitHub's flag implies, so a button can never appear without its pill.
+
+`mergeable` answers `UNKNOWN` until GitHub has computed it, and asking is what starts it — so on a
+board's first load a conflicting branch can still read as updatable. **`updateBranchHandler` looks
+again before it merges**: `currentBranchStatus` fetches the head and re-runs the same comparison for
+that one pull request (two requests, for the reason the board needs two), and only sends the
+mutation if that says `canUpdate`. Otherwise it answers `updated: false` with what it found, both
+caches take that status, and the client toasts why — conflicts, already up to date, or no longer
+offered. By the time anyone presses, the board's own load has set GitHub computing, so this look is
+the one that knows. If the look itself fails, the mutation is sent and answers for itself. Checked
+against #3339, with the mutation text broken in the throwaway build so reaching it could not merge
+anything.
 
 **The update is a merge, and nothing is expected of the head.** `updateMethod: MERGE` is GitHub's
 default and rewrites nothing, where a rebase would break every checkout of the branch.
@@ -235,8 +249,8 @@ sends the mutation a second time. Accepted rather than adding a subscription for
 second or two; what GitHub answers to an update with nothing left to merge has not been checked.
 
 The in-flight set, `updatingBranches`, lives on the board rather than in a card, so the card and
-the panel show the same "Updating…" and a second press from either is ignored. A failure — merge
-conflicts, usually, which GitHub names — is a toast, like a send's outcome, not the board's `error`.
+the panel show the same "Updating…" and a second press from either is ignored. Every outcome is a
+toast, like a send's, not the board's `error`.
 
 On the wide layout **Update branch** joins Send to chat in the hover overlay, now a row
 (`cardOverlay`) whose `pointerEvents: "box-none"` lets the gap between the two fall through to the
@@ -254,7 +268,9 @@ touch — a tablet browser — the overlay never shows, yet a tap on the card's 
 still land on it, as would Enter on a focused button nobody can see. There the panel's button is the
 way to update a branch.
 
-The pill takes `statusWarning`: nothing is broken, it is work waiting to be done.
+The two pill colours say what kind of wait it is: `statusWarning` for a branch that is merely
+behind, where nothing is broken and the button may fix it, and `statusDanger` for conflicts, which
+no button fixes and someone has to resolve by hand.
 
 ## The detail panel
 

@@ -758,7 +758,7 @@ export function branchStatusQuery(count: number): string {
   const selections = indexes
     .map(
       (index) =>
-        `  pr${index}: node(id: $id${index}) { ... on PullRequest { viewerCanUpdateBranch baseRef { compare(headRef: $head${index}) { behindBy } } } }`,
+        `  pr${index}: node(id: $id${index}) { ... on PullRequest { mergeable viewerCanUpdateBranch baseRef { compare(headRef: $head${index}) { behindBy } } } }`,
     )
     .join("\n");
   return `query(${variables}) {\n${selections}\n}`;
@@ -768,17 +768,33 @@ export function branchStatusQuery(count: number): string {
  * One alias's answer, or null when GitHub had no comparison to give — a base
  * branch deleted from under an open pull request leaves `baseRef` null.
  *
- * `canUpdate` requires `behindBy > 0` as well as GitHub's own flag, which
- * already implies it, so that the button can never appear without the pill.
+ * `canUpdate` is GitHub's own flag narrowed twice. By conflicts, because the
+ * flag does not account for them: getpaseo/paseo#3339 answered
+ * `viewerCanUpdateBranch: true` with `mergeable: CONFLICTING`, and the update
+ * GitHub offered there fails. And by `behindBy > 0`, which the flag already
+ * implies, so that the button can never appear without the pill.
+ *
+ * `mergeable` is `UNKNOWN` until GitHub has computed it, which asking starts;
+ * that reads as no conflicts, and the check in `updateBranchHandler` is what
+ * stops a press on a branch whose conflicts were not known yet.
  */
 export function toBranchStatus(node: unknown): BranchStatus | null {
   const record = node as
-    | { viewerCanUpdateBranch?: unknown; baseRef?: { compare?: { behindBy?: unknown } | null } | null }
+    | {
+        mergeable?: unknown;
+        viewerCanUpdateBranch?: unknown;
+        baseRef?: { compare?: { behindBy?: unknown } | null } | null;
+      }
     | null
     | undefined;
   const behindBy = record?.baseRef?.compare?.behindBy;
   if (typeof behindBy !== "number" || behindBy < 0) return null;
-  return { behindBy, canUpdate: behindBy > 0 && record?.viewerCanUpdateBranch === true };
+  const conflicts = record?.mergeable === "CONFLICTING";
+  return {
+    behindBy,
+    canUpdate: behindBy > 0 && !conflicts && record?.viewerCanUpdateBranch === true,
+    conflicts,
+  };
 }
 
 /**
@@ -788,7 +804,7 @@ export function toBranchStatus(node: unknown): BranchStatus | null {
  * taken at its word instead. A merge conflict fails the mutation itself, which
  * is what the client then shows.
  */
-const UPDATED_BRANCH: BranchStatus = { behindBy: 0, canUpdate: false };
+const UPDATED_BRANCH: BranchStatus = { behindBy: 0, canUpdate: false, conflicts: false };
 
 /**
  * How long a success is taken at its word over a comparison — long enough for
@@ -1299,13 +1315,53 @@ const UPDATE_BRANCH_MUTATION = `mutation($id: ID!) {
   }
 }`;
 
+const HEAD_OID_QUERY = `query($id: ID!) {
+  node(id: $id) { ... on PullRequest { headRefOid } }
+}`;
+
+/**
+ * A last look before merging, because the board's answer is not enough to
+ * send an update on. It can be minutes old, and it can predate GitHub knowing
+ * about conflicts at all — `mergeable` is `UNKNOWN` the first time it is asked
+ * — while `viewerCanUpdateBranch` stays true either way. By the time someone
+ * presses the button the board's own load has set GitHub computing, so this
+ * look is the one that knows.
+ *
+ * Two requests, because `compare` needs the head and a query cannot feed one
+ * field's answer into another's argument; a press is rare enough for that.
+ * Null when the look fails, and the mutation is then left to answer for itself.
+ */
+async function currentBranchStatus(id: string): Promise<BranchStatus | null> {
+  let headOid: unknown;
+  try {
+    const parsed: unknown = JSON.parse(
+      await gh(["api", "graphql", "-f", `query=${HEAD_OID_QUERY}`, "-f", `id=${id}`]),
+    );
+    headOid = (parsed as { data?: { node?: { headRefOid?: unknown } } }).data?.node?.headRefOid;
+  } catch (error) {
+    console.warn(
+      `[github-board] could not check the branch before updating it: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return null;
+  }
+  if (typeof headOid !== "string" || headOid === "") return null;
+  return (await fetchBranchStatuses([{ id, headOid }])).get(id) ?? null;
+}
+
 export async function updateBranchHandler({
   id,
 }: z.output<typeof updateBranch.input>): Promise<z.input<typeof updateBranch.output>> {
+  const current = await currentBranchStatus(id);
+  if (current !== null && !current.canUpdate) {
+    patchCachedItem(id, { branch: current });
+    return { updated: false, branch: current };
+  }
   await gh(["api", "graphql", "-f", `query=${UPDATE_BRANCH_MUTATION}`, "-f", `id=${id}`]);
   recentBranchUpdates.set(id, Date.now());
   patchCachedItem(id, { branch: UPDATED_BRANCH });
-  return { branch: UPDATED_BRANCH };
+  return { updated: true, branch: UPDATED_BRANCH };
 }
 
 /**

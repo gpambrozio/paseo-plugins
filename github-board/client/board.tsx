@@ -804,12 +804,13 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
         backgroundColor: withAlpha(colors.accent, "1a"),
       },
       /**
-       * A pull request whose base has moved on without it. Warning rather than
-       * danger: nothing is broken, it is work waiting to be done — and the same
-       * shape as the linked-issue pill so the footer reads as one row of pills.
+       * A pull request whose base has moved on without it, in the same shape
+       * as the linked-issue pill so the footer reads as one row of pills.
+       * Warning for a branch that is merely behind — nothing is broken, it is
+       * work waiting to be done — and danger for one with conflicts, which no
+       * button can fix and someone has to resolve by hand.
        */
-      outOfDatePill: {
-        color: colors.statusWarning,
+      branchPill: {
         fontSize: layout.compact ? 11 : 10,
         fontWeight: "600" as const,
         overflow: "hidden" as const,
@@ -817,8 +818,16 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
         paddingHorizontal: 6,
         paddingVertical: layout.compact ? 3 : 1,
         borderWidth: 1,
+      },
+      branchPillBehind: {
+        color: colors.statusWarning,
         borderColor: withAlpha(colors.statusWarning, "66"),
         backgroundColor: withAlpha(colors.statusWarning, "1a"),
+      },
+      branchPillConflicts: {
+        color: colors.statusDanger,
+        borderColor: withAlpha(colors.statusDanger, "66"),
+        backgroundColor: withAlpha(colors.statusDanger, "1a"),
       },
       /**
        * One pill per outcome, grouped so they read as a single summary the way
@@ -1291,12 +1300,31 @@ function checksSentence(checks: CheckSummary): string {
 }
 
 /**
- * The count behind the "Out of date" pill, in words. The pill itself says only
- * that the branch is behind; how far is for the accessibility label and the
+ * The branch status worth a pill, or null for a branch that is up to date.
+ * Conflicts count on their own: a branch with conflicts is behind in practice,
+ * but the pill must not depend on the count to say so.
+ */
+function staleBranch(branch: BranchStatus | null): BranchStatus | null {
+  return branch !== null && (branch.behindBy > 0 || branch.conflicts) ? branch : null;
+}
+
+/**
+ * The count behind the pill, in words. The pill itself says only what state
+ * the branch is in; how far behind is for the accessibility label and the
  * panel's branch line, where there is room to say it.
  */
 function behindSentence(branch: BranchStatus): string {
-  return `${branch.behindBy} ${branch.behindBy === 1 ? "commit" : "commits"} behind`;
+  const behind = `${branch.behindBy} ${branch.behindBy === 1 ? "commit" : "commits"} behind`;
+  return branch.conflicts ? `${behind}, with conflicts` : behind;
+}
+
+/** "Conflicts" says the branch is behind too; nobody resolves conflicts on a current branch. */
+function BranchPill({ branch, styles }: { branch: BranchStatus; styles: Styles }) {
+  return branch.conflicts ? (
+    <Text style={[styles.branchPill, styles.branchPillConflicts]}>Conflicts</Text>
+  ) : (
+    <Text style={[styles.branchPill, styles.branchPillBehind]}>Out of date</Text>
+  );
 }
 
 /**
@@ -1573,7 +1601,7 @@ function Card({
   const [sendHovered, setSendHovered] = useState(false);
   const [updateHovered, setUpdateHovered] = useState(false);
 
-  const behind = item.branch !== null && item.branch.behindBy > 0 ? item.branch : null;
+  const behind = staleBranch(item.branch);
   const canUpdate = behind !== null && behind.canUpdate;
 
   /**
@@ -1655,7 +1683,7 @@ function Card({
         byline === null ? "" : `, opened by ${byline}`
       }${closes === "" ? "" : `, closes ${closes}`}${
         item.checks === null ? "" : `, checks ${checksSentence(item.checks)}`
-      }${behind === null ? "" : `, out of date: ${behindSentence(behind)} its base branch`}`}
+      }${behind === null ? "" : `, out of date: ${behindSentence(behind)}`}`}
       accessibilityHint={
         onLabels === null
           ? undefined
@@ -1687,7 +1715,7 @@ function Card({
         {item.checks !== null ? <ChecksPills checks={item.checks} styles={styles} /> : null}
         {/* Leading with the checks, for the same reason they lead: the footer
             wraps, and the actions cover its bottom-right corner on hover. */}
-        {behind !== null ? <Text style={styles.outOfDatePill}>Out of date</Text> : null}
+        {behind !== null ? <BranchPill branch={behind} styles={styles} /> : null}
         {byline !== null ? <Text style={styles.cardAuthor}>by {byline}</Text> : null}
         <Text style={styles.subtle}>{relativeTime(item.updatedAt)}</Text>
         {item.commentsCount > 0 ? (
@@ -3441,7 +3469,7 @@ function ItemDetailPanel({
     .join(" · ");
 
   const state = details?.state ?? null;
-  const behind = item.branch !== null && item.branch.behindBy > 0 ? item.branch : null;
+  const behind = staleBranch(item.branch);
 
   const translateX = progress.interpolate({
     inputRange: [0, 1],
@@ -3529,7 +3557,7 @@ function ItemDetailPanel({
         behind !== null ? (
           <View style={styles.detailLabels}>
             {item.checks !== null ? <ChecksPills checks={item.checks} styles={styles} /> : null}
-            {behind !== null ? <Text style={styles.outOfDatePill}>Out of date</Text> : null}
+            {behind !== null ? <BranchPill branch={behind} styles={styles} /> : null}
             {item.linkedIssues.map((issue) => (
               <Text key={issue.id} style={styles.linkedIssue}>
                 {linkedIssueLabel(issue, item.repository)}
@@ -4203,8 +4231,12 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   /**
    * GitHub's "Update branch", from a card or the panel. The outcome is a toast
    * rather than the board's `error`, for the reason the send's is: a branch
-   * that would not update says nothing about whether the board loaded. The
-   * usual failure is a merge conflict, which GitHub names in the message.
+   * that would not update says nothing about whether the board loaded.
+   *
+   * `updated: false` is not a failure: the server looked again before merging
+   * and found nothing the update could do, most often conflicts the board did
+   * not know about yet. The status it found replaces the card's, so the pill
+   * says why and the button goes away.
    */
   const updateItemBranch = useCallback(
     (item: BoardItem) => {
@@ -4213,9 +4245,18 @@ export function GitHubBoard(props: PluginSurfaceProps) {
       requestBranchUpdate({ id: item.id })
         .then((result) => {
           patchBoardItem(item.id, { branch: result.branch });
-          toast.show(`Updated ${item.repository} #${item.number} with its base branch.`, {
-            variant: "success",
-          });
+          const name = `${item.repository} #${item.number}`;
+          if (result.updated) {
+            toast.show(`Updated ${name} with its base branch.`, { variant: "success" });
+          } else if (result.branch.conflicts) {
+            toast.error(
+              `${name} has conflicts with its base branch, so it cannot be updated automatically. Resolve them in a checkout or on GitHub.`,
+            );
+          } else if (result.branch.behindBy === 0) {
+            toast.show(`${name} is already up to date with its base branch.`, { variant: "info" });
+          } else {
+            toast.error(`GitHub no longer offers to update ${name}.`);
+          }
         })
         .catch((cause: unknown) => {
           toast.error(
