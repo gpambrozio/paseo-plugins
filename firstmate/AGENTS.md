@@ -183,7 +183,7 @@ never fails the launch or the board.
 `favicon.png`, `icon.svg`, `icon.png` and more, in `public/`, `assets/` and the like first and then the
 root, square and 32 KB at most, an SVG taken as square (`project-icon.ts` in Paseo) — and shows it unless
 an icon was uploaded in the project's settings. So `prepareHome` writes `icon.svg` into the home when it is
-missing: the plugin's own sidebar ship, white on blue, 639 bytes (`server/home-icon.ts`). The captain can
+missing: the plugin's own sidebar ship, white on blue, 640 bytes (`server/home-icon.ts`). The captain can
 replace it, in the Files view or on disk, or upload one in Paseo, which wins. An earlier build set the icon
 with the daemon's internal `project.icon.set.request` instead; a project it reached keeps that upload until
 it is reset to automatic in the project's settings.

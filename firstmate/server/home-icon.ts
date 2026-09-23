@@ -12,7 +12,7 @@ export const HOME_ICON_FILE = "icon.svg";
 
 export const HOME_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
   <rect width="128" height="128" rx="28" fill="#1d4ed8"/>
-  <g transform="translate(22 22) scale(3.5)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <g transform="translate(13 13) scale(4.25)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M12 10.189V14"/>
     <path d="M12 2v3"/>
     <path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6"/>
