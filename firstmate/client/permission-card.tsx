@@ -29,7 +29,7 @@ import {
   type Question,
   type Selections,
 } from "./questions";
-import { IconButton, type Tone } from "./ui";
+import { IconButton, MONOSPACE, type Tone } from "./ui";
 
 type AgentHandle = ReturnType<ReturnType<typeof usePaseo>["agents"]["ref"]>;
 export type PermissionRequest = NonNullable<AgentHandle["pendingPermissions"]>[number];
@@ -95,7 +95,7 @@ function useCardStyles(theme: PluginTheme, compact: boolean) {
       body: { color: colors.foreground, fontSize: 13, lineHeight: 19 },
       code: {
         color: colors.foreground,
-        fontFamily: "monospace",
+        fontFamily: MONOSPACE,
         fontSize: 12,
         backgroundColor: colors.surface0,
         borderRadius: 6,

@@ -20,6 +20,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { enableAgentTools, loadFleet, markMateSeen, type ColumnId, type Fleet } from "../shared/fleet";
 import { displaySettings, type DisplaySettings } from "../shared/settings";
 import { Board } from "./board";
+import { FilesView } from "./files";
 import { MateChat } from "./chat";
 import { agentStatusLabel, agentStatusTone, groupCards, moveColumn, orderedColumns, shortPath } from "./format";
 import { LaunchPanel } from "./launch";
@@ -29,7 +30,10 @@ import { Banner, Chip, IconButton, errorText } from "./ui";
 export const FLEET_QUERY_KEY = ["firstmate", "fleet"] as const;
 
 let cachedFleet: Fleet | null = null;
-let cachedTab: "chat" | "board" = "chat";
+type Tab = "chat" | "board" | "files";
+let cachedTab: Tab = "chat";
+/** What the right-hand pane shows on a wide layout: the crew, or the home's files. */
+let cachedRightPane: "board" | "files" = "board";
 
 /**
  * A surface is given no way to open a settings screen, so the entry lends it
@@ -73,7 +77,8 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   const values: DisplaySettings = { ...saved, ...override };
   const [share, setShare] = useState<number | null>(null);
   const [width, setWidth] = useState(0);
-  const [tab, setTabState] = useState(cachedTab);
+  const [tab, setTabState] = useState<Tab>(cachedTab);
+  const [rightPane, setRightPaneState] = useState(cachedRightPane);
   const [enabling, setEnabling] = useState(false);
 
   const fleet = useFleet(values.pollSeconds);
@@ -131,9 +136,14 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
     });
   }, [display]);
 
-  function setTab(next: "chat" | "board"): void {
+  function setTab(next: Tab): void {
     cachedTab = next;
     setTabState(next);
+  }
+
+  function setRightPane(next: "board" | "files"): void {
+    cachedRightPane = next;
+    setRightPaneState(next);
   }
 
   const order = orderedColumns(values.columnOrder);
@@ -180,6 +190,8 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
         borderRadius: 8,
         overflow: "hidden" as const,
       },
+      /** The Crew / Files switch over the right-hand pane: narrower than the phone's tabs. */
+      paneTabs: { alignSelf: "flex-start" as const, marginBottom: 0, minWidth: 220 },
       tab: { flex: 1, paddingVertical: 7, alignItems: "center" as const },
       tabActive: { backgroundColor: colors.accent },
       tabText: { color: colors.foreground, fontSize: 13 },
@@ -392,7 +404,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
         {header}
         {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
         <View style={styles.tabs}>
-          {(["chat", "board"] as const).map((id) => (
+          {(["chat", "board", "files"] as const).map((id) => (
             <Pressable
               key={id}
               accessibilityRole="tab"
@@ -401,12 +413,14 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
               onPress={() => setTab(id)}
             >
               <Text style={[styles.tabText, tab === id ? styles.tabTextActive : null]}>
-                {id === "chat" ? "First mate" : `Crew (${data.cards.length})`}
+                {id === "chat" ? "First mate" : id === "board" ? `Crew (${data.cards.length})` : "Files"}
               </Text>
             </Pressable>
           ))}
         </View>
-        <View style={{ flex: 1, minHeight: 0 }}>{tab === "chat" ? chat : board}</View>
+        <View style={{ flex: 1, minHeight: 0 }}>
+          {tab === "chat" ? chat : tab === "board" ? board : <FilesView theme={theme} compact />}
+        </View>
       </View>
     );
   }
@@ -451,7 +465,26 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
             />
           </View>
         ) : (
-          <View style={{ flex: 1, minWidth: 0 }}>{board}</View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={[styles.tabs, styles.paneTabs]}>
+              {(["board", "files"] as const).map((id) => (
+                <Pressable
+                  key={id}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: rightPane === id }}
+                  style={[styles.tab, rightPane === id ? styles.tabActive : null]}
+                  onPress={() => setRightPane(id)}
+                >
+                  <Text style={[styles.tabText, rightPane === id ? styles.tabTextActive : null]}>
+                    {id === "board" ? `Crew (${data.cards.length})` : "Files"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={{ flex: 1, minHeight: 0 }}>
+              {rightPane === "board" ? board : <FilesView theme={theme} compact={false} />}
+            </View>
+          </View>
         )}
       </View>
     </View>

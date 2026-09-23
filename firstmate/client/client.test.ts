@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { isSendKey } from "./keys";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
-import { moveColumn, orderedColumns, relativeTime, shortPath } from "./format";
+import { errorText, moveColumn, orderedColumns, relativeTime, shortPath } from "./format";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
@@ -142,5 +142,19 @@ describe("questions", () => {
     expect([...toggleOption(new Set([0]), 1, true)].sort()).toEqual([0, 1]);
     expect(dismissSubmitsEmpty(parseQuestions(input) ?? [])).toBe(false);
     expect(dismissSubmitsEmpty([{ question: "Notes?", header: "Notes", options: [], multiSelect: false, allowOther: false, allowEmpty: true }])).toBe(true);
+  });
+});
+
+describe("errorText", () => {
+  it("keeps the handler's sentence and drops the RPC wrapper", () => {
+    expect(
+      errorText(
+        new Error(
+          'Request failed: "data/captain.md" changed since you opened it. requestType=plugin.rpc.invoke.request code=handler_error',
+        ),
+      ),
+    ).toBe('"data/captain.md" changed since you opened it.');
+    expect(errorText(new Error("Transport not connected"))).toBe("Transport not connected");
+    expect(errorText("plain")).toBe("plain");
   });
 });

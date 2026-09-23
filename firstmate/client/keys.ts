@@ -6,7 +6,13 @@ import type { NativeSyntheticEvent, TextInputKeyPressEventData } from "react-nat
  * an input method is mid-composition.
  */
 export type WebKeyPressEvent = NativeSyntheticEvent<
-  TextInputKeyPressEventData & { shiftKey?: boolean; isComposing?: boolean; keyCode?: number }
+  TextInputKeyPressEventData & {
+    shiftKey?: boolean;
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+    isComposing?: boolean;
+    keyCode?: number;
+  }
 >;
 
 /**
@@ -20,4 +26,12 @@ export type WebKeyPressEvent = NativeSyntheticEvent<
 export function isSendKey(event: WebKeyPressEvent["nativeEvent"]): boolean {
   if (event.key !== "Enter" || event.shiftKey === true) return false;
   return event.isComposing !== true && event.keyCode !== 229;
+}
+
+/**
+ * Cmd+S on a Mac, Ctrl+S elsewhere — the save every editor has. On the web
+ * renderer only; the key press carries the modifier state from the DOM event.
+ */
+export function isSaveKey(event: WebKeyPressEvent["nativeEvent"]): boolean {
+  return (event.key === "s" || event.key === "S") && (event.metaKey === true || event.ctrlKey === true);
 }

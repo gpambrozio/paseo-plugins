@@ -32,6 +32,8 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
 | `client/fleet.tsx`            | The surface: header, banners, chat/board split, compact tabs, the shared fleet query.      |
 | `client/chat.tsx`             | The first mate's conversation, folded to the words, and the composer.                      |
+| `shared/files.ts`, `server/files.ts` | The home as files: list, read, write — confined to the home, saved against the version opened. |
+| `client/files.tsx`            | The Files view: the home's folders, a text editor, a Markdown preview.                     |
 | `client/permission-card.tsx`  | What the first mate is waiting on — a question, a permission, a plan — answered in the chat. |
 | `client/questions.ts`         | The question form's rules, ported from Paseo's own card. Pure.                             |
 | `client/keyboard.ts`          | How far the on-screen keyboard covers a view, measured in window coordinates.              |
@@ -185,6 +187,31 @@ only when the chat is out of sight — folded, or behind the Crew tab — with a
 
 Checked on a throwaway 0.9.1 daemon: a Claude agent's AskUserQuestion arrived in the timeline page's
 snapshot with `allowOther` set, and answering it with `buildAnswers` got "I picked Blue." back.
+
+## The home's files, in the panel
+
+A Files view — beside the crew board on a wide layout, a third tab on a phone — lists the home folder by
+folder and opens any text file in an editor, with a Markdown preview for `.md`. Three calls in
+`shared/files.ts`, handled in `server/files.ts`:
+
+- **Confined to the home, twice over.** A path is normalized and refused if it is absolute or climbs
+  above the home; then it is resolved through symlinks and refused if it lands outside the home's real
+  path — for a file about to be created, through its nearest existing ancestor. A clone under
+  `projects/` can contain links to anywhere, and the panel must not follow them out.
+- **Saved against the version opened.** The first mate writes these same files, so a save carries the
+  modification time the editor opened the file at and is refused if the file has changed since; the
+  editor then offers *Overwrite*, which sends `force`. A file that changes on disk while open and
+  unedited is reloaded quietly, off the list's ten-second poll. A save is a temporary file renamed over
+  the old one, so the first mate never reads half of it.
+- **Text only, up to a megabyte.** A NUL byte in the first 8 KB marks a file binary; either kind is
+  listed but not opened.
+
+`AGENTS.md` opens with a note that the plugin rewrites it on every start, pointing at
+`data/captain.md` for anything that should last. The open folder, the open file and its unsaved text
+are kept in module scope, like the chat's draft, so a remount does not lose an edit in progress.
+
+Errors from any RPC reach the app wrapped as `Request failed: … requestType=… code=…`;
+`errorText` (`client/format.ts`) strips that, so the panel shows the handler's own sentence.
 
 ## Opening the panel marks the first mate seen
 

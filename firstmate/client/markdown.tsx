@@ -17,6 +17,8 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useMemo, type ReactNode } from "react";
 import { Text, View } from "react-native";
 
+import { MONOSPACE } from "./ui";
+
 type Block =
   | { kind: "heading"; level: number; text: string }
   | { kind: "paragraph"; text: string }
@@ -178,12 +180,12 @@ function useMarkdownStyles(theme: PluginTheme, fontSize: number): MarkdownStyles
         paddingHorizontal: 10,
         paddingVertical: 8,
       },
-      codeText: { color: theme.colors.foreground, fontFamily: "monospace", fontSize: fontSize - 1 },
+      codeText: { color: theme.colors.foreground, fontFamily: MONOSPACE, fontSize: fontSize - 1 },
       quote: { borderLeftWidth: 3, borderLeftColor: theme.colors.border, paddingLeft: 10, gap: 6 },
       rule: { height: 1, backgroundColor: theme.colors.border, marginVertical: 4 },
       bold: { fontWeight: "700" as const },
       inlineCode: {
-        fontFamily: "monospace",
+        fontFamily: MONOSPACE,
         backgroundColor: theme.colors.surface2,
         color: theme.colors.foreground,
         fontSize: fontSize - 1,

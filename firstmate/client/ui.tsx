@@ -6,7 +6,10 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
+
+/** A fixed-width font on every platform; iOS has no font named "monospace". */
+export const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" });
 
 export type Tone = "default" | "accent" | "danger";
 
@@ -145,6 +148,4 @@ export function Chip({ theme, text, color }: { theme: PluginTheme; text: string;
   );
 }
 
-export function errorText(caught: unknown): string {
-  return caught instanceof Error ? caught.message : String(caught);
-}
+export { errorText } from "./format";

@@ -24,6 +24,9 @@ read before you move.
 - **Answer the first mate's questions in the panel.** When it asks you to choose, or needs your
   permission or a plan approved, the question appears in the chat and you answer it there, without
   opening the first mate itself.
+- **The first mate's files, in the panel.** Browse its home, read any file — its instructions, your
+  standing orders, the backlog, each worker's brief and report — and edit and save it there. If the
+  first mate changed a file while you were editing it, you choose which version to keep.
 - **Opening the panel marks the first mate as seen**, so its workspace in the sidebar reads as done
   rather than waiting for you, just as if you had opened the first mate itself.
 - **Standing orders you write yourself**, in the first mate's home, which it reads every session and

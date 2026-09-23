@@ -25,7 +25,7 @@ import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
 import { PermissionCard, type PermissionResponse } from "./permission-card";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
-import { IconButton, errorText } from "./ui";
+import { IconButton, MONOSPACE, errorText } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
 
@@ -133,7 +133,7 @@ export function MateChat({
       mate: { alignSelf: "stretch" as const },
       line: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
       lineText: { flex: 1, color: colors.foregroundMuted, fontSize: 11 },
-      toolText: { flex: 1, color: colors.foregroundMuted, fontSize: 11, fontFamily: "monospace" },
+      toolText: { flex: 1, color: colors.foregroundMuted, fontSize: 11, fontFamily: MONOSPACE },
       more: { color: colors.accent, fontSize: 11 },
       error: { color: colors.statusDanger, fontSize: 12 },
       hint: { color: colors.foregroundMuted, fontSize: 12, textAlign: "center" as const, padding: 16 },

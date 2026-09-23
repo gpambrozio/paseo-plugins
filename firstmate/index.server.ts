@@ -10,6 +10,7 @@ import {
   steerCrew,
 } from "./server/crew";
 import { ReportCache, loadFleet, readAgentTools } from "./server/fleet";
+import { listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
 import { isHomeReady, prepareHome } from "./server/home";
 import { adoptMate, askMate, launchMate, listCandidates, markMateSeen, releaseMate } from "./server/mate";
 import {
@@ -28,6 +29,7 @@ import {
   steerCrew as steerCrewRpc,
   writeConfig,
 } from "./shared/fleet";
+import { listHomeFiles, readHomeFile, writeHomeFile } from "./shared/files";
 import { displaySettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
@@ -75,6 +77,17 @@ export default function contribute(server: PluginServerContext) {
   server.handle(relaunchCrewRpc, async ({ agentId, note }, { paseo }) => ({
     agentId: await relaunchCrew(paseo, agentId, note),
   }));
+
+  // The home as files, for the panel's file view. Confined to the home; see server/files.ts.
+  async function home(): Promise<string> {
+    return requireHome(resolveHome(await readFirstmateConfig()));
+  }
+  server.handle(listHomeFiles, async ({ path }) => {
+    const root = await home();
+    return { home: root, ...(await listDirectory(root, path)) };
+  });
+  server.handle(readHomeFile, async ({ path }) => readTextFile(await home(), path));
+  server.handle(writeHomeFile, async (input) => writeTextFile(await home(), input));
 
   // Storage lives on the host; registering the definition is what makes the
   // board's `useSettings` reads and writes valid for this installation.

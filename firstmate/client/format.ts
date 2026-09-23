@@ -113,3 +113,18 @@ export function groupCards(cards: readonly FleetCard[]): Map<ColumnId, FleetCard
   for (const card of cards) groups.get(card.column)?.push(card);
   return groups;
 }
+
+/**
+ * The sentence a failure is worth showing. An RPC that fails in the daemon
+ * reaches the app as "Request failed: <the handler's message>
+ * requestType=plugin.rpc.invoke.request code=handler_error"; the wrapper is
+ * for logs, and the captain gets the message the handler wrote.
+ */
+export function errorText(caught: unknown): string {
+  const raw = caught instanceof Error ? caught.message : String(caught);
+  const clean = raw
+    .replace(/^Request failed:\s*/, "")
+    .replace(/\s+requestType=\S+(\s+code=\S+)?\s*$/, "")
+    .trim();
+  return clean === "" ? raw : clean;
+}

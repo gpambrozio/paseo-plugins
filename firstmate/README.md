@@ -90,6 +90,11 @@ the first mate something about it.
 
 ## The first mate's home
 
+The **Files** view — next to the crew board, or its own tab on a phone — shows everything in the home
+and opens any text file for editing, with a preview for Markdown. Cmd/Ctrl+S saves on a desktop. The
+first mate writes these files too, so a save never silently replaces its newer version: you are told
+it changed, and choose to load theirs or overwrite it with yours.
+
 The first mate lives in a directory of its own — by default inside Paseo's plugin data, or anywhere you
 choose in the settings. It writes there and nowhere else; your projects are read-only to it, and every
 change is a worker's job.
