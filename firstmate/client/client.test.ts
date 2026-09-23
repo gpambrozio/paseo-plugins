@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { isSendKey } from "./keys";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
-import { errorText, moveColumn, orderedColumns, relativeTime, shortPath } from "./format";
+import { errorText, moveColumn, orderedColumns, relativeTime, shortPath, splitRows } from "./format";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
@@ -61,6 +61,18 @@ describe("columns", () => {
     const order = orderedColumns([]);
     expect(moveColumn(order, "working", -1).slice(0, 2)).toEqual(["working", "queued"]);
     expect(moveColumn(order, "queued", -1)).toEqual(order);
+  });
+
+  it("splits the board three over four, the extra in the later row", () => {
+    const rows = splitRows(orderedColumns([]), 2);
+    expect(rows.map((row) => row.length)).toEqual([3, 4]);
+    expect(rows.flat()).toEqual(orderedColumns([]));
+    expect(splitRows([1, 2, 3, 4], 2)).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
+    expect(splitRows([1], 2)).toEqual([[1]]);
+    expect(splitRows([], 2)).toEqual([]);
   });
 });
 

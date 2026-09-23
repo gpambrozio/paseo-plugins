@@ -40,6 +40,25 @@ export function moveColumn(order: readonly ColumnId[], id: ColumnId, delta: numb
   return next;
 }
 
+/**
+ * At most `rows` rows, as even as they go, with any extra in the later rows:
+ * seven columns are three over four.
+ */
+export function splitRows<T>(items: readonly T[], rows: number): T[][] {
+  if (items.length === 0) return [];
+  const count = Math.min(Math.max(1, rows), items.length);
+  const base = Math.floor(items.length / count);
+  const longer = items.length % count;
+  const result: T[][] = [];
+  let start = 0;
+  for (let row = 0; row < count; row += 1) {
+    const size = row < count - longer ? base : base + 1;
+    result.push(items.slice(start, start + size));
+    start += size;
+  }
+  return result;
+}
+
 export function columnTone(theme: PluginTheme, column: ColumnId): string {
   switch (column) {
     case "working":

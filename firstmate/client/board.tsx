@@ -1,8 +1,7 @@
 /**
  * The crew board: seven columns in the order the captain arranged them, each
- * foldable to a narrow strip. On a wide screen they sit in two rows, the way
- * the FirstMate board always has; on a phone they stack, and a folded column
- * is one line.
+ * foldable to a narrow strip. On a wide screen they sit in two rows, three
+ * over four; on a phone they stack, and a folded column is one line.
  *
  * Columns move with their header's arrows rather than by dragging: a drag
  * needs document-level pointer tracking on the web and fights every scroll
@@ -16,19 +15,10 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 
 import type { ColumnId, FleetCard } from "../shared/fleet";
 import { CrewCard } from "./card";
-import { COLUMNS, columnTone, groupCards } from "./format";
+import { COLUMNS, columnTone, groupCards, splitRows } from "./format";
 
 const COLLAPSED_WIDTH = 40;
 const ROWS = 2;
-
-/** At most `rows` rows, earlier rows filled first. */
-export function splitRows<T>(items: readonly T[], rows: number = ROWS): T[][] {
-  if (items.length === 0) return [];
-  const perRow = Math.ceil(items.length / Math.max(1, rows));
-  const result: T[][] = [];
-  for (let index = 0; index < items.length; index += perRow) result.push(items.slice(index, index + perRow));
-  return result;
-}
 
 interface BoardProps {
   cards: readonly FleetCard[];
@@ -184,7 +174,7 @@ export function Board(props: BoardProps) {
 
   return (
     <View style={styles.board}>
-      {splitRows(order).map((row) => (
+      {splitRows(order, ROWS).map((row) => (
         <View key={row.join(",")} style={styles.row}>
           {row.map((id) => {
             const entries = groups.get(id) ?? [];
