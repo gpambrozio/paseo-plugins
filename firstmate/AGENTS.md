@@ -42,7 +42,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
 | `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
 | `client/activity-rows.ts`     | Timeline entries → Watch rows, machinery kept: reasoning, tool detail, the latest plan. Pure. |
-| `client/follow-end.ts`        | A streaming transcript that follows its end and brings a new request into view.            |
+| `client/follow-end.ts`        | A streaming transcript that follows its end, brings a new request into view, jumps back.   |
 | `client/launch.tsx`           | What shows before there is a first mate: launch one, or adopt a running agent.             |
 | `client/panels.tsx`           | The workspace and agent panels: the crewmate's card beside its own tab.                    |
 | `client/settings-screen.tsx`  | Settings › Plugins › FirstMate.                                                            |
@@ -216,6 +216,15 @@ detail just as its output arrives.
 A crewmate's pending questions and permissions are answered here exactly as the first mate's are in
 the chat — `usePendingRequests` and `PermissionCard`, shared — and the transcript follows its end the
 same way (`useFollowEnd`, also shared).
+
+"At the end" (`isAtEnd`) is judged against the **shorter** of the live content height and the one
+`onContentSizeChange` last reported. On the web that report waits for a ResizeObserver and a
+`setTimeout`, while react-native-web's scroll-end event, 100 ms after a scroll settles, reads the live
+height — so an event landing in between saw a reply that had grown but not yet been followed, decided
+the captain had scrolled up, and the chat stopped following until they scrolled down by hand. Jumps
+are instant for the same reason: mid-animation, every scroll event reads as away from the end. A round
+button over the transcript's foot, as in Paseo's own agent view, goes back to the end while the reader
+is away from it.
 
 Checked on a throwaway 0.9.1 daemon: a Sonnet agent's projected timeline came through as prompt, shell
 calls with their output, and replies, and the compiled client bundle carried the view.

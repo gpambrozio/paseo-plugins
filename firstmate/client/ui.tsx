@@ -122,6 +122,38 @@ export function Segmented<Value extends string>({
   );
 }
 
+/**
+ * The round button over a transcript's foot that goes back to its end, shown
+ * while the reader is scrolled away from it — as in Paseo's own agent view.
+ * Its parent must be the transcript's frame; it positions itself in it.
+ */
+export function JumpToEnd({ theme, onPress }: { theme: PluginTheme; onPress: () => void }) {
+  const colors = theme.colors;
+  const styles = useMemo(
+    () => ({
+      frame: { position: "absolute" as const, left: 0, right: 0, bottom: 12, alignItems: "center" as const },
+      button: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface2,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+      },
+    }),
+    [colors],
+  );
+  return (
+    <View style={styles.frame} pointerEvents="box-none">
+      <Pressable accessibilityRole="button" accessibilityLabel="Scroll to the latest" onPress={onPress} style={styles.button}>
+        <Icon name="ChevronDown" size={20} color={colors.foreground} />
+      </Pressable>
+    </View>
+  );
+}
+
 /** A full-width notice under the header. */
 export function Banner({
   theme,

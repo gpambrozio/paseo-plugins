@@ -55,7 +55,9 @@ To hack on it, clone the repository and run `paseo plugin install "$PWD"` from t
 ## Talking to the first mate
 
 - The chat in the panel — Enter sends and Shift+Enter starts a new line, as in Paseo — or open the
-  first mate in Paseo for the whole session, every tool call and its output.
+  first mate in Paseo for the whole session, every tool call and its output. The chat follows new
+  messages while you are at the bottom; scroll up to read, and the round button at the bottom brings
+  you back.
 - **Questions it asks you** — which option, whether to go ahead, a plan to approve — appear in the
   chat as a form you answer there, the same as in the first mate's own tab.
 - **`/fm <message>`** in any composer sends the message to the first mate, from wherever you are.

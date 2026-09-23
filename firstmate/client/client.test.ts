@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { activityRows, clipLines } from "./activity-rows";
+import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
@@ -113,6 +114,19 @@ describe("activityRows", () => {
     expect(clipLines(text, 2, "tail")).toBe("… 3 more lines\n4\n5");
     expect(clipLines(text, 4, "head")).toBe("1\n2\n3\n4\n… 1 more line");
     expect(clipLines(text, 5, "head")).toBe(text);
+  });
+});
+
+describe("isAtEnd", () => {
+  it("still follows when the content grew before the transcript was told", () => {
+    // At the end of 1000 points of content; a reply has grown it to 1300, not yet reported.
+    expect(isAtEnd(600, 400, 1300, 1000)).toBe(true);
+  });
+
+  it("stops following when the reader scrolls up, and after content shrinks judges it as it is", () => {
+    expect(isAtEnd(300, 400, 1300, 1000)).toBe(false);
+    expect(isAtEnd(400, 400, 800, 1000)).toBe(true);
+    expect(isAtEnd(600, 400, 1000, 0)).toBe(true);
   });
 });
 

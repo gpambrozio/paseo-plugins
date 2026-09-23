@@ -16,7 +16,7 @@ import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
-import { IconButton, MONOSPACE, errorText } from "./ui";
+import { IconButton, JumpToEnd, MONOSPACE, errorText } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
 
@@ -101,6 +101,7 @@ export function MateChat({
     return {
       pane: { flex: 1, minHeight: 0, backgroundColor: colors.surface0 },
       transcript: { flex: 1 },
+      scroller: { flex: 1 },
       transcriptBody: { padding: compact ? 10 : 14, gap: 10 },
       captain: {
         alignSelf: "flex-end" as const,
@@ -232,26 +233,29 @@ export function MateChat({
 
   return (
     <View ref={pane} style={[styles.pane, { paddingBottom: keyboard }]}>
-      <ScrollView {...follow.scrollProps} style={styles.transcript} contentContainerStyle={styles.transcriptBody}>
-        {timeline.error === null ? null : <Text style={styles.error}>{timeline.error}</Text>}
-        {groups.length === 0 && pending.length === 0 ? (
-          <Text style={styles.hint}>{timeline.loading ? "Loading the conversation…" : "Nothing said yet. Ask below."}</Text>
-        ) : (
-          groups.map(renderGroup)
-        )}
-        {pending.map((request) => (
-          // A direct child of the transcript, so its layout is in the transcript's coordinates.
-          <View key={request.id} onLayout={(event) => follow.reveal(request.id, event.nativeEvent.layout)}>
-            <PermissionCard
-              request={request}
-              theme={theme}
-              compact={compact}
-              onRespond={(response) => respond(request.id, response)}
-              onOpenLink={openLink}
-            />
-          </View>
-        ))}
-      </ScrollView>
+      <View style={styles.transcript}>
+        <ScrollView {...follow.scrollProps} style={styles.scroller} contentContainerStyle={styles.transcriptBody}>
+          {timeline.error === null ? null : <Text style={styles.error}>{timeline.error}</Text>}
+          {groups.length === 0 && pending.length === 0 ? (
+            <Text style={styles.hint}>{timeline.loading ? "Loading the conversation…" : "Nothing said yet. Ask below."}</Text>
+          ) : (
+            groups.map(renderGroup)
+          )}
+          {pending.map((request) => (
+            // A direct child of the transcript, so its layout is in the transcript's coordinates.
+            <View key={request.id} onLayout={(event) => follow.reveal(request.id, event.nativeEvent.layout)}>
+              <PermissionCard
+                request={request}
+                theme={theme}
+                compact={compact}
+                onRespond={(response) => respond(request.id, response)}
+                onOpenLink={openLink}
+              />
+            </View>
+          ))}
+        </ScrollView>
+        {follow.away ? <JumpToEnd theme={theme} onPress={follow.jumpToEnd} /> : null}
+      </View>
       {/*
         The host pads a surface's top, under its header, but not its bottom, so
         on a phone the composer would sit on the home indicator. React Native's

@@ -22,7 +22,7 @@ import { useFollowEnd } from "./follow-end";
 import { agentStatusLabel, agentStatusTone } from "./format";
 import { Markdown } from "./markdown";
 import { PermissionCard, usePendingRequests } from "./permission-card";
-import { Chip, IconButton, MONOSPACE, errorText } from "./ui";
+import { Chip, IconButton, JumpToEnd, MONOSPACE, errorText } from "./ui";
 import { useAgentTimeline } from "./use-timeline";
 
 /** How much of a crewmate's history is read: its tail, this many entries long. */
@@ -341,55 +341,60 @@ function ActivityTranscript({
   }
 
   return (
-    // A question's free-text box is at the end of this list; on iOS the system
-    // insets it for the keyboard and scrolls the focused box into view.
-    <ScrollView {...follow.scrollProps} contentContainerStyle={styles.body} automaticallyAdjustKeyboardInsets>
-      {timeline.hasOlder ? (
-        <View style={styles.line}>
-          <Icon name="History" size={11} color={theme.colors.foregroundMuted} />
-          <Text style={styles.lineText}>
-            Only the latest activity is shown here.{" "}
-            {onOpen === null ? null : (
-              <Text accessibilityRole="link" style={styles.link} onPress={onOpen}>
-                The rest is in Paseo.
-              </Text>
-            )}
-          </Text>
-        </View>
-      ) : null}
-      {timeline.error === null ? null : <Text style={styles.error}>{timeline.error}</Text>}
-      {rows.length === 0 && pending.length === 0 ? (
-        <Text style={styles.hint}>{timeline.loading ? "Loading the worker's activity…" : "Nothing has happened yet."}</Text>
-      ) : (
-        rows.map((row, index) => {
-          const label = LABELS[row.kind];
-          const previous = rows[index - 1];
-          return (
-            <View key={row.key} style={{ gap: 4 }}>
-              {label === undefined || previous?.kind === row.kind ? null : <Text style={styles.label}>{label}</Text>}
-              {renderRow(row)}
-            </View>
-          );
-        })
-      )}
-      {pending.map((request) => (
-        // A direct child of the transcript, so its layout is in the transcript's coordinates.
-        <View key={request.id} onLayout={(event) => follow.reveal(request.id, event.nativeEvent.layout)}>
-          <PermissionCard
-            request={request}
-            theme={theme}
-            compact={compact}
-            onRespond={(response) => respond(request.id, response)}
-            onOpenLink={openLink}
-          />
-        </View>
-      ))}
-      {running && pending.length === 0 ? (
-        <View style={styles.line}>
-          <Icon name="Loader" size={11} color={theme.colors.accent} />
-          <Text style={styles.lineText}>Working…</Text>
-        </View>
-      ) : null}
-    </ScrollView>
+    <View style={{ flex: 1 }}>
+      {/*
+        A question's free-text box is at the end of this list; on iOS the system
+        insets it for the keyboard and scrolls the focused box into view.
+      */}
+      <ScrollView {...follow.scrollProps} contentContainerStyle={styles.body} automaticallyAdjustKeyboardInsets>
+        {timeline.hasOlder ? (
+          <View style={styles.line}>
+            <Icon name="History" size={11} color={theme.colors.foregroundMuted} />
+            <Text style={styles.lineText}>
+              Only the latest activity is shown here.{" "}
+              {onOpen === null ? null : (
+                <Text accessibilityRole="link" style={styles.link} onPress={onOpen}>
+                  The rest is in Paseo.
+                </Text>
+              )}
+            </Text>
+          </View>
+        ) : null}
+        {timeline.error === null ? null : <Text style={styles.error}>{timeline.error}</Text>}
+        {rows.length === 0 && pending.length === 0 ? (
+          <Text style={styles.hint}>{timeline.loading ? "Loading the worker's activity…" : "Nothing has happened yet."}</Text>
+        ) : (
+          rows.map((row, index) => {
+            const label = LABELS[row.kind];
+            const previous = rows[index - 1];
+            return (
+              <View key={row.key} style={{ gap: 4 }}>
+                {label === undefined || previous?.kind === row.kind ? null : <Text style={styles.label}>{label}</Text>}
+                {renderRow(row)}
+              </View>
+            );
+          })
+        )}
+        {pending.map((request) => (
+          // A direct child of the transcript, so its layout is in the transcript's coordinates.
+          <View key={request.id} onLayout={(event) => follow.reveal(request.id, event.nativeEvent.layout)}>
+            <PermissionCard
+              request={request}
+              theme={theme}
+              compact={compact}
+              onRespond={(response) => respond(request.id, response)}
+              onOpenLink={openLink}
+            />
+          </View>
+        ))}
+        {running && pending.length === 0 ? (
+          <View style={styles.line}>
+            <Icon name="Loader" size={11} color={theme.colors.accent} />
+            <Text style={styles.lineText}>Working…</Text>
+          </View>
+        ) : null}
+      </ScrollView>
+      {follow.away ? <JumpToEnd theme={theme} onPress={follow.jumpToEnd} /> : null}
+    </View>
   );
 }
