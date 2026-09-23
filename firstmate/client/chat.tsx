@@ -14,6 +14,7 @@ import {
   ScrollView,
   Text,
   View,
+  type LayoutRectangle,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -96,6 +97,10 @@ export function MateChat({
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
   const scroller = useRef<ScrollView>(null);
   const pinnedToEnd = useRef(true);
+  /** The transcript's visible height, to tell whether a question fits in it. */
+  const viewport = useRef(0);
+  /** Requests already brought into view, so a card is scrolled to once, not on every re-layout. */
+  const revealed = useRef(new Set<string>());
   const pane = useRef<View>(null);
   /** The keyboard's cover over this pane; padding it away lifts the composer above the keyboard. */
   const keyboard = useKeyboardOverlap(pane);
@@ -194,6 +199,26 @@ export function MateChat({
     void openExternalUrl(url).catch((caught: unknown) => toast.error(errorText(caught)));
   }
 
+  /**
+   * Brings a question into view once its card has a size. Following the end
+   * is not enough: it only happens while the transcript is pinned there, and
+   * the card lays out after the content-size change that would have followed
+   * it, so the view stopped where the card began. A card that fits is shown
+   * whole, with the end of the transcript; one taller than the transcript is
+   * shown from its top, where the question is.
+   */
+  function reveal(requestId: string, layout: LayoutRectangle): void {
+    if (revealed.current.has(requestId)) return;
+    revealed.current.add(requestId);
+    const fits = layout.height + 16 <= viewport.current;
+    pinnedToEnd.current = fits;
+    // After this layout pass, so the scroll view's content already includes the card.
+    setTimeout(() => {
+      if (fits) scroller.current?.scrollToEnd({ animated: true });
+      else scroller.current?.scrollTo({ y: Math.max(0, layout.y - 8), animated: true });
+    }, 0);
+  }
+
   function onScroll(event: NativeSyntheticEvent<NativeScrollEvent>): void {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     pinnedToEnd.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 40;
@@ -273,6 +298,9 @@ export function MateChat({
         onContentSizeChange={() => {
           if (pinnedToEnd.current) scroller.current?.scrollToEnd({ animated: false });
         }}
+        onLayout={(event) => {
+          viewport.current = event.nativeEvent.layout.height;
+        }}
       >
         {timeline.error === null ? null : <Text style={styles.error}>{timeline.error}</Text>}
         {groups.length === 0 && pending.length === 0 ? (
@@ -281,14 +309,16 @@ export function MateChat({
           groups.map(renderGroup)
         )}
         {pending.map((request) => (
-          <PermissionCard
-            key={request.id}
-            request={request}
-            theme={theme}
-            compact={compact}
-            onRespond={(response) => respond(request.id, response)}
-            onOpenLink={openLink}
-          />
+          // A direct child of the transcript, so its layout is in the transcript's coordinates.
+          <View key={request.id} onLayout={(event) => reveal(request.id, event.nativeEvent.layout)}>
+            <PermissionCard
+              request={request}
+              theme={theme}
+              compact={compact}
+              onRespond={(response) => respond(request.id, response)}
+              onOpenLink={openLink}
+            />
+          </View>
         ))}
       </ScrollView>
       {/*
