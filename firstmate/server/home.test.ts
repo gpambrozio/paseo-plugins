@@ -47,6 +47,9 @@ describe("renderCharter", () => {
         expect(charter).toContain(key);
       }
       expect(charter).toContain(`"${CREW_LABELS.role}": "${CREW_LABELS.crewRole}"`);
+      // It is told where the captain's world lives, and how to look the crew up past list_agents' window.
+      expect(charter).toContain("paseo project ls --json");
+      expect(charter).toContain(`paseo ls -g --label ${CREW_LABELS.role}=${CREW_LABELS.crewRole} --json`);
     }
   });
 });

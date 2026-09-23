@@ -122,10 +122,25 @@ few lines, so "the build is done: …" earlier in a message is not a report.
 Columns: a pending permission, an error or a running turn win (blocked, failed, working); once the
 turn has ended the status line decides; an ended turn with no status line is **Idle**.
 
+## The first mate is told it lives in Paseo
+
+Charter §0 says what the first mate cannot work out for itself: that it runs inside Paseo, and that
+Paseo — not its memory or its records — is where the captain's projects, workspaces, agents,
+providers and schedules are. It names both ways in: the MCP tools for acting on the crew, and the
+`paseo` CLI for looking things up, with the exact commands. Without it a first mate asked "which
+projects do you know?" answered from `data/projects.md` alone. So the registry now holds only each
+project's delivery mode; which projects exist is `paseo project ls`.
+
+The crew is listed with `paseo ls -g --label firstmate.role=crew`, not the MCP `list_agents`:
+that tool defaults to the last 48 hours and 50 agents, and a crewmate older than that would silently
+drop out of the first mate's view. Agents get `PASEO_CLI`, `PASEO_HOME` and their own
+`PASEO_AGENT_ID` in their environment (seen on 0.9.1), which is what the charter points at.
+
 ## The home
 
-`server/home.ts` writes `AGENTS.md` (the charter, **rewritten on every launch and on every settings
-save** — it names the crew's model) and creates `data/captain.md`, `projects.md`, `backlog.md` and
+`server/home.ts` writes `AGENTS.md` (the charter, **rewritten on every launch, every settings save and
+every plugin start** — it names the crew's model, and a charter change should reach a home in use
+without a relaunch; a running first mate still has to be asked to re-read it) and creates `data/captain.md`, `projects.md`, `backlog.md` and
 `learnings.md` only when missing, so a relaunch never loses a record. `data/captain.md` is the
 captain's to edit and outranks the charter below its hard rules; that is where customisation that
 should survive an upgrade goes.

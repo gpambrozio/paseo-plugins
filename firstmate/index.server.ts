@@ -80,7 +80,20 @@ export default function contribute(server: PluginServerContext) {
 
   const unregisterRelay = registerSteerRelay(server, steers, readFirstmateConfig);
 
+  // A charter change reaches a home already in use on the next reload, rather
+  // than waiting for the next launch. Only a home a launch has prepared: this
+  // never creates one.
+  void refreshCharter().catch((error: unknown) => {
+    console.error("[firstmate] could not rewrite the charter:", error);
+  });
+
   return () => {
     unregisterRelay();
   };
+}
+
+async function refreshCharter(): Promise<void> {
+  const config = await readFirstmateConfig();
+  const home = resolveHome(config);
+  if (await isHomeReady(home)) await prepareHome(home, config);
 }
