@@ -73,6 +73,18 @@ export const TURN_REPEAT_WINDOW_MS = 15_000;
  */
 export const INTERRUPT_GRACE_MS = 10_000;
 
+/**
+ * Whether an event gets a summary, a transcript card and a voice; otherwise it
+ * is only listed. An agent another agent started reports to that agent — Paseo
+ * tells the parent when it finishes, fails or asks for a permission — so unless
+ * the user has asked for subagents too, the parent's announcement is the one
+ * they hear. Herald's own helpers have a parent as well, but never get here.
+ */
+export function isAnnounced(agent: PluginHookAgent, reason: AttentionReason, config: HeraldConfig): boolean {
+  if (agent.parentAgentId !== null && !config.subagents.announce) return false;
+  return config.announce[announceKeyFor(reason)];
+}
+
 export function registerHooks(server: PluginLifecycleRegistration, deps: HookDeps): () => void {
   const now = deps.now ?? (() => new Date());
   const maxConcurrent = deps.maxConcurrent ?? 2;
@@ -205,8 +217,9 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       headline,
       detail,
     };
-    if (!config.announce[announceKeyFor(reason)]) {
-      // Switched off: listed in the panel, no summary, no card in the transcript.
+    if (!isAnnounced(agent, reason, config)) {
+      // Switched off, or a subagent its parent speaks for: listed in the panel,
+      // no summary, no card in the transcript.
       deps.store.upsert({ ...base, summary: { status: "off", fallback: fallbackSpeech(base) } });
       return;
     }

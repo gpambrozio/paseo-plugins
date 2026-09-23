@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.5.0] — 2026-09-23
+
+### Changed
+
+- **Herald no longer announces agents that another agent started.** A subagent, or a worker a
+  FirstMate first mate sent off, reports to the agent that started it, and Paseo tells that agent
+  when it finishes, fails or needs your permission. You now hear that agent's announcement, in its
+  words, instead of both. These agents still appear in the Herald panel, without a spoken summary.
+  To hear them as before, turn on *Agents started by another agent* in Herald's settings.
+
 ## [0.4.0] — 2026-09-22
 
 ### Added

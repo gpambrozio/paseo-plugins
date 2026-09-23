@@ -1,6 +1,6 @@
 {
   "name": "@gpambrozio/paseo-herald",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Paseo plugin: speaks one sentence when an agent needs you, and lists everything waiting in a sidebar panel",
   "license": "MIT",
   "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/herald",

@@ -70,6 +70,11 @@ Center, or the settings screen itself.
   sessions are deleted, and which kinds of event are announced: questions, plan approvals, tool
   permissions, finished turns, errors. A kind that is switched off still appears in the panel,
   without a summary and without being spoken.
+- **Agents started by another agent** — off by default. A subagent, or a worker a
+  FirstMate first mate dispatched, reports to the agent that started it: Paseo tells
+  that agent when it finishes, fails or needs a permission, and you hear the parent's announcement,
+  in its words, rather than two. Such an agent is still listed in the panel, like a switched-off
+  kind. Turn it on to hear both.
 
 ### The prompt
 

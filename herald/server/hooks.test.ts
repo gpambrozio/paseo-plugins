@@ -454,6 +454,29 @@ describe("registerHooks", () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
+  it("leaves an agent another agent started to the one that started it", async () => {
+    const child: PluginHookAgent = { ...agent, parentAgentId: "mate" };
+    const { store, summarize, publish, emit } = setup();
+    await emit("agent.turn_ended", { agent: child, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await settle();
+    expect(store.get("a1")?.summary).toEqual({
+      status: "off",
+      fallback: "Login fix finished. I fixed auth.ts and added a test.",
+    });
+    expect(summarize).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("announces subagents too when the user asks for them", async () => {
+    const child: PluginHookAgent = { ...agent, parentAgentId: "mate" };
+    const config: HeraldConfig = { ...DEFAULT_CONFIG, subagents: { announce: true } };
+    const { store, summarize, emit } = setup({}, config);
+    await emit("agent.permission_requested", { agent: child, request: question });
+    await settle();
+    expect(summarize).toHaveBeenCalledOnce();
+    expect(store.get("a1")?.summary.status).toBe("ready");
+  });
+
   it("clears an entry when the agent moves on", async () => {
     const { store, emit } = setup();
     await emit("agent.permission_requested", { agent, request: question });
