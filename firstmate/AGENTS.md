@@ -31,6 +31,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
 | `client/fleet.tsx`            | The surface: header, banners, chat/board split, compact tabs, the shared fleet query.      |
 | `client/chat.tsx`             | The first mate's conversation, folded to the words, and the composer.                      |
+| `client/keys.ts`              | Enter sends, Shift+Enter is a new line — web and wide layouts only, as in Paseo. Pure.     |
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
 | `client/launch.tsx`           | What shows before there is a first mate: launch one, or adopt a running agent.             |

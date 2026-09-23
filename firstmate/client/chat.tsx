@@ -7,10 +7,19 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 
 import { askMate, type AgentSummary } from "../shared/fleet";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
+import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
 import { IconButton, errorText } from "./ui";
@@ -24,6 +33,16 @@ let cachedDraft = "";
 
 /** A run of tool calls shows this many before folding the rest behind a count. */
 const TOOL_RUN_VISIBLE = 2;
+
+/**
+ * The composer's height; longer text scrolls inside it. Fixed rather than
+ * grown with the text: on the web renderer a textarea's reported content
+ * height is never less than its own height, so a box sized from it can grow
+ * but never shrink back.
+ */
+const INPUT_HEIGHT = 120;
+const INPUT_HEIGHT_COMPACT = 80;
+
 
 type Group = { key: string; row: TranscriptRow } | { key: string; tools: Extract<TranscriptRow, { kind: "tool" }>[] };
 
@@ -66,6 +85,7 @@ export function MateChat({
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
   const scroller = useRef<ScrollView>(null);
   const pinnedToEnd = useRef(true);
+  const submitOnEnter = Platform.OS === "web" && !compact;
 
   function setDraft(text: string): void {
     cachedDraft = text;
@@ -106,14 +126,14 @@ export function MateChat({
       input: {
         flex: 1,
         color: colors.foreground,
-        fontSize: 13,
-        minHeight: 40,
-        maxHeight: 160,
+        fontSize: 14,
+        lineHeight: 20,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: 8,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
+        height: compact ? INPUT_HEIGHT_COMPACT : INPUT_HEIGHT,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
         backgroundColor: colors.surface1,
         textAlignVertical: "top" as const,
       },
@@ -257,9 +277,23 @@ export function MateChat({
           <TextInput
             value={draft}
             onChangeText={setDraft}
-            placeholder="Tell the first mate what you need, captain…"
+            placeholder={
+              submitOnEnter
+                ? "Tell the first mate what you need, captain… (Enter sends, Shift+Enter for a new line)"
+                : "Tell the first mate what you need, captain…"
+            }
             placeholderTextColor={theme.colors.foregroundMuted}
             multiline
+            onKeyPress={
+              submitOnEnter
+                ? (event: WebKeyPressEvent) => {
+                    // Nothing to send, or a send in flight: Enter is left alone, as Paseo leaves it.
+                    if (!isSendKey(event.nativeEvent) || sending || draft.trim() === "") return;
+                    event.preventDefault();
+                    send(draft, true);
+                  }
+                : undefined
+            }
             style={styles.input}
           />
           <IconButton

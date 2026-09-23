@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { isSendKey } from "./keys";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
 import { moveColumn, orderedColumns, relativeTime, shortPath } from "./format";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
@@ -79,5 +80,15 @@ describe("formatting", () => {
     expect(bearingsPrompt("")).toBe("Bearings, please.");
     expect(bearingsPrompt(" file include PRs ")).toBe("Bearings, please — file include PRs.");
     expect(ahoyPrompt("")).toBe("Ahoy!");
+  });
+});
+
+describe("isSendKey", () => {
+  it("sends on Enter, not on Shift+Enter, another key, or an input method confirming a word", () => {
+    expect(isSendKey({ key: "Enter" })).toBe(true);
+    expect(isSendKey({ key: "Enter", shiftKey: true })).toBe(false);
+    expect(isSendKey({ key: "a" })).toBe(false);
+    expect(isSendKey({ key: "Enter", isComposing: true })).toBe(false);
+    expect(isSendKey({ key: "Enter", keyCode: 229 })).toBe(false);
   });
 });
