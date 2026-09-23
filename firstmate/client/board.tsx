@@ -8,7 +8,6 @@
  * view it crosses, and two arrows work the same everywhere.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -26,7 +25,8 @@ interface BoardProps {
   collapsed: readonly string[];
   theme: PluginTheme;
   compact: boolean;
-  navigation: PluginSurfaceProps["navigation"];
+  /** Shows one crewmate's card and transcript in place of the board. */
+  onWatch: (agentId: string) => void;
   onToggleColumn: (id: ColumnId) => void;
   onMoveColumn: (id: ColumnId, delta: number) => void;
   onChanged: () => void;
@@ -141,16 +141,19 @@ export function Board(props: BoardProps) {
 
   function renderCards(id: ColumnId, entries: readonly FleetCard[]) {
     if (entries.length === 0) return <Text style={styles.empty}>{COLUMNS[id].empty}</Text>;
-    return entries.map((card) => (
-      <CrewCard
-        key={card.key}
-        card={card}
-        theme={theme}
-        compact={compact}
-        navigation={props.navigation}
-        onChanged={props.onChanged}
-      />
-    ));
+    return entries.map((card) => {
+      const agentId = card.agent?.id ?? null;
+      return (
+        <CrewCard
+          key={card.key}
+          card={card}
+          theme={theme}
+          compact={compact}
+          opener={agentId === null ? null : { icon: "Eye", label: "Watch", onPress: () => props.onWatch(agentId) }}
+          onChanged={props.onChanged}
+        />
+      );
+    });
   }
 
   if (compact) {

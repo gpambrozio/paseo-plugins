@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { activityRows, clipLines } from "./activity-rows";
 import { isSendKey } from "./keys";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
@@ -41,6 +42,77 @@ describe("transcriptRows", () => {
       "The captain spoke to crewmate a1.",
     );
     expect(injectedSummary("please look at <paseo-system>")).toBeNull();
+  });
+});
+
+describe("activityRows", () => {
+  function tool(detail: unknown, status = "completed", error: unknown = null) {
+    return { type: "tool_call", callId: "c", name: "Bash", detail, status, error };
+  }
+
+  it("keeps the machinery: reasoning joined, tools with what they ran, the brief as a prompt", () => {
+    const rows = activityRows([
+      entry({ type: "user_message", text: "Fix the login bug." }, 1),
+      entry({ type: "reasoning", text: "Look at " }, 2),
+      entry({ type: "reasoning", text: "auth.ts first." }, 3),
+      entry(tool({ type: "shell", command: "npm test", output: "ok\n", exitCode: 0 }), 4),
+      entry({ type: "assistant_message", text: "done: " }, 5),
+      entry({ type: "assistant_message", text: "ready in branch fm/1" }, 6),
+      entry({ type: "user_message", text: "<firstmate-board>\nThe captain spoke to crewmate a1.\n</firstmate-board>" }, 7),
+    ]);
+    expect(rows.map((row) => row.kind)).toEqual(["prompt", "reasoning", "tool", "reply", "event"]);
+    expect(rows[1]).toMatchObject({ text: "Look at auth.ts first." });
+    expect(rows[2]).toMatchObject({ label: "Shell", summary: "npm test", detail: "$ npm test\n\nok\n\nexit 0" });
+    expect(rows[3]).toMatchObject({ text: "done: ready in branch fm/1" });
+  });
+
+  it("shows only the latest plan, where it was last updated", () => {
+    const rows = activityRows([
+      entry({ type: "todo", items: [{ text: "Read", completed: false }] }, 1),
+      entry({ type: "assistant_message", text: "Reading." }, 2),
+      entry({ type: "todo", items: [{ text: "Read", completed: true }, { text: "Fix", completed: false, status: "in_progress" }] }, 3),
+    ]);
+    expect(rows.map((row) => row.kind)).toEqual(["reply", "plan"]);
+    expect(rows[1]).toMatchObject({
+      items: [
+        { text: "Read", status: "completed" },
+        { text: "Fix", status: "in_progress" },
+      ],
+    });
+  });
+
+  it("describes a failed call, an edit and an MCP tool", () => {
+    const [failed, edit, mcp] = activityRows([
+      entry(tool({ type: "read", filePath: "src/a.ts" }, "failed", "ENOENT"), 1),
+      entry(tool({ type: "edit", filePath: "src/b.ts", oldString: "a", newString: "b" }), 2),
+      entry({ ...tool({ type: "unknown", input: { title: "x" }, output: null }), name: "mcp__paseo__create_agent" }, 3),
+    ]);
+    expect(failed).toMatchObject({ label: "Read", status: "failed", detail: "Error: ENOENT" });
+    expect(edit).toMatchObject({ label: "Edit", detail: "- a\n\n+ b" });
+    expect(mcp).toMatchObject({ label: "create agent", summary: '{ "title": "x" }' });
+  });
+
+  it("keys a row by where it starts, so it stays open while it runs and as the window slides", () => {
+    const running = entry(tool({ type: "shell", command: "npm test" }, "running"), 7);
+    const finished = { ...entry(tool({ type: "shell", command: "npm test", output: "ok" }), 7), seqEnd: 9 };
+    const before = activityRows([running]);
+    const after = activityRows([entry({ type: "user_message", text: "Fix it." }, 3), finished]);
+    expect(after[1]?.key).toBe(before[0]?.key);
+  });
+
+  it("drops the plan when the list is emptied", () => {
+    const rows = activityRows([
+      entry({ type: "todo", items: [{ text: "Read", completed: false }] }, 1),
+      entry({ type: "todo", items: [] }, 2),
+    ]);
+    expect(rows).toEqual([]);
+  });
+
+  it("clips long output from the end it matters at", () => {
+    const text = ["1", "2", "3", "4", "5"].join("\n");
+    expect(clipLines(text, 2, "tail")).toBe("… 3 more lines\n4\n5");
+    expect(clipLines(text, 4, "head")).toBe("1\n2\n3\n4\n… 1 more line");
+    expect(clipLines(text, 5, "head")).toBe(text);
   });
 });
 

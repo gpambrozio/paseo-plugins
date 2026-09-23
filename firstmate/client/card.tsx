@@ -1,13 +1,15 @@
 /**
  * One card on the board: a crewmate, a backlog item, or both.
  *
- * Pressing the card opens its actions. Steering, interrupting and ending go to
- * the crewmate directly; relaunching goes through the first mate, because it
+ * Pressing the card opens its actions. The first one is the caller's: the
+ * board watches the crewmate without leaving FirstMate, a panel beside a
+ * workspace opens it in Paseo. Steering, interrupting and ending go to the
+ * crewmate directly; relaunching goes through the first mate, because it
  * owns the brief the new crewmate starts from. Ending archives the agent and
  * leaves its workspace and worktree exactly as they are.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import { openExternalUrl, useRpc, type PluginSurfaceProps } from "@getpaseo/plugin/client";
+import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
@@ -16,7 +18,13 @@ import { exitCrew, interruptCrew, relaunchCrew, steerCrew, type FleetCard } from
 import { agentStatusLabel, agentStatusTone, columnTone, modelLabel, relativeTime } from "./format";
 import { Chip, IconButton, errorText } from "./ui";
 
-type Navigation = PluginSurfaceProps["navigation"];
+/** The card's first action, which opens the crewmate somewhere. */
+export interface CardOpener {
+  icon: string;
+  label: string;
+  onPress: () => void;
+}
+
 type Draft = { kind: "steer" | "relaunch"; text: string } | { kind: "end" } | null;
 
 /**
@@ -63,14 +71,15 @@ export function CrewCard({
   card,
   theme,
   compact,
-  navigation,
+  opener,
   onChanged,
   startExpanded = false,
 }: {
   card: FleetCard;
   theme: PluginTheme;
   compact: boolean;
-  navigation: Navigation;
+  /** Null where the crewmate is already in view, or there is nowhere to open it. */
+  opener: CardOpener | null;
   /** Called after an action lands, so the board refreshes without waiting for its poll. */
   onChanged: () => void;
   startExpanded?: boolean;
@@ -216,14 +225,8 @@ export function CrewCard({
 
       {expanded && agent !== null ? (
         <View style={styles.actions}>
-          {navigation === undefined ? null : (
-            <IconButton
-              icon="ExternalLink"
-              label="Open"
-              showLabel
-              theme={theme}
-              onPress={() => navigation.openAgent({ agentId: agent.id })}
-            />
+          {opener === null ? null : (
+            <IconButton icon={opener.icon} label={opener.label} showLabel theme={theme} onPress={opener.onPress} />
           )}
           <IconButton
             icon="MessageSquare"

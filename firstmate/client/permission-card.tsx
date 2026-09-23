@@ -1,5 +1,6 @@
 /**
- * What the first mate is waiting on, answered in the panel.
+ * What an agent is waiting on — the first mate in the chat, a crewmate in the
+ * Watch view — answered in the panel.
  *
  * An agent that asks the captain something — Claude's AskUserQuestion — or
  * wants a permission is stopped on a pending permission request, and until
@@ -10,8 +11,8 @@
  * the request's own buttons, or Allow and Deny when it names none.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { usePaseo } from "@getpaseo/plugin/client";
-import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
+import { usePaseo } from "@getpaseo/plugin/client";
+import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
@@ -29,11 +30,43 @@ import {
   type Question,
   type Selections,
 } from "./questions";
-import { IconButton, MONOSPACE, type Tone } from "./ui";
+import { IconButton, MONOSPACE, errorText, type Tone } from "./ui";
 
 type AgentHandle = ReturnType<ReturnType<typeof usePaseo>["agents"]["ref"]>;
 export type PermissionRequest = NonNullable<AgentHandle["pendingPermissions"]>[number];
 export type PermissionResponse = Parameters<AgentHandle["respondToPermission"]>[0]["response"];
+
+/**
+ * An agent's pending requests, and how to answer one as the agent's own tab
+ * would. Answered ones are hidden at once rather than when the next timeline
+ * read confirms it, so a card cannot be answered twice; a failure is reported
+ * and the card comes back.
+ */
+export function usePendingRequests(
+  agentId: string,
+  requests: readonly PermissionRequest[] | undefined,
+  /** Called as an answer goes out — the transcript follows its end again. */
+  onAnswering: () => void,
+) {
+  const paseo = usePaseo();
+  const toast = useToast();
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
+  const pending = (requests ?? []).filter((request) => !answered.has(request.id));
+
+  function respond(requestId: string, response: PermissionResponse): Promise<void> {
+    onAnswering();
+    return paseo.agents
+      .ref(agentId)
+      .respondToPermission({ requestId, response })
+      .then(() => setAnswered((current) => new Set([...current, requestId])))
+      .catch((caught: unknown) => {
+        toast.error(errorText(caught));
+        throw caught;
+      });
+  }
+
+  return { pending, respond };
+}
 
 interface CardProps {
   request: PermissionRequest;

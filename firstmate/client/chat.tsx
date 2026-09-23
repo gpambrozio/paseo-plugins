@@ -4,26 +4,17 @@
  * one press away in Paseo itself, which is what the Open button is for.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import { openExternalUrl, usePaseo, useRpc } from "@getpaseo/plugin/client";
+import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  Text,
-  View,
-  type LayoutRectangle,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
-} from "react-native";
+import { Platform, Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 
 import { askMate, type AgentSummary } from "../shared/fleet";
 import { ahoyPrompt, bearingsPrompt } from "./commands";
+import { useFollowEnd } from "./follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
-import { PermissionCard, type PermissionResponse } from "./permission-card";
+import { PermissionCard, usePendingRequests } from "./permission-card";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
 import { IconButton, MONOSPACE, errorText } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
@@ -83,30 +74,20 @@ export function MateChat({
   const timeline = useAgentTimeline(mate.id, `${mate.updatedAt}:${mate.pendingPermissions}`);
   const rows = useMemo(() => transcriptRows(timeline.entries), [timeline.entries]);
   const groups = useMemo(() => groupRows(rows), [rows]);
-  const paseo = usePaseo();
-  /**
-   * What the first mate is waiting on — a question, a permission, a plan.
-   * Answered ones are hidden at once rather than when the next read confirms
-   * it, so a card cannot be answered twice.
-   */
-  const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set());
-  const pending = (timeline.agent?.pendingPermissions ?? []).filter((request) => !answered.has(request.id));
+  const follow = useFollowEnd();
+  /** What the first mate is waiting on — a question, a permission, a plan. */
+  const { pending, respond } = usePendingRequests(mate.id, timeline.agent?.pendingPermissions, follow.pin);
 
   const [draft, setDraftState] = useState(cachedDraft);
   const [sending, setSending] = useState(false);
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
-  const scroller = useRef<ScrollView>(null);
-  const pinnedToEnd = useRef(true);
-  /** The transcript's visible height, to tell whether a question fits in it. */
-  const viewport = useRef(0);
-  /** Requests already brought into view, so a card is scrolled to once, not on every re-layout. */
-  const revealed = useRef(new Set<string>());
   const pane = useRef<View>(null);
   /** The keyboard's cover over this pane; padding it away lifts the composer above the keyboard. */
   const keyboard = useKeyboardOverlap(pane);
   // The transcript shrinks when the keyboard opens; keep its end in view if that is where the captain was.
   useEffect(() => {
-    if (keyboard > 0 && pinnedToEnd.current) scroller.current?.scrollToEnd({ animated: false });
+    // Not a dependency: `follow` is new every render, and the keyboard opening is the event.
+    if (keyboard > 0) follow.keepAtEnd();
   }, [keyboard]);
   const submitOnEnter = Platform.OS === "web" && !compact;
 
@@ -172,7 +153,7 @@ export function MateChat({
     const trimmed = text.trim();
     if (trimmed === "" || sending) return;
     setSending(true);
-    pinnedToEnd.current = true;
+    follow.pin();
     if (fromDraft) setDraft("");
     ask({ text: trimmed })
       .catch((caught: unknown) => {
@@ -182,46 +163,8 @@ export function MateChat({
       .finally(() => setSending(false));
   }
 
-  /** Answers one request as the agent's own tab would; a failure is reported and the card comes back. */
-  function respond(requestId: string, response: PermissionResponse): Promise<void> {
-    pinnedToEnd.current = true;
-    return paseo.agents
-      .ref(mate.id)
-      .respondToPermission({ requestId, response })
-      .then(() => setAnswered((current) => new Set([...current, requestId])))
-      .catch((caught: unknown) => {
-        toast.error(errorText(caught));
-        throw caught;
-      });
-  }
-
   function openLink(url: string): void {
     void openExternalUrl(url).catch((caught: unknown) => toast.error(errorText(caught)));
-  }
-
-  /**
-   * Brings a question into view once its card has a size. Following the end
-   * is not enough: it only happens while the transcript is pinned there, and
-   * the card lays out after the content-size change that would have followed
-   * it, so the view stopped where the card began. A card that fits is shown
-   * whole, with the end of the transcript; one taller than the transcript is
-   * shown from its top, where the question is.
-   */
-  function reveal(requestId: string, layout: LayoutRectangle): void {
-    if (revealed.current.has(requestId)) return;
-    revealed.current.add(requestId);
-    const fits = layout.height + 16 <= viewport.current;
-    pinnedToEnd.current = fits;
-    // After this layout pass, so the scroll view's content already includes the card.
-    setTimeout(() => {
-      if (fits) scroller.current?.scrollToEnd({ animated: true });
-      else scroller.current?.scrollTo({ y: Math.max(0, layout.y - 8), animated: true });
-    }, 0);
-  }
-
-  function onScroll(event: NativeSyntheticEvent<NativeScrollEvent>): void {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    pinnedToEnd.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 40;
   }
 
   function renderGroup(group: Group) {
@@ -289,19 +232,7 @@ export function MateChat({
 
   return (
     <View ref={pane} style={[styles.pane, { paddingBottom: keyboard }]}>
-      <ScrollView
-        ref={scroller}
-        style={styles.transcript}
-        contentContainerStyle={styles.transcriptBody}
-        onScroll={onScroll}
-        scrollEventThrottle={100}
-        onContentSizeChange={() => {
-          if (pinnedToEnd.current) scroller.current?.scrollToEnd({ animated: false });
-        }}
-        onLayout={(event) => {
-          viewport.current = event.nativeEvent.layout.height;
-        }}
-      >
+      <ScrollView {...follow.scrollProps} style={styles.transcript} contentContainerStyle={styles.transcriptBody}>
         {timeline.error === null ? null : <Text style={styles.error}>{timeline.error}</Text>}
         {groups.length === 0 && pending.length === 0 ? (
           <Text style={styles.hint}>{timeline.loading ? "Loading the conversation…" : "Nothing said yet. Ask below."}</Text>
@@ -310,7 +241,7 @@ export function MateChat({
         )}
         {pending.map((request) => (
           // A direct child of the transcript, so its layout is in the transcript's coordinates.
-          <View key={request.id} onLayout={(event) => reveal(request.id, event.nativeEvent.layout)}>
+          <View key={request.id} onLayout={(event) => follow.reveal(request.id, event.nativeEvent.layout)}>
             <PermissionCard
               request={request}
               theme={theme}

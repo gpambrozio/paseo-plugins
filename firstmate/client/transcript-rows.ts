@@ -41,7 +41,8 @@ export function injectedSummary(text: string): string | null {
   return null;
 }
 
-function clip(text: string, max = 120): string {
+/** One line, at most `max` characters. */
+export function clip(text: string, max = 120): string {
   const single = text.replace(/\s+/g, " ").trim();
   return single.length <= max ? single : `${single.slice(0, max - 1)}…`;
 }
@@ -69,9 +70,23 @@ export function toolSummary(item: ToolCallItem): string {
     case "plan":
       return "Plan";
     default:
-      // MCP tools arrive as `mcp__paseo__create_agent`; the server name is noise.
-      return item.name.replace(/^mcp__[^_]+__/, "").replace(/_/g, " ");
+      return toolDisplayName(item.name);
   }
+}
+
+/** MCP tools arrive as `mcp__paseo__create_agent`; the server name is noise. */
+export function toolDisplayName(name: string): string {
+  return name.replace(/^mcp__[^_]+__/, "").replace(/_/g, " ");
+}
+
+/**
+ * A row's key: where its entry starts in the timeline. The end moves while a
+ * reply streams or a tool call runs, and a position in the page shifts once
+ * the tail is full, so neither is in it — a key that changes remounts the row
+ * and forgets that it was open.
+ */
+export function rowKey(entry: TimelineEntry): string {
+  return String(entry.seqStart);
 }
 
 /**
@@ -80,8 +95,8 @@ export function toolSummary(item: ToolCallItem): string {
  */
 export function transcriptRows(entries: readonly TimelineEntry[]): TranscriptRow[] {
   const rows: TranscriptRow[] = [];
-  entries.forEach((entry, index) => {
-    const key = `${entry.seqStart}-${entry.seqEnd}-${index}`;
+  entries.forEach((entry) => {
+    const key = rowKey(entry);
     const item = entry.item;
     switch (item.type) {
       case "user_message": {

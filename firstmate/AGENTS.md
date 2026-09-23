@@ -34,12 +34,15 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/chat.tsx`             | The first mate's conversation, folded to the words, and the composer.                      |
 | `shared/files.ts`, `server/files.ts` | The home as files: list, read, write — confined to the home, saved against the version opened. |
 | `client/files.tsx`            | The Files view: the home's folders, a text editor, a Markdown preview.                     |
-| `client/permission-card.tsx`  | What the first mate is waiting on — a question, a permission, a plan — answered in the chat. |
+| `client/permission-card.tsx`  | What an agent is waiting on — a question, a permission, a plan — answered in the chat or in Watch. |
 | `client/questions.ts`         | The question form's rules, ported from Paseo's own card. Pure.                             |
 | `client/keyboard.ts`          | How far the on-screen keyboard covers a view, measured in window coordinates.              |
 | `client/keys.ts`              | Enter sends, Shift+Enter is a new line — web and wide layouts only, as in Paseo. Pure.     |
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
+| `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
+| `client/activity-rows.ts`     | Timeline entries → Watch rows, machinery kept: reasoning, tool detail, the latest plan. Pure. |
+| `client/follow-end.ts`        | A streaming transcript that follows its end and brings a new request into view.            |
 | `client/launch.tsx`           | What shows before there is a first mate: launch one, or adopt a running agent.             |
 | `client/panels.tsx`           | The workspace and agent panels: the crewmate's card beside its own tab.                    |
 | `client/settings-screen.tsx`  | Settings › Plugins › FirstMate.                                                            |
@@ -187,6 +190,35 @@ only when the chat is out of sight — folded, or behind the Crew tab — with a
 
 Checked on a throwaway 0.9.1 daemon: a Claude agent's AskUserQuestion arrived in the timeline page's
 snapshot with `allowOther` set, and answering it with `buildAnswers` got "I picked Blue." back.
+
+## Watching a crewmate
+
+A card's **Watch** shows that crewmate in the board's place — the right-hand pane, or the Crew tab on a
+phone — so the chat with the first mate stays beside it: its card, with the board's actions, and its
+live transcript. Pressing *Crew* again, or the view's own back button, returns to the board; the
+crewmate being watched is kept in module scope like the open tab. *Open in Paseo* is in the view's
+bar, not on the card — the card's first action is the caller's (`CardOpener`), so the board says
+Watch and the workspace panels, already beside the agent, say Open.
+
+The transcript is `useAgentTimeline` on the crewmate, the tail of 200 projected entries, turned into
+rows by `activityRows`. Where the chat folds the first mate's machinery away, this keeps it: reasoning,
+every tool call with an expandable detail (a shell command's output from its end, an edit's diff, a
+file's content from its start, all clipped to 40 lines), and only the **latest** plan, because each
+update restates the whole list. Claude's task tools reach the timeline as that plan
+(`claude/task-state.ts` in Paseo); Codex, OpenCode and ACP providers send it directly. `hasOlder` on
+the page says when the tail is not the whole story, and the view points at Paseo for the rest.
+
+Rows — here and in the chat — are keyed by their entry's `seqStart` (`rowKey`). The entry's end grows
+while a tool call runs or a reply streams, and its position in the page shifts by one with every new
+entry once the tail is full; a key built from either remounts the row, which closes an open tool
+detail just as its output arrives.
+
+A crewmate's pending questions and permissions are answered here exactly as the first mate's are in
+the chat — `usePendingRequests` and `PermissionCard`, shared — and the transcript follows its end the
+same way (`useFollowEnd`, also shared).
+
+Checked on a throwaway 0.9.1 daemon: a Sonnet agent's projected timeline came through as prompt, shell
+calls with their output, and replies, and the compiled client bundle carried the view.
 
 ## The home's files, in the panel
 

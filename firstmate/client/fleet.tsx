@@ -7,8 +7,8 @@
  * chat reads the first mate's timeline directly and streams.
  *
  * A surface is unmounted whenever the captain opens a workspace, so the last
- * fleet and the compact tab live in module scope and the board comes back
- * drawn rather than empty.
+ * fleet, the compact tab and the crewmate being watched live in module scope
+ * and the board comes back drawn rather than empty.
  */
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
@@ -22,6 +22,7 @@ import { displaySettings, type DisplaySettings } from "../shared/settings";
 import { Board } from "./board";
 import { FilesView } from "./files";
 import { MateChat } from "./chat";
+import { CrewmateView } from "./crewmate";
 import { agentStatusLabel, agentStatusTone, groupCards, moveColumn, orderedColumns, shortPath } from "./format";
 import { LaunchPanel } from "./launch";
 import { ResizeHandle, clampShare } from "./resize-handle";
@@ -34,6 +35,8 @@ type Tab = "chat" | "board" | "files";
 let cachedTab: Tab = "chat";
 /** What the right-hand pane shows on a wide layout: the crew, or the home's files. */
 let cachedRightPane: "board" | "files" = "board";
+/** The crewmate shown in the board's place — card and transcript — by agent id. */
+let cachedWatching: string | null = null;
 
 /**
  * A surface is given no way to open a settings screen, so the entry lends it
@@ -79,6 +82,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   const [width, setWidth] = useState(0);
   const [tab, setTabState] = useState<Tab>(cachedTab);
   const [rightPane, setRightPaneState] = useState(cachedRightPane);
+  const [watching, setWatchingState] = useState(cachedWatching);
   const [enabling, setEnabling] = useState(false);
 
   const fleet = useFleet(values.pollSeconds);
@@ -137,13 +141,22 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   }, [display]);
 
   function setTab(next: Tab): void {
+    // As with the wide layout's Crew switch: pressing Crew again goes back to the board.
+    if (next === "board" && tab === "board") setWatching(null);
     cachedTab = next;
     setTabState(next);
   }
 
   function setRightPane(next: "board" | "files"): void {
+    // Choosing Crew while it is already showing is the way back from a watched crewmate to the board.
+    if (next === "board" && rightPane === "board") setWatching(null);
     cachedRightPane = next;
     setRightPaneState(next);
+  }
+
+  function setWatching(next: string | null): void {
+    cachedWatching = next;
+    setWatchingState(next);
   }
 
   const order = orderedColumns(values.columnOrder);
@@ -393,7 +406,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       collapsed={values.collapsedColumns}
       theme={theme}
       compact={compact}
-      navigation={navigation}
+      onWatch={setWatching}
       onChanged={refresh}
       onToggleColumn={(id: ColumnId) =>
         save({
@@ -406,6 +419,21 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
     />
   );
   const chat = <MateChat key={mate.id} mate={mate} theme={theme} compact={compact} onOpen={openMate} />;
+  const crew =
+    watching === null ? (
+      board
+    ) : (
+      <CrewmateView
+        key={watching}
+        agentId={watching}
+        card={data.cards.find((card) => card.agent?.id === watching) ?? null}
+        theme={theme}
+        compact={compact}
+        onBack={() => setWatching(null)}
+        onOpen={navigation === undefined ? null : () => navigation.openAgent({ agentId: watching })}
+        onChanged={refresh}
+      />
+    );
 
   if (compact) {
     return (
@@ -428,7 +456,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
           ))}
         </View>
         <View style={{ flex: 1, minHeight: 0 }}>
-          {tab === "chat" ? chat : tab === "board" ? board : <FilesView theme={theme} compact />}
+          {tab === "chat" ? chat : tab === "board" ? crew : <FilesView theme={theme} compact />}
         </View>
       </View>
     );
@@ -475,7 +503,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
           </View>
         ) : (
           <View style={{ flex: 1, minWidth: 0 }}>
-            {rightPane === "board" ? board : <FilesView theme={theme} compact={false} />}
+            {rightPane === "board" ? crew : <FilesView theme={theme} compact={false} />}
           </View>
         )}
       </View>

@@ -115,17 +115,24 @@ function PanelBody({
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} automaticallyAdjustKeyboardInsets>
       <Text style={styles.title}>FirstMate</Text>
       <Text style={styles.muted}>{summary}</Text>
-      {cards.map((card) => (
-        <CrewCard
-          key={card.key}
-          card={card}
-          theme={theme}
-          compact={compact}
-          navigation={navigation}
-          onChanged={refresh}
-          startExpanded
-        />
-      ))}
+      {cards.map((card) => {
+        const agentId = card.agent?.id ?? null;
+        return (
+          <CrewCard
+            key={card.key}
+            card={card}
+            theme={theme}
+            compact={compact}
+            opener={
+              navigation === undefined || agentId === null
+                ? null
+                : { icon: "ExternalLink", label: "Open", onPress: () => navigation.openAgent({ agentId }) }
+            }
+            onChanged={refresh}
+            startExpanded
+          />
+        );
+      })}
       {data?.mate === null || data?.mate === undefined || isMate ? null : (
         <View style={{ gap: 6 }}>
           <Text style={styles.muted}>Tell the first mate something about this:</Text>

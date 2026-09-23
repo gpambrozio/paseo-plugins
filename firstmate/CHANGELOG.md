@@ -20,6 +20,9 @@ read before you move.
   have the first mate relaunch it, from its card.
 - **`/fm`, `/bearings` and `/ahoy`** in any composer: talk to the first mate from anywhere, get a
   four-part catch-up on where everything stands, or a recap of what happened with every open decision.
+- **Watch a worker without leaving FirstMate.** A worker's card opens beside its live activity — its
+  brief, reasoning, every command and file edit with what came back, its plan and its replies — in
+  place of the board, with the chat still beside it. Answer its questions and permissions right there.
 - **A FirstMate tab** beside a worker's workspace and session, showing its card.
 - **Answer the first mate's questions in the panel.** When it asks you to choose, or needs your
   permission or a plan approved, the question appears in the chat and you answer it there, without

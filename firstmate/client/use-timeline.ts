@@ -16,6 +16,8 @@ export interface AgentTimeline {
    * how a question the agent just asked reaches the pane without a poll.
    */
   agent: TimelinePage["agent"];
+  /** Whether the daemon has entries before the ones read — the tail is `limit` long. */
+  hasOlder: boolean;
   error: string | null;
   loading: boolean;
 }
@@ -35,6 +37,7 @@ export function useAgentTimeline(agentId: string | null, revision = "", limit = 
   const reread = useRef<() => void>(() => {});
   const [entries, setEntries] = useState<TimelineEntry[]>([]);
   const [agent, setAgent] = useState<TimelinePage["agent"]>(null);
+  const [hasOlder, setHasOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -42,6 +45,7 @@ export function useAgentTimeline(agentId: string | null, revision = "", limit = 
     if (agentId === null) {
       setEntries([]);
       setAgent(null);
+      setHasOlder(false);
       setError(null);
       setLoading(false);
       return;
@@ -74,6 +78,7 @@ export function useAgentTimeline(agentId: string | null, revision = "", limit = 
         if (!alive) return;
         setEntries(page.entries);
         if (page.agent !== null) setAgent(page.agent);
+        setHasOlder(page.hasOlder);
         setError(page.error ?? null);
       } catch (cause) {
         if (alive) setError(cause instanceof Error ? cause.message : String(cause));
@@ -120,5 +125,5 @@ export function useAgentTimeline(agentId: string | null, revision = "", limit = 
     if (revision !== "") reread.current();
   }, [revision]);
 
-  return { entries, agent, error, loading };
+  return { entries, agent, hasOlder, error, loading };
 }

@@ -70,7 +70,11 @@ To hack on it, clone the repository and run `paseo plugin install "$PWD"` from t
 
 Each card is a worker, a backlog item, or both. Press one for its actions:
 
-- **Open** — the worker's own session in Paseo.
+- **Watch** — the worker's card beside everything it is doing, live, in place of the board: the brief
+  it was given, its reasoning, each command and file it touched (press one for what it ran and what
+  came back), its plan, and its replies. Anything it is waiting on — a question, a permission — is
+  answered there. The chat with the first mate stays beside it; **Crew** takes you back to the board,
+  and **Open in Paseo** shows the worker's whole session.
 - **Steer** — a word straight to the worker. It counts as coming from you, and the first mate is told
   what you said and what the worker answered.
 - **Interrupt** — stops the worker's current turn.
@@ -138,6 +142,8 @@ against the live crew, and carries on.
 - **The first mate's model, thinking and mode** are changed from its own tab in Paseo, not from the
   board.
 - **Attachments** — images, files — go to the first mate from its own tab, not from the panel's chat.
+- **Watch shows a worker's latest activity**, not its whole history; a long-running worker's earlier
+  work is in its own session in Paseo.
 - It does not reproduce firstmate's second mates, relay to X and Discord, away mode, or the
   `no-mistakes` pipeline (`reviewed-PR` stands in for the last).
 - The panel has not yet been checked on a phone.
