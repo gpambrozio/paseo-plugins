@@ -94,13 +94,16 @@ describe("writeTextFile", () => {
     const earlier = new Date(Date.now() - 60_000);
     await utimes(join(dir, "data", "backlog.md"), earlier, earlier);
     const opened = await readTextFile(dir, "data/backlog.md");
+    const contents = ["first", "second"];
     const results = await Promise.allSettled(
-      ["first", "second"].map((content) =>
+      contents.map((content) =>
         writeTextFile(dir, { path: "data/backlog.md", content, expectedModifiedMs: opened.modifiedMs, force: false }),
       ),
     );
-    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
-    expect(await readFile(join(dir, "data", "backlog.md"), "utf8")).toBe("first");
+    // Either may reach the queue first; exactly one wins, and the file is the winner's.
+    const winners = contents.filter((_, index) => results[index]?.status === "fulfilled");
+    expect(winners).toHaveLength(1);
+    expect(await readFile(join(dir, "data", "backlog.md"), "utf8")).toBe(winners[0]);
     expect((await readdir(join(dir, "data"))).sort()).toEqual(["backlog.md", "fix-login"]);
   });
 
