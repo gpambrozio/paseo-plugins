@@ -12,6 +12,12 @@ A **FirstMate** panel in the sidebar puts the conversation with the first mate b
 crew — Queued, Working, Blocked, Parked, Done, Failed and Idle — with each worker's last word on what
 it is doing and a link to its pull request.
 
+![A 30-second loop of FirstMate at work: one message to the first mate asks for a dark mode toggle and
+a speed-conversion fix in a small web app; two cards appear on the board and move to Working, each
+worker in its own worktree; one worker is watched live, its commands and edits scrolling past; both
+cards land in Done with "Captain's call: land branch …" on them; the message "Land both." sends them
+to main, and the first mate's Bearings report closes it out.](docs/demo.webp)
+
 This is a Paseo-native take on [firstmate](https://github.com/kunchenguid/firstmate) by Kun Chen, by
 way of [ABorakati/paseo-firstmate](https://github.com/ABorakati/paseo-firstmate). Where those run the
 crew in terminal sessions and supervise it with shell scripts, this one uses nothing but Paseo: the
@@ -76,7 +82,17 @@ To hack on it, clone the repository and run `paseo plugin install "$PWD"` from t
   recommendation.
 - *Bearings* and *Ahoy* are also buttons above the chat, and *FirstMate: bearings* is in ⌘K.
 
+![After the voyage: the first mate's Bearings report in the chat — Captain's Call: nothing needs your
+action; Recently Landed: the knots fix and the dark mode toggle, both landed on main; Underway and
+Charted Next: nothing — beside the board, where both cards sit in Done marked "landed".](docs/landed.png)
+
 ## The board
+
+![The FirstMate panel mid-voyage: the first mate's chat on the left explaining the two workers it sent
+off; on the right the board, with "Add a dark mode toggle to the header" in Working, its card open on
+Watch, Steer, Interrupt, Relaunch and End, and "Fix knots-to-km/h conversion and add a test" in Done,
+reading "Done: ready in branch fm/fix-knots-kmh" and "Captain's call: land branch
+fm/fix-knots-kmh".](docs/board.png)
 
 Each card is a worker, a backlog item, or both. Press one for its actions:
 
@@ -91,6 +107,11 @@ Each card is a worker, a backlog item, or both. Press one for its actions:
 - **Relaunch** — asks the first mate for a fresh worker in the same worktree, with your note. The work
   on disk carries over; the conversation does not.
 - **End** — archives the worker. Its workspace and worktree are left exactly as they are.
+
+![Watching a worker: the chat with the first mate stays on the left; in the board's place, the worker's
+card with its actions beside its live transcript — the brief it was given, then Read, Edit and Shell
+rows for each step (npm test among them), its notes between them, and a spinner on the step under
+way.](docs/watch.png)
 
 Columns fold to a strip and move with the arrows in their headers, and the split between chat and board
 drags. The layout is remembered.
