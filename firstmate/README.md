@@ -12,11 +12,12 @@ A **FirstMate** panel in the sidebar puts the conversation with the first mate b
 crew — Queued, Working, Blocked, Parked, Done, Failed and Idle — with each worker's last word on what
 it is doing and a link to its pull request.
 
-![A 30-second loop of FirstMate at work: one message to the first mate asks for a dark mode toggle and
-a speed-conversion fix in a small web app; two cards appear on the board and move to Working, each
-worker in its own worktree; one worker is watched live, its commands and edits scrolling past; both
-cards land in Done with "Captain's call: land branch …" on them; the message "Land both." sends them
-to main, and the first mate's Bearings report closes it out.](docs/demo.webp)
+![A 30-second loop of FirstMate at work, zooming in on each step: one message to the first mate asks
+for a dark mode toggle and a speed-conversion fix in a small web app; two cards appear in Queued and
+move to Working, each worker in its own worktree; one worker is watched live, its commands and edits
+scrolling past; each card reaches Done with "Captain's call: land branch …" beside the first mate's
+report; the message "land both" sends them to main, and the first mate's Bearings report, with both
+cards marked landed, closes it out.](docs/demo.webp)
 
 This is a Paseo-native take on [firstmate](https://github.com/kunchenguid/firstmate) by Kun Chen, by
 way of [ABorakati/paseo-firstmate](https://github.com/ABorakati/paseo-firstmate). Where those run the
