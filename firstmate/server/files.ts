@@ -12,11 +12,15 @@
  * the first mate writes these same files; a save over a newer version is
  * refused unless forced. Each write goes to a temporary file that is then
  * renamed, so a crash never leaves half a file for the first mate to read.
+ * Writes to one path run one at a time, so two saves opened at the same
+ * version cannot both pass the check.
  */
+import { randomUUID } from "node:crypto";
 import { mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 
 import { MAX_EDITABLE_BYTES, type HomeEntry } from "../shared/files";
+import { serialized } from "./serialize";
 
 /** How much of a file is read to decide whether it is text. */
 const SNIFF_BYTES = 8192;
@@ -120,7 +124,14 @@ export async function writeTextFile(
 ): Promise<{ path: string; size: number; modifiedMs: number }> {
   const { absolute, relative: rel } = await resolveInHome(home, input.path);
   if (rel === "") throw new Error("The home itself is not a file.");
+  return serialized(absolute, () => replaceChecked(absolute, rel, input));
+}
 
+async function replaceChecked(
+  absolute: string,
+  rel: string,
+  input: { content: string; expectedModifiedMs: number | null; force: boolean },
+): Promise<{ path: string; size: number; modifiedMs: number }> {
   let current: Awaited<ReturnType<typeof stat>> | null = null;
   try {
     current = await stat(absolute);
@@ -144,7 +155,7 @@ export async function writeTextFile(
   }
 
   await mkdir(dirname(absolute), { recursive: true });
-  const temporary = `${absolute}.firstmate-${process.pid}-${Date.now()}.tmp`;
+  const temporary = `${absolute}.firstmate-${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, input.content, "utf8");
     await rename(temporary, absolute);

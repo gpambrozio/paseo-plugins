@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -86,6 +86,22 @@ describe("writeTextFile", () => {
 
     await writeTextFile(dir, { path: "data/backlog.md", content: "mine again", expectedModifiedMs: saved.modifiedMs, force: true });
     expect(await readFile(join(dir, "data", "backlog.md"), "utf8")).toBe("mine again");
+  });
+
+  it("lets only one of two saves opened at the same version replace the file", async () => {
+    const dir = await home();
+    // Opened well before the saves, so each save's new mtime differs from it.
+    const earlier = new Date(Date.now() - 60_000);
+    await utimes(join(dir, "data", "backlog.md"), earlier, earlier);
+    const opened = await readTextFile(dir, "data/backlog.md");
+    const results = await Promise.allSettled(
+      ["first", "second"].map((content) =>
+        writeTextFile(dir, { path: "data/backlog.md", content, expectedModifiedMs: opened.modifiedMs, force: false }),
+      ),
+    );
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect(await readFile(join(dir, "data", "backlog.md"), "utf8")).toBe("first");
+    expect((await readdir(join(dir, "data"))).sort()).toEqual(["backlog.md", "fix-login"]);
   });
 
   it("creates a new file, folders and all, but never over an existing one", async () => {
