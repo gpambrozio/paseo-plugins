@@ -33,11 +33,13 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/home-name.ts`         | Names the home's project and workspace "FirstMate" instead of the folder's "home".         |
 | `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing the first mate's attention.    |
 | `server/config.ts`            | `$PASEO_HOME/plugins/firstmate/config.json`, read on every call.                           |
+| `server/serialize.ts`         | Runs the config update and each home file's save one at a time, per file.                  |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
 | `client/fleet.tsx`            | The surface: header, banners, chat/board split, compact tabs, the shared fleet query.      |
 | `client/chat.tsx`             | The first mate's conversation, folded to the words, and the composer.                      |
 | `shared/files.ts`, `server/files.ts` | The home as files: list, read, write — confined to the home, saved against the version opened. |
 | `client/files.tsx`            | The Files view: the home's folders, a text editor, a Markdown preview.                     |
+| `client/open-file.ts`         | The file open in the Files view, and what a save changes about it. Pure.                   |
 | `client/permission-card.tsx`  | What an agent is waiting on — a question, a permission, a plan — answered in the chat or in Watch. |
 | `client/questions.ts`         | The question form's rules, ported from Paseo's own card. Pure.                             |
 | `client/keyboard.ts`          | How far the on-screen keyboard covers a view, measured in window coordinates.              |

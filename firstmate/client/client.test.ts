@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { activityRows, clipLines } from "./activity-rows";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
+import { markSaved, type OpenFile } from "./open-file";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import {
   contextPercent,
@@ -298,5 +299,26 @@ describe("errorText", () => {
     ).toBe('"data/captain.md" changed since you opened it.');
     expect(errorText(new Error("Transport not connected"))).toBe("Transport not connected");
     expect(errorText("plain")).toBe("plain");
+  });
+});
+
+describe("markSaved", () => {
+  const sent = { path: "data/backlog.md", content: "mine", modifiedMs: 2000 };
+
+  it("keeps what was typed while the save was in flight, still unsaved", () => {
+    const current: OpenFile = { kind: "text", path: "data/backlog.md", modifiedMs: 1000, saved: "old", draft: "mine, and more" };
+    expect(markSaved(current, sent)).toEqual({
+      kind: "text",
+      path: "data/backlog.md",
+      modifiedMs: 2000,
+      saved: "mine",
+      draft: "mine, and more",
+    });
+  });
+
+  it("leaves a file opened meanwhile, or none, alone", () => {
+    const other: OpenFile = { kind: "text", path: "AGENTS.md", modifiedMs: 5, saved: "a", draft: "b" };
+    expect(markSaved(other, sent)).toBe(other);
+    expect(markSaved(null, sent)).toBeNull();
   });
 });

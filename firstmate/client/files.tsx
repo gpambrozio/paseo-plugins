@@ -24,11 +24,8 @@ import { relativeTime } from "./format";
 import { useKeyboardOverlap } from "./keyboard";
 import { isSaveKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
+import { markSaved, type OpenFile } from "./open-file";
 import { Banner, IconButton, MONOSPACE, errorText } from "./ui";
-
-type OpenFile =
-  | { kind: "text"; path: string; modifiedMs: number; saved: string; draft: string }
-  | { kind: "unreadable"; path: string; reason: "binary" | "tooLarge"; size: number };
 
 interface FilesMemory {
   dir: string;
@@ -152,7 +149,8 @@ export function FilesView({
     setError(null);
     write({ path: file.path, content: file.draft, expectedModifiedMs: file.modifiedMs, force })
       .then((result) => {
-        setOpen({ ...file, modifiedMs: result.modifiedMs, saved: file.draft });
+        // `memory.open`, not `file`: the captain may have typed on, or opened another file, since.
+        setOpen(markSaved(memory.open, { path: file.path, content: file.draft, modifiedMs: result.modifiedMs }));
         void queryClient.invalidateQueries({ queryKey: LIST_QUERY });
         toast.show(`Saved ${file.path}`, { variant: "success" });
         then?.();
