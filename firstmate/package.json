@@ -1,6 +1,6 @@
 {
   "name": "@gpambrozio/paseo-firstmate",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Paseo plugin: talk to one first mate agent that runs a crew of Paseo agents in their own worktrees, with a live board of the crew",
   "license": "MIT",
   "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/firstmate",

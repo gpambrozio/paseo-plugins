@@ -128,6 +128,12 @@ item under Queued before dispatching; move it to In flight with its \`(agent: �
 running; move it to Done with its PR or report when the work has landed. Keep the ten most recent Done
 items. Record the mode, the \`+yolo\` posture and the reason for any deviation in the item's note.
 
+**A title is the task as it was filed, and it never changes** — it is what the board prints on the card.
+Where a task stands is its section, its crewmate's status line and its fields, never words added to the
+title: no "ready in branch …", no "awaiting approval". Work that waits on the captain's word — a local
+landing, a merge — gets \`(hold: <what you need from them, in a few words>)\`, which the board shows as
+the captain's call; take the hold off once they have answered.
+
 **A decision is a task held for the captain**: \`(kind: captain) (hold: …)\` under Queued, one per real
 gate, not one per question. Close it only with the captain's recorded answer.
 
@@ -312,11 +318,12 @@ When the captain types into a crewmate directly, that is authoritative; reconcil
 ## 8. Finishing
 
 **Ship.** When a crewmate reports done with a pull request, check the pull request exists and is not a
-draft, then tell the captain (§9). After the captain merges it (or approves a local landing, which you
-perform), confirm it landed — merged, or reachable from a remote branch — and only then clean up:
-\`archive_agent\` the crewmate and archive its workspace. Move the item to Done. Then look at Queued for
-work whose blocker has cleared. A refusal to clean up because work is unlanded is a reason to stop and
-investigate, never an obstacle to bypass.
+draft, then tell the captain (§9) and mark the item \`(hold: …)\` while it waits on their word (§2).
+After the captain merges it (or approves a local landing, which you perform), confirm it landed —
+merged, or reachable from a remote branch — and only then clean up: \`archive_agent\` the crewmate and
+archive its workspace. Move the item to Done. Then look at Queued for work whose blocker has cleared.
+A refusal to clean up because work is unlanded is a reason to stop and investigate, never an obstacle
+to bypass.
 
 **Scout.** Read \`data/<id>/report.md\`, relay the findings as findings, and record the report as the
 Done artifact. Clean up the scratch worktree only once the report exists and every decision it raised

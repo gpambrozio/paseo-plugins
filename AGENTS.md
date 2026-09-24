@@ -408,9 +408,9 @@ as released. It is unofficial — not run by, endorsed by, or affiliated with Pa
 all read from the plugin's own folder, so submitting is one small file opened as a PR against
 [`paseo-cafe/paseo-cafe`](https://github.com/paseo-cafe/paseo-cafe) and nothing here is written
 twice. Every plugin but `firstmate` is listed, submitted as `gpambrozio`, and each entry declares
-its `package` so that 0.9 installs it from npm; `firstmate` goes up once its first version is on npm — the registry's CI checks that the published package
-carries the same plugin id *and the same version* as the folder here, which is the other reason to
-publish before tagging.
+its `package` so that 0.9 installs it from npm; `firstmate` is on npm and not submitted yet. The
+registry's CI checks that the published package carries the same plugin id *and the same version* as
+the folder here, which is the other reason to publish before tagging.
 
 **Read the current instructions before submitting, and do not follow a remembered shape — including
 the shape of the entries already there.** The required fields, the validation and the CI behind them

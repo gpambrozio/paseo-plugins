@@ -166,6 +166,12 @@ The backlog format is the contract between an agent and `server/backlog.ts`. Cha
 changing both, and the parser stays lenient: unknown groups are ignored, a line it cannot read is
 skipped, and `(since …)` is accepted without the colon because that is how the charter spells it.
 
+**A title never changes** (charter §2). In the demo dry run a first mate waiting for the word to land
+two local branches wrote "…, ready in branch fm/…, awaiting captain's approval to land" into both titles,
+and the cards grew with them. The charter now says where status lives — the section, the crewmate's
+status line, and `(hold: …)` for anything waiting on the captain, which the card already shows as
+"Captain's call".
+
 ## The home is called FirstMate in the sidebar, with a ship for its icon
 
 Paseo names a project and its workspace after their directory, and the default home is

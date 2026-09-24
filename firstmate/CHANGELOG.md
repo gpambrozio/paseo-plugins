@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.1.1] — 2026-09-23
+
+### Fixed
+
+- **Task titles on the board stay as you asked for them.** While finished work waited for your go-ahead,
+  the first mate wrote its status into the title ("…, ready in branch …, awaiting approval to land"), and
+  the card grew with it. The title now stays put, and what the first mate needs from you shows on the
+  card as your call.
+
 ## [0.1.0] — 2026-09-22
 
 ### Added
