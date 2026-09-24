@@ -41,7 +41,7 @@ let memory: FilesMemory = { dir: "", open: null, preview: false };
 const LIST_QUERY = ["firstmate", "files", "list"] as const;
 
 /** The plugin rewrites these on every start, so an edit here does not last. */
-const REWRITTEN = new Set(["AGENTS.md"]);
+const REWRITTEN = new Set(["AGENTS.md", "data/charter.new.md"]);
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -58,7 +58,21 @@ function isMarkdown(path: string): boolean {
   return /\.(md|markdown)$/i.test(path);
 }
 
-export function FilesView({ theme, compact }: { theme: PluginTheme; compact: boolean }) {
+/** A file another part of the panel asks the view to open — the board's charter Compare. `at` tells two asks apart. */
+export interface FilesRequest {
+  path: string;
+  at: number;
+}
+
+export function FilesView({
+  theme,
+  compact,
+  request = null,
+}: {
+  theme: PluginTheme;
+  compact: boolean;
+  request?: FilesRequest | null;
+}) {
   const list = useRpc(listHomeFiles);
   const read = useRpc(readHomeFile);
   const write = useRpc(writeHomeFile);
@@ -172,6 +186,16 @@ export function FilesView({ theme, compact }: { theme: PluginTheme; compact: boo
     // Keyed on the change alone: `load` and `open` are new every render, and
     // listing them would reload on every keystroke.
   }, [changedOnDisk, dirty]);
+
+  // Opens what was asked for, in its folder — after the captain's say on unsaved changes, like any open.
+  useEffect(() => {
+    if (request === null) return;
+    guarded(`open ${request.path}`, () => {
+      setDir(parentOf(request.path));
+      load(request.path);
+    });
+    // Keyed on the ask alone, for the same reason as above.
+  }, [request?.at]);
 
   const styles = useMemo(() => {
     const { colors } = theme;
@@ -505,7 +529,11 @@ export function FilesView({ theme, compact }: { theme: PluginTheme; compact: boo
             <Banner
               theme={theme}
               tone="info"
-              text="The plugin rewrites this file every time it starts, so edits here last only until then. Standing orders that should stay belong in data/captain.md."
+              text={
+                open.path === "AGENTS.md"
+                  ? "The plugin writes this file from data/charter.md every time it starts, so edits here last only until then. Change the charter in data/charter.md, and standing orders in data/captain.md."
+                  : "FirstMate's own charter, for comparing with yours. Bring what you want into data/charter.md; this file is rewritten by the plugin and removed when you press Done on the board."
+              }
             />
           ) : null}
           {changedOnDisk && dirty ? (

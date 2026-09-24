@@ -8,11 +8,14 @@
  * makes the worktree, `create_agent` starts the crewmate in it, Paseo's finish
  * notification is the wake-up, and the crewmate's last line is its status.
  *
- * The file is regenerated from this template whenever the plugin starts and
- * whenever the first mate is launched, so a change here reaches the home on
- * the next reload and the first mate at its next session — or at once, when
- * it is asked to re-read the file. The captain's own
- * standing orders live in `data/captain.md`, which is never overwritten.
+ * This template is the plugin's charter, and the home keeps a copy the captain
+ * can edit, `data/charter.md` (`charter-file.ts`): `AGENTS.md` is rendered from
+ * that copy whenever the plugin starts and whenever the first mate is launched,
+ * so a change reaches the home on the next reload and the first mate at its
+ * next session — or at once, when it is asked to re-read the file. A copy the
+ * captain never edited follows this template as it changes; an edited one is
+ * kept. The captain's standing orders live in `data/captain.md`, which is
+ * never overwritten.
  *
  * `{{name}}` placeholders are filled by `renderCharter`; the labels come from
  * `shared/fleet.ts` so the board and the charter can never disagree on them.
@@ -28,9 +31,11 @@ export interface CharterValues {
   crewModeId: string;
 }
 
-const TEMPLATE = `<!-- Written by the Paseo FirstMate plugin whenever it starts and whenever the first mate is launched. Edit data/captain.md for standing orders; changes to this file are overwritten. -->
+/** Heads `AGENTS.md`, which is rendered: an edit there does not last, so it says where one does. */
+const AGENTS_HEADER = `<!-- Written by the Paseo FirstMate plugin from data/charter.md whenever it starts and whenever the first mate is launched; changes to this file are overwritten. Edit data/charter.md to change the charter, and data/captain.md for standing orders. -->`;
 
-# First mate
+/** The plugin's charter, as `data/charter.md` starts: the body of `AGENTS.md`, placeholders unfilled. */
+export const CHARTER_TEMPLATE = `# First mate
 
 You are the **first mate**. The user is the **captain**. You are the captain's only point of contact for
 software work across all of their projects, and you run a crew of **crewmates** — autonomous Paseo agents,
@@ -113,6 +118,7 @@ them against the live crew, and carry on.
 | \`data/<id>/report.md\` | A scout's report. |
 | \`data/learnings.md\` | Facts about the fleet worth keeping across sessions. |
 | \`data/opening.md\` | The first message every new first mate gets, yours included. The captain's to write; leave it alone. |
+| \`data/charter.md\` | What this charter is written from. The captain's to edit, as is \`data/charter.new.md\` when there is one; leave both alone. |
 | \`projects/\` | Clones you made for projects that had no local checkout. |
 
 **Backlog lines** are one item each, and the board parses them, so keep this exact shape:
@@ -382,10 +388,23 @@ function fill(template: string, values: Readonly<Record<string, string>>): strin
   return template.replace(/\{\{([a-zA-Z]+)\}\}/g, (whole, name: string) => values[name] ?? whole);
 }
 
-export function renderCharter(values: CharterValues): string {
+/** The placeholders a charter may use, each with what it becomes — listed in `data/charter.md`'s note. */
+export const CHARTER_PLACEHOLDERS: Readonly<Record<string, string>> = {
+  home: "the first mate's home",
+  roleLabel: "the label every crewmate carries, which the board finds them by",
+  crewRole: "that label's value for a crewmate",
+  taskLabel: "the label naming a crewmate's task",
+  kindLabel: "the label for its kind: ship or scout",
+  projectLabel: "the label naming its project",
+  crewProviderRule: "which model crewmates get, from the settings",
+  crewModeRule: "which permission mode crewmates get, from the settings",
+};
+
+/** `AGENTS.md`: the header, then `template` — the plugin's charter or the captain's — with its placeholders filled. */
+export function renderCharter(values: CharterValues, template: string = CHARTER_TEMPLATE): string {
   const crewProvider = values.crewProvider.trim();
   const crewModeId = values.crewModeId.trim();
-  return fill(TEMPLATE, {
+  const body = fill(template, {
     home: values.home,
     roleLabel: CREW_LABELS.role,
     crewRole: CREW_LABELS.crewRole,
@@ -401,6 +420,7 @@ export function renderCharter(values: CharterValues): string {
         ? "- `settings`: leave the mode at the provider's default;"
         : `- \`settings\`: \`{"modeId": "${crewModeId}"}\`, the captain's choice of permission mode for the crew;`,
   });
+  return `${AGENTS_HEADER}\n\n${body.trim()}\n`;
 }
 
 /** What `data/captain.md` starts as. The first mate reads it; the captain edits it. */

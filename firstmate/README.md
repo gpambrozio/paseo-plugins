@@ -141,7 +141,15 @@ project's icon from its folder. Rename either, replace the file, or upload an ic
 settings, and your choice is kept.
 
 - `AGENTS.md` — its charter: how it takes requests, briefs and supervises workers, and talks to you.
-  Rewritten every time it is launched, so it follows the plugin as it changes.
+  Written from `data/charter.md` every time the plugin starts or the first mate is launched, so do not
+  edit it here.
+- `data/charter.md` — **the charter itself, yours to change.** It starts as FirstMate's own charter, and
+  while you leave it alone, a new version of the plugin brings its improvements. Once you edit it, your
+  version is kept; if FirstMate's charter changes after that, the board tells you, **Compare** opens the
+  new one beside yours (`data/charter.new.md`) and **Done** marks yours up to date. Saving it in the panel
+  rewrites `AGENTS.md` at once; the first mate reads it at its next session, or when you ask it to re-read
+  its charter. The note at the top lists the `{{placeholders}}` filled in for you, notes between `<!--`
+  and `-->` are left out, and an empty file goes back to FirstMate's charter.
 - `data/captain.md` — **your standing orders.** Anything you write here outranks the charter (except
   its hard rules: it never writes to a project, never merges without your word, never throws away
   unlanded work). Never overwritten.

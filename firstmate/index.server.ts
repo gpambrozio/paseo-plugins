@@ -12,6 +12,7 @@ import {
 } from "./server/crew";
 import { ReportCache, loadFleet, readAgentTools } from "./server/fleet";
 import { listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
+import { CHARTER_FILE, NEW_CHARTER_FILE, acknowledgeCharter, writeNewCharter } from "./server/charter-file";
 import { isHomeReady, prepareHome } from "./server/home";
 import {
   adoptMate,
@@ -24,9 +25,11 @@ import {
   restartMate,
 } from "./server/mate";
 import {
+  acknowledgeCharter as acknowledgeCharterRpc,
   adoptMate as adoptMateRpc,
   askMate as askMateRpc,
   compactMate as compactMateRpc,
+  compareCharter as compareCharterRpc,
   enableAgentTools,
   exitCrew as exitCrewRpc,
   interruptCrew as interruptCrewRpc,
@@ -107,7 +110,20 @@ export default function contribute(server: PluginServerContext) {
     return { home: root, ...(await listDirectory(root, path)) };
   });
   server.handle(readHomeFile, async ({ path }) => readTextFile(await home(), path));
-  server.handle(writeHomeFile, async (input) => writeTextFile(await home(), input));
+  server.handle(writeHomeFile, async (input) => {
+    const written = await writeTextFile(await home(), input);
+    // The charter's source, saved in the panel, reaches AGENTS.md at once rather than at the next reload.
+    if (written.path === CHARTER_FILE) await refreshCharter();
+    return written;
+  });
+
+  server.handle(compareCharterRpc, async () => ({
+    path: (await writeNewCharter(await home())) ? NEW_CHARTER_FILE : null,
+  }));
+  server.handle(acknowledgeCharterRpc, async () => {
+    await acknowledgeCharter(await home());
+    return {};
+  });
 
   // Storage lives on the host; registering the definition is what makes the
   // board's `useSettings` reads and writes valid for this installation.

@@ -17,10 +17,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
-import { enableAgentTools, loadFleet, markMateSeen, type ColumnId, type Fleet } from "../shared/fleet";
+import {
+  acknowledgeCharter,
+  compareCharter,
+  enableAgentTools,
+  loadFleet,
+  markMateSeen,
+  type ColumnId,
+  type Fleet,
+} from "../shared/fleet";
 import { displaySettings, type DisplaySettings } from "../shared/settings";
 import { Board } from "./board";
-import { FilesView } from "./files";
+import { FilesView, type FilesRequest } from "./files";
 import { MateChat } from "./chat";
 import { CrewmateView } from "./crewmate";
 import { agentStatusLabel, agentStatusTone, groupCards, moveColumn, orderedColumns, shortPath } from "./format";
@@ -70,6 +78,8 @@ export function useFleet(pollSeconds: number) {
 export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) {
   const compact = layout.compact;
   const enable = useRpc(enableAgentTools);
+  const compareCharters = useRpc(compareCharter);
+  const acknowledgeCharters = useRpc(acknowledgeCharter);
   const toast = useToast();
   const queryClient = useQueryClient();
   const display = useSettings(displaySettings);
@@ -84,6 +94,9 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   const [rightPane, setRightPaneState] = useState(cachedRightPane);
   const [watching, setWatchingState] = useState(cachedWatching);
   const [enabling, setEnabling] = useState(false);
+  const [charterBusy, setCharterBusy] = useState(false);
+  /** A file the Files view should open; not kept across a remount, or it would open again on return. */
+  const [filesRequest, setFilesRequest] = useState<FilesRequest | null>(null);
 
   const fleet = useFleet(values.pollSeconds);
   const data = fleet.data ?? null;
@@ -256,6 +269,34 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       .finally(() => setEnabling(false));
   }
 
+  /** Puts the plugin's current charter beside the captain's and opens it in the Files view. */
+  function compareCharterFiles(): void {
+    setCharterBusy(true);
+    compareCharters({})
+      .then(({ path }) => {
+        if (path === null) {
+          refresh();
+          return;
+        }
+        if (compact) setTab("files");
+        else setRightPane("files");
+        setFilesRequest({ path, at: Date.now() });
+      })
+      .catch((caught: unknown) => toast.error(errorText(caught)))
+      .finally(() => setCharterBusy(false));
+  }
+
+  function acknowledgeCharterChange(): void {
+    setCharterBusy(true);
+    acknowledgeCharters({})
+      .then(() => {
+        toast.show("Your charter is now taken as up to date.", { variant: "success" });
+        refresh();
+      })
+      .catch((caught: unknown) => toast.error(errorText(caught)))
+      .finally(() => setCharterBusy(false));
+  }
+
   const banners: ReactNode[] = [];
   if (fleet.error !== null) {
     banners.push(<Banner key="error" theme={theme} tone="danger" text={errorText(fleet.error)} />);
@@ -306,6 +347,20 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
           icon: "MessageSquare",
           onPress: () => (compact ? setTab("chat") : save({ chatCollapsed: false })),
         }}
+      />,
+    );
+  }
+  if (data?.charterOutdated === true) {
+    banners.push(
+      <Banner
+        key="charter"
+        theme={theme}
+        tone="info"
+        text="FirstMate's own charter has changed since you edited yours in data/charter.md. Compare them, bring over what you want, then press Done."
+        actions={[
+          { label: "Compare", icon: "FileDiff", onPress: compareCharterFiles, disabled: charterBusy },
+          { label: "Done", icon: "Check", onPress: acknowledgeCharterChange, disabled: charterBusy },
+        ]}
       />,
     );
   }
@@ -458,7 +513,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
           ))}
         </View>
         <View style={{ flex: 1, minHeight: 0 }}>
-          {tab === "chat" ? chat : tab === "board" ? crew : <FilesView theme={theme} compact />}
+          {tab === "chat" ? chat : tab === "board" ? crew : <FilesView theme={theme} compact request={filesRequest} />}
         </View>
       </View>
     );
@@ -505,7 +560,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
           </View>
         ) : (
           <View style={{ flex: 1, minWidth: 0 }}>
-            {rightPane === "board" ? crew : <FilesView theme={theme} compact={false} />}
+            {rightPane === "board" ? crew : <FilesView theme={theme} compact={false} request={filesRequest} />}
           </View>
         )}
       </View>

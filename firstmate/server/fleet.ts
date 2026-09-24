@@ -22,6 +22,7 @@ import {
 } from "../shared/fleet";
 import { resolveHome } from "./config";
 import { parseCrewReport, reportUrl } from "./crew-report";
+import { readCharterState } from "./charter-file";
 import { isHomeReady, readBacklog, readProjects } from "./home";
 import type { AgentListOptions, PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
 
@@ -273,7 +274,7 @@ export async function loadFleet(paseo: PaseoApi, config: FirstmateConfig, report
   const home = resolveHome(config);
   const warnings: string[] = [];
 
-  const [homeReady, backlog, projects, mate, crewAgents, agentTools] = await Promise.all([
+  const [homeReady, backlog, projects, mate, crewAgents, agentTools, charter] = await Promise.all([
     isHomeReady(home),
     readBacklog(home).catch((error: unknown) => {
       warnings.push(`The backlog could not be read: ${describe(error)}`);
@@ -289,6 +290,10 @@ export async function loadFleet(paseo: PaseoApi, config: FirstmateConfig, report
       return [];
     }),
     readAgentTools(paseo),
+    readCharterState(home).catch((error: unknown) => {
+      warnings.push(`The charter could not be read: ${describe(error)}`);
+      return null;
+    }),
   ]);
 
   reports.retain(new Set(crewAgents.map((agent) => agent.id)));
@@ -311,6 +316,8 @@ export async function loadFleet(paseo: PaseoApi, config: FirstmateConfig, report
     cards: buildCards(backlog, crew),
     projects,
     agentTools,
+    // A home nobody has launched in has no charter of the captain's to be out of date.
+    charterOutdated: homeReady && charter !== null && charter.outdated,
     warnings,
   };
 }

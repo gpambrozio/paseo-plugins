@@ -135,6 +135,11 @@ export const FleetSchema = z.object({
    * in Paseo; `null` when the daemon would not say.
    */
   agentTools: z.boolean().nullable(),
+  /**
+   * The captain has edited the home's charter (`data/charter.md`), and the plugin's own has changed
+   * since the version they started from. The board offers to compare the two.
+   */
+  charterOutdated: z.boolean(),
   /** Things worth a line on the board: an unreadable backlog, a failed agent listing. */
   warnings: z.array(z.string()),
 });
@@ -178,6 +183,23 @@ export const loadFleet = defineRpc({
   name: "firstmate.fleet.load",
   input: z.object({}),
   output: FleetSchema,
+});
+
+/**
+ * Writes the plugin's current charter beside the captain's edited one, as `data/charter.new.md`, and
+ * says where — for the board's Compare. `null` when there is nothing to compare.
+ */
+export const compareCharter = defineRpc({
+  name: "firstmate.charter.compare",
+  input: z.object({}),
+  output: z.object({ path: z.string().nullable() }),
+});
+
+/** The captain has taken what they want from the plugin's new charter; stop pointing at it. */
+export const acknowledgeCharter = defineRpc({
+  name: "firstmate.charter.acknowledge",
+  input: z.object({}),
+  output: z.object({}),
 });
 
 /**

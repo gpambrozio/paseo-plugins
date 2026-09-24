@@ -19,6 +19,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `shared/fleet.ts`             | Every RPC contract, the card/fleet shapes, the daemon config shape, and `CREW_LABELS`.     |
 | `shared/settings.ts`          | The host settings document: column order and folds, the chat's width, the poll interval.   |
 | `server/charter.ts`           | **The first mate's charter** — the `AGENTS.md` written into its home. The behaviour lives here. |
+| `server/charter-file.ts`      | `data/charter.md`, the captain's copy it is rendered from: follows the plugin until edited. |
 | `server/home.ts`              | The home directory: writes the charter and records, reads the backlog and project registry. |
 | `server/backlog.ts`           | `data/backlog.md` → `BacklogItem[]`. Lenient, because an agent writes the file.            |
 | `server/crew-report.ts`       | A crewmate's closing status line (`done: PR …`) → state and text.                          |
@@ -151,9 +152,10 @@ drop out of the first mate's view. Agents get `PASEO_CLI`, `PASEO_HOME` and thei
 
 ## The home
 
-`server/home.ts` writes `AGENTS.md` (the charter, **rewritten on every launch, every settings save and
-every plugin start** — it names the crew's model, and a charter change should reach a home in use
-without a relaunch; a running first mate still has to be asked to re-read it) and creates `data/captain.md`, `projects.md`, `backlog.md`,
+`server/home.ts` writes `AGENTS.md` (the charter, **rendered from `data/charter.md` on every launch,
+every settings save, every plugin start and every save of that file in the panel** — it names the crew's
+model, and a charter change should reach a home in use without a relaunch; a running first mate still
+has to be asked to re-read it) and creates `data/captain.md`, `projects.md`, `backlog.md`,
 `learnings.md` and `opening.md` only when missing, so a relaunch never loses a record. `data/captain.md` is the
 captain's to edit and outranks the charter below its hard rules; that is where customisation that
 should survive an upgrade goes.
@@ -172,6 +174,28 @@ the default, so a first mate is never started with nothing to act on. A restart 
 (`server/mate.ts`) after it: the heartbeat that note asks for is not optional, so it does not depend on
 what the captain wrote. The charter's records table marks the file as the captain's, so the first mate
 leaves it alone. An existing home gets the file on the next plugin start, like any missing record.
+
+**The charter is the captain's to edit, too.** `AGENTS.md` is rendered, so an edit there is lost at the
+next reload; it is rendered from `data/charter.md`, which starts as the plugin's charter (`CHARTER_TEMPLATE`)
+under a note and is the file to edit. The note lists the placeholders and records a fingerprint of the
+plugin charter the copy was taken from, and that fingerprint is how `syncCharter` (`server/charter-file.ts`)
+tells the two cases apart when a new plugin version changes the charter:
+
+- **Untouched** — the copy still matches its fingerprint, so the captain never edited it. It is replaced
+  with the new charter: a home nobody customised keeps getting the plugin's improvements.
+- **Edited** — the captain's text is kept and rendered. If the plugin's charter has changed since the
+  version the edit started from, the new one is written beside it as `data/charter.new.md` and the board
+  shows a notice with **Compare**, which opens that file in the Files view (`firstmate.charter.compare`
+  writes it first, so it is there even for a copy the sync has not seen yet), and **Done**, which moves the
+  fingerprint on and removes the file (`firstmate.charter.acknowledge`). Done restores the note if the
+  captain deleted it; a copy without one counts as edited from nothing, so every plugin charter is news
+  to it.
+
+An emptied or deleted copy goes back to the plugin's charter. HTML comments are notes, left out of both
+`AGENTS.md` and the comparison, so the fingerprint is of the words alone and a note of the captain's own
+does not count as an edit. The board reads the state on every poll (`readCharterState`, one small file);
+only a sync or the two calls write. The charter's records table tells the first mate that both files are
+the captain's.
 
 The backlog format is the contract between an agent and `server/backlog.ts`. Changing one means
 changing both, and the parser stays lenient: unknown groups are ignored, a line it cannot read is

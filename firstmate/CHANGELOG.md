@@ -15,6 +15,10 @@ read before you move.
   it is now a file in its home, `data/opening.md`, beside your standing orders — change the wording,
   the language, or what it should do first. It starts as the message FirstMate has always sent, and
   your version is never overwritten.
+- **The first mate's charter is yours to edit.** The instructions it works by now come from a file in its
+  home, beside your standing orders. Leave it alone and it keeps up with FirstMate's own; change it and
+  your version is kept. When FirstMate's charter changes after you have edited yours, the board tells you
+  and opens the new one for you to compare, so you can bring over what you want.
 
 ### Changed
 

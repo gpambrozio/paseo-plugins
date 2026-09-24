@@ -173,16 +173,26 @@ export function Spinner({ size, color }: { size: number; color: string }) {
 }
 
 /** A full-width notice under the header. */
+export interface BannerAction {
+  label: string;
+  icon: string;
+  onPress: () => void;
+  disabled?: boolean;
+}
+
 export function Banner({
   theme,
   tone,
   text,
   action,
+  actions,
 }: {
   theme: PluginTheme;
   tone: "warning" | "danger" | "info";
   text: string;
-  action?: { label: string; icon: string; onPress: () => void; disabled?: boolean };
+  action?: BannerAction;
+  /** More than one action, in order; drawn after `action`. */
+  actions?: readonly BannerAction[];
 }) {
   const colors = theme.colors;
   const color =
@@ -191,6 +201,8 @@ export function Banner({
     () => ({
       banner: {
         flexDirection: "row" as const,
+        // On a phone the buttons go to a line of their own rather than squeezing the text to a column.
+        flexWrap: "wrap" as const,
         alignItems: "center" as const,
         gap: 10,
         borderWidth: 1,
@@ -200,7 +212,7 @@ export function Banner({
         paddingVertical: 8,
         backgroundColor: colors.surface1,
       },
-      text: { flex: 1, color: colors.foreground, fontSize: 12, lineHeight: 17 },
+      text: { flex: 1, minWidth: 200, color: colors.foreground, fontSize: 12, lineHeight: 17 },
     }),
     [colors, color],
   );
@@ -208,17 +220,18 @@ export function Banner({
     <View style={styles.banner}>
       <Icon name={tone === "info" ? "Info" : "AlertTriangle"} size={14} color={color} />
       <Text style={styles.text}>{text}</Text>
-      {action === undefined ? null : (
+      {[...(action === undefined ? [] : [action]), ...(actions ?? [])].map((each) => (
         <IconButton
-          icon={action.icon}
-          label={action.label}
+          key={each.label}
+          icon={each.icon}
+          label={each.label}
           theme={theme}
           tone="accent"
           showLabel
-          disabled={action.disabled === true}
-          onPress={action.onPress}
+          disabled={each.disabled === true}
+          onPress={each.onPress}
         />
-      )}
+      ))}
     </View>
   );
 }

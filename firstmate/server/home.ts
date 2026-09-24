@@ -4,7 +4,8 @@
  * that turn a general-purpose agent into a first mate — and it is the same
  * here, minus the scripts.
  *
- *     <home>/AGENTS.md          the charter, rewritten on every launch
+ *     <home>/AGENTS.md          the charter, rendered from data/charter.md on every launch
+ *     <home>/data/charter.md    the charter's source; follows the plugin until the captain edits it
  *     <home>/data/captain.md    standing orders; the captain's, never overwritten
  *     <home>/data/projects.md   the project registry
  *     <home>/data/backlog.md    every work item; the board reads it
@@ -34,6 +35,7 @@ import {
   PROJECTS_TEMPLATE,
   renderCharter,
 } from "./charter";
+import { syncCharter } from "./charter-file";
 import { HOME_ICON_FILE, HOME_ICON_SVG } from "./home-icon";
 
 async function exists(path: string): Promise<boolean> {
@@ -54,13 +56,17 @@ async function writeIfMissing(path: string, content: string): Promise<void> {
   }
 }
 
-/** Creates whatever of the home is missing and rewrites the charter from the current config. */
+/**
+ * Creates whatever of the home is missing, brings `data/charter.md` in step with the plugin's charter
+ * (`charter-file.ts`), and renders `AGENTS.md` from it with the current config.
+ */
 export async function prepareHome(home: string, config: FirstmateConfig): Promise<void> {
   await mkdir(join(home, "data"), { recursive: true });
   await mkdir(join(home, "projects"), { recursive: true });
+  const charter = await syncCharter(home);
   await writeFile(
     join(home, "AGENTS.md"),
-    renderCharter({ home, crewProvider: config.crewProvider, crewModeId: config.crewModeId }),
+    renderCharter({ home, crewProvider: config.crewProvider, crewModeId: config.crewModeId }, charter.template),
     "utf8",
   );
   await writeIfMissing(join(home, "data", "captain.md"), CAPTAIN_TEMPLATE);
