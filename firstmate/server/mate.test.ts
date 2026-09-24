@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CREW_LABELS } from "../shared/fleet";
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import type { PaseoApi } from "./host-types";
-import { compactMate, launchMate, restartMate, restartNote } from "./mate";
+import { commandText, compactMate, launchMate, restartMate, restartNote } from "./mate";
 import { TEMPLATES, readTemplate, withoutNotes } from "./templates";
 
 let paseoHome = "";
@@ -148,6 +148,15 @@ describe("the opening", () => {
     const { paseo, created } = fakePaseo({ "old-mate": { ...oldMate, status: "idle" } });
     await restartMate(paseo);
     expect(created[0]?.prompt).toBe(`Olá, imediato. Leia o AGENTS.md e assuma o leme.\n\n${await restartNote()}`);
+  });
+});
+
+describe("commandText", () => {
+  it("words Bearings and Ahoy as plain requests, with what followed the command", async () => {
+    expect(await commandText("bearings", "")).toBe("Bearings, please.");
+    expect(await commandText("bearings", " file include PRs ")).toBe("Bearings, please — file include PRs.");
+    expect(await commandText("ahoy", "  ")).toBe("Ahoy!");
+    expect(await commandText("ahoy", "and the deploy?")).toBe("Ahoy! and the deploy?");
   });
 });
 

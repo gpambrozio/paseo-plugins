@@ -1,10 +1,9 @@
 import type { PluginClientContext, PluginWorkspaceCommandContext } from "@getpaseo/plugin/client";
 
-import { ahoyPrompt, bearingsPrompt } from "./client/commands";
 import { FleetSurface, bindSettingsOpener } from "./client/fleet";
 import { AgentPanel, WorkspacePanel } from "./client/panels";
 import { SettingsScreen } from "./client/settings-screen";
-import { askMate } from "./shared/fleet";
+import { askMate, askMateCommand, type MateCommand } from "./shared/fleet";
 
 type CommandRpc = PluginWorkspaceCommandContext["rpc"];
 
@@ -17,6 +16,11 @@ type CommandRpc = PluginWorkspaceCommandContext["rpc"];
 async function tellFirstMate(rpc: CommandRpc, text: string): Promise<void> {
   if (text.trim() === "") throw new Error("Say something to the first mate: /fm <message>");
   await rpc(askMate, { text });
+}
+
+/** Bearings or Ahoy, worded by the daemon from its templates; `args` is what followed the command. */
+async function askFirstMate(rpc: CommandRpc, command: MateCommand, args: string): Promise<void> {
+  await rpc(askMateCommand, { command, args });
 }
 
 export default function contribute(client: PluginClientContext) {
@@ -64,7 +68,7 @@ export default function contribute(client: PluginClientContext) {
     context: "global",
     onSelect({ rpc, openSurface }) {
       openSurface("fleet");
-      void rpc(askMate, { text: bearingsPrompt("") }).catch((caught: unknown) => {
+      void rpc(askMateCommand, { command: "bearings", args: "" }).catch((caught: unknown) => {
         console.warn("[firstmate] bearings could not be asked for:", caught);
       });
     },
@@ -96,7 +100,7 @@ export default function contribute(client: PluginClientContext) {
     context: "workspace",
     onSubmit({ args, rpc, openSurface }) {
       openSurface("fleet");
-      return tellFirstMate(rpc, bearingsPrompt(args));
+      return askFirstMate(rpc, "bearings", args);
     },
   });
   client.addSlashCommand({
@@ -106,7 +110,7 @@ export default function contribute(client: PluginClientContext) {
     context: "workspace",
     onSubmit({ args, rpc, openSurface }) {
       openSurface("fleet");
-      return tellFirstMate(rpc, ahoyPrompt(args));
+      return askFirstMate(rpc, "ahoy", args);
     },
   });
 

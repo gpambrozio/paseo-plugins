@@ -153,19 +153,32 @@ drop out of the first mate's view. Agents get `PASEO_CLI`, `PASEO_HOME` and thei
 
 ## The templates
 
-**No text the plugin writes into the home lives in code.** `templates/` holds every such file as it
-lands there — `AGENTS.md`, `icon.svg`, `data/captain.md` and the other records, `data/charter.md` with its
-note, `data/charter.new.md` — and `templates/parts/` holds the text that goes inside them or into a
-message: the crew's model and mode sentences that fill `{{crewProviderRule}}` and `{{crewModeRule}}`, one
-for a setting left open and one for a setting chosen, and the note a restart adds after the opening.
+**No text the plugin writes into the home, or says to the first mate, lives in code.** `templates/`
+holds, in three places:
+
+- **The home's files**, laid out as they land there — `AGENTS.md`, `icon.svg`, `data/captain.md` and the
+  other records, `data/charter.md` with its note, `data/charter.new.md`.
+- **`parts/`** — the sentences that fill `{{crewProviderRule}}` and `{{crewModeRule}}` in the charter, one
+  for a setting left open and one for a setting chosen.
+- **`messages/`** — everything the plugin sends the first mate: the note a restart adds after the opening,
+  the Relaunch request, the note relaying a Steer (with the words for an answer that was too long or
+  never came), and Bearings and Ahoy, each with a second form for words typed after `/bearings` or
+  `/ahoy`. A template cannot branch, so a message that reads differently when something is missing is
+  two files. Bearings and Ahoy are worded on the daemon — the app cannot read the plugin's files — so
+  the buttons, ⌘K and the slash commands send `firstmate.mate.command` with the command's name and what
+  followed it, and `commandText` picks the template.
+
 `TEMPLATES` in `server/templates.ts` names every one, and `templates.test.ts` fails if the folder and that
 list disagree, or if `package.json` stops shipping the folder (`files` names it; a top-level directory it
 does not name is silently left out of the npm package).
 
 HTML comments in a template are notes for whoever edits it. Where a template becomes a message or a part
-of another file, `withoutNotes` leaves them out, so each part starts with a note saying where it goes;
+of another file, `withoutNotes` leaves them out, so each part and message starts with a note saying where
+it goes and what its placeholders are;
 where a template is copied into the home as a file, its notes go with it and speak to the captain.
-Placeholders are `{{name}}` throughout, filled by `fill`, which leaves any name it was not given alone.
+Placeholders are `{{name}}` throughout, filled by `fill` in a single pass, which leaves any name it was
+not given alone and never reads a filled-in value for placeholders — a crewmate's answer relayed through
+a Steer can say `{{title}}` and arrives as written.
 
 **Finding the folder is the one hard part.** Paseo compiles the server half into one CommonJS script and
 evaluates it from memory: `import.meta` is an empty object in it (esbuild's CommonJS output), the process
@@ -205,7 +218,7 @@ in the home rather than a setting because it sits with the captain's other recor
 view, and survives an upgrade. HTML comments are notes to the captain and are left out, which is where the
 file explains itself; a file with nothing else in it — emptied, or deleted and not yet rewritten — gives
 the template's wording, so a first mate is never started with nothing to act on. A restart appends its
-note (`templates/parts/restart-note.md`) after it: the heartbeat that note asks for is not optional, so it does not depend on
+note (`templates/messages/restart-note.md`) after it: the heartbeat that note asks for is not optional, so it does not depend on
 what the captain wrote. The charter's records table marks the file as the captain's, so the first mate
 leaves it alone. An existing home gets the file on the next plugin start, like any missing record.
 

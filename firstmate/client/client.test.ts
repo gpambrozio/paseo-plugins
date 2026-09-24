@@ -4,7 +4,6 @@ import { activityRows, clipLines } from "./activity-rows";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
-import { ahoyPrompt, bearingsPrompt } from "./commands";
 import {
   contextPercent,
   contextTone,
@@ -203,12 +202,6 @@ describe("formatting", () => {
 
   it("keeps the end of a long path", () => {
     expect(shortPath("/Users/me/.paseo/plugins/firstmate/home", 24)).toBe("…/plugins/firstmate/home");
-  });
-
-  it("turns the commands into plain requests", () => {
-    expect(bearingsPrompt("")).toBe("Bearings, please.");
-    expect(bearingsPrompt(" file include PRs ")).toBe("Bearings, please — file include PRs.");
-    expect(ahoyPrompt("")).toBe("Ahoy!");
   });
 });
 

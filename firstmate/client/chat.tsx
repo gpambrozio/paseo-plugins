@@ -9,8 +9,7 @@ import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native"
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 
-import { askMate, type AgentSummary } from "../shared/fleet";
-import { ahoyPrompt, bearingsPrompt } from "./commands";
+import { askMate, askMateCommand, type AgentSummary, type MateCommand } from "../shared/fleet";
 import { useFollowEnd } from "./follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { MateControls } from "./mate-controls";
@@ -74,6 +73,7 @@ export function MateChat({
   onChanged: () => void;
 }) {
   const ask = useRpc(askMate);
+  const askCommand = useRpc(askMateCommand);
   const toast = useToast();
   const timeline = useAgentTimeline(mate.id, `${mate.updatedAt}:${mate.pendingPermissions}`);
   const rows = useMemo(() => transcriptRows(timeline.entries), [timeline.entries]);
@@ -168,6 +168,16 @@ export function MateChat({
         toast.error(errorText(caught));
         if (fromDraft && cachedDraft.trim() === "") setDraft(text);
       })
+      .finally(() => setSending(false));
+  }
+
+  /** Bearings or Ahoy: the words are the daemon's, from its templates. */
+  function sendCommand(command: MateCommand): void {
+    if (sending) return;
+    setSending(true);
+    follow.pin();
+    askCommand({ command, args: "" })
+      .catch((caught: unknown) => toast.error(errorText(caught)))
       .finally(() => setSending(false));
   }
 
@@ -286,7 +296,7 @@ export function MateChat({
               showLabel
               theme={theme}
               disabled={sending}
-              onPress={() => send(bearingsPrompt(""), false)}
+              onPress={() => sendCommand("bearings")}
             />
             <IconButton
               icon="Anchor"
@@ -294,7 +304,7 @@ export function MateChat({
               showLabel
               theme={theme}
               disabled={sending}
-              onPress={() => send(ahoyPrompt(""), false)}
+              onPress={() => sendCommand("ahoy")}
             />
             {onOpen === null ? null : (
               <IconButton icon="ExternalLink" label="Open in Paseo" showLabel theme={theme} onPress={onOpen} />

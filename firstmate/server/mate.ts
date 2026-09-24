@@ -6,11 +6,11 @@
  * charter and starts it there; from then on the first mate owns intake,
  * dispatch and supervision, with Paseo's own tools.
  */
-import { CREW_LABELS, type AgentSummary, type FirstmateConfig } from "../shared/fleet";
+import { CREW_LABELS, type AgentSummary, type FirstmateConfig, type MateCommand } from "../shared/fleet";
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import { fetchLiveAgent, listAgents, resolveMate, summarizeAgent } from "./fleet";
 import { prepareHome, readOpening } from "./home";
-import { TEMPLATES, readTemplate, withoutNotes } from "./templates";
+import { TEMPLATES, message } from "./templates";
 import { nameHomeOnce } from "./home-name";
 import type { PaseoApi } from "./host-types";
 import { sendSessionRequest } from "./daemon-session";
@@ -106,12 +106,12 @@ export async function restartMate(paseo: PaseoApi): Promise<{ agentId: string; w
 }
 
 /**
- * The note a restart adds after the opening (`templates/parts/restart-note.md`). It stays out of
+ * The note a restart adds after the opening (`templates/messages/restart-note.md`). It stays out of
  * `data/opening.md` so that it is said whatever the captain's opening says: the heartbeat it asks for is
  * how a new first mate hears about crewmates its predecessor started, which will not wake it.
  */
-export async function restartNote(): Promise<string> {
-  return withoutNotes(await readTemplate(TEMPLATES.restartNote));
+export function restartNote(): Promise<string> {
+  return message(TEMPLATES.restartNote);
 }
 
 /**
@@ -195,6 +195,23 @@ export async function compactMate(paseo: PaseoApi): Promise<string> {
   if (isMidTurn(agent)) throw new Error(`${MID_TURN} Compact it once it is idle.`);
   await paseo.agents.ref(agent.id).send("/compact");
   return agent.id;
+}
+
+/** The template for each request, with nothing after it and with something. */
+const COMMANDS = {
+  bearings: [TEMPLATES.bearings, TEMPLATES.bearingsArgs],
+  ahoy: [TEMPLATES.ahoy, TEMPLATES.ahoyArgs],
+} as const;
+
+/**
+ * What Bearings and Ahoy send — the buttons, ⌘K, `/bearings` and `/ahoy` — from `templates/messages/`:
+ * plain requests, which charter §10 defines, rather than slash commands, which the first mate's own
+ * harness would take as its own. `args` is whatever the captain typed after the command.
+ */
+export function commandText(command: MateCommand, args: string): Promise<string> {
+  const extra = args.trim();
+  const [plain, withArgs] = COMMANDS[command];
+  return extra === "" ? message(plain) : message(withArgs, { args: extra });
 }
 
 /** Delivers the captain's words, joining the first mate's turn if it is mid-way through one. */

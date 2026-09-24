@@ -1,7 +1,8 @@
 /**
  * The plugin's `templates/` folder: every file the plugin writes into the first mate's home, laid out as
- * it lands there, and the parts it puts inside them (`parts/`). They are Markdown — and the home's icon —
- * so they can be read and changed as the files they become, rather than as strings in code.
+ * it lands there; the parts it puts inside them (`parts/`); and everything it says to the first mate
+ * itself (`messages/`). They are Markdown — and the home's icon — so they can be read and changed as the
+ * text they become, rather than as strings in code.
  *
  * Paseo compiles the server half into one script and runs it from memory, so the code cannot say where
  * it was loaded from: `import.meta` is empty in that bundle, the process runs in the daemon's directory,
@@ -35,7 +36,15 @@ export const TEMPLATES = {
   crewModeOpen: "parts/crew-mode-open.md",
   crewProviderChosen: "parts/crew-provider-chosen.md",
   crewProviderOpen: "parts/crew-provider-open.md",
-  restartNote: "parts/restart-note.md",
+  ahoy: "messages/ahoy.md",
+  ahoyArgs: "messages/ahoy-args.md",
+  bearings: "messages/bearings.md",
+  bearingsArgs: "messages/bearings-args.md",
+  relaunch: "messages/relaunch.md",
+  restartNote: "messages/restart-note.md",
+  steerRelay: "messages/steer-relay.md",
+  steerRelayClipped: "messages/steer-relay-clipped.md",
+  steerRelayNoAnswer: "messages/steer-relay-no-answer.md",
 } as const;
 
 export type TemplatePath = (typeof TEMPLATES)[keyof typeof TEMPLATES];
@@ -89,7 +98,12 @@ export function withoutNotes(text: string): string {
   return text.replace(/\r\n?/g, "\n").replace(/<!--[\s\S]*?-->/g, "").trim();
 }
 
-/** `{{name}}` filled from `values`; a name it does not have is left as it is. */
+/** A template from `messages/` or `parts/`, its notes left out and its placeholders filled. */
+export async function message(path: TemplatePath, values: Readonly<Record<string, string>> = {}): Promise<string> {
+  return fill(withoutNotes(await readTemplate(path)), values);
+}
+
+/** `{{name}}` filled from `values` in one pass, so a value is never read for placeholders; a name it does not have is left as it is. */
 export function fill(template: string, values: Readonly<Record<string, string>>): string {
   return template.replace(/\{\{([a-zA-Z]+)\}\}/g, (whole, name: string) => values[name] ?? whole);
 }

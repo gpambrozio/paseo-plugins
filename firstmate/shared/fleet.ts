@@ -294,6 +294,20 @@ export const askMate = defineRpc({
   output: z.object({ agentId: z.string() }),
 });
 
+/** The requests the plugin words for the captain; the server fills each from its template. */
+export const MateCommandSchema = z.enum(["bearings", "ahoy"]);
+export type MateCommand = z.infer<typeof MateCommandSchema>;
+
+/**
+ * Bearings or Ahoy, from a button, ⌘K or a slash command. The words are the server's
+ * (`templates/messages/`), which the app cannot read; `args` is what the captain typed after the command.
+ */
+export const askMateCommand = defineRpc({
+  name: "firstmate.mate.command",
+  input: z.object({ command: MateCommandSchema, args: z.string().default("") }),
+  output: z.object({ agentId: z.string() }),
+});
+
 // ---------------------------------------------------------------------------
 // One crewmate
 // ---------------------------------------------------------------------------

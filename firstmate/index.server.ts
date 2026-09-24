@@ -17,6 +17,7 @@ import { isHomeReady, prepareHome } from "./server/home";
 import {
   adoptMate,
   askMate,
+  commandText,
   compactMate,
   launchMate,
   listCandidates,
@@ -28,6 +29,7 @@ import {
   acknowledgeCharter as acknowledgeCharterRpc,
   adoptMate as adoptMateRpc,
   askMate as askMateRpc,
+  askMateCommand as askMateCommandRpc,
   compactMate as compactMateRpc,
   compareCharter as compareCharterRpc,
   enableAgentTools,
@@ -83,6 +85,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(compactMateRpc, async (_input, { paseo }) => ({ agentId: await compactMate(paseo) }));
   server.handle(listCandidatesRpc, (_input, { paseo }) => listCandidates(paseo));
   server.handle(askMateRpc, async ({ text }, { paseo }) => ({ agentId: await askMate(paseo, text) }));
+  server.handle(askMateCommandRpc, async ({ command, args }, { paseo }) => ({
+    agentId: await askMate(paseo, await commandText(command, args)),
+  }));
   server.handle(markMateSeenRpc, (_input, { paseo }) => markMateSeen(paseo));
 
   server.handle(steerCrewRpc, async ({ agentId, text }, { paseo }) => {

@@ -30,21 +30,28 @@ describe("CaptainSteers", () => {
 });
 
 describe("relayText", () => {
-  it("wraps the exchange for the first mate and clips a long answer", () => {
-    const text = relayText({ id: "a1", title: "Fix login" }, ["use pnpm"], "x".repeat(5000));
+  it("wraps the exchange for the first mate and clips a long answer", async () => {
+    const text = await relayText({ id: "a1", title: "Fix login" }, ["use pnpm"], `{{title}} ${"x".repeat(5000)}`);
     expect(text.startsWith("<firstmate-board>")).toBe(true);
+    expect(text).toContain("crewmate a1 (Fix login)");
     expect(text).toContain("<captain-message>\nuse pnpm\n</captain-message>");
     expect(text).toContain("[truncated; use get_agent_activity for the rest]");
-    expect(relayText({ id: "a1", title: null }, ["hi"], null)).toContain("(it ended the turn without a message)");
+    // What the crewmate said is passed on as it is, even where it looks like a placeholder.
+    expect(text).toContain("<agent-response>\n{{title}} xxx");
+    const silent = await relayText({ id: "a1", title: null }, ["hi"], null);
+    expect(silent).toContain("(it ended the turn without a message)");
+    expect(silent).toContain("crewmate a1 (a1)");
   });
 });
 
 describe("relaunchText", () => {
-  it("names the task when the crewmate carries one", () => {
-    expect(relaunchText({ id: "a1", title: "Fix", labels: { [CREW_LABELS.task]: "fix-login" } }, " tests pass now ")).toBe(
-      "ahoy! Relaunch the worker on fix-login (crewmate a1) in the same local copy, as step 4 of your stuck-crewmate ladder says.\n" +
+  it("names the task when the crewmate carries one, and its title when not", async () => {
+    expect(
+      await relaunchText({ id: "a1", title: "Fix", labels: { [CREW_LABELS.task]: "fix-login" } }, " tests pass now "),
+    ).toBe(
+      "ahoy! Relaunch the worker fix-login (crewmate a1) in the same local copy, as step 4 of your stuck-crewmate ladder says.\n" +
         "The captain's note for the new worker: tests pass now",
     );
-    expect(relaunchText({ id: "a1", title: "Fix", labels: {} }, "go")).toContain('the worker "Fix"');
+    expect(await relaunchText({ id: "a1", title: "Fix", labels: {} }, "go")).toContain('the worker "Fix"');
   });
 });
