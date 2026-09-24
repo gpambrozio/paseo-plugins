@@ -9,7 +9,7 @@
 import { CREW_LABELS, type AgentSummary, type FirstmateConfig } from "../shared/fleet";
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import { fetchLiveAgent, listAgents, resolveMate, summarizeAgent } from "./fleet";
-import { prepareHome } from "./home";
+import { prepareHome, readOpening } from "./home";
 import { nameHomeOnce } from "./home-name";
 import type { PaseoApi } from "./host-types";
 import { sendSessionRequest } from "./daemon-session";
@@ -18,29 +18,14 @@ import { sendWithoutInterrupting } from "./send";
 export const MATE_TITLE = "First mate";
 
 /**
- * The first turn. Claude and Codex both read `AGENTS.md` from the working
- * directory on their own; the sentence asking it to read the file is for a
- * harness that does not, and costs nothing when the charter is already loaded.
+ * What a restart adds after the opening (`data/opening.md`). The new first mate has the records but not
+ * the conversation, and Paseo notifies only the agent that prompted a crewmate — so crewmates its
+ * predecessor started will finish without a word to it, which is what the heartbeat is for. It stays out
+ * of the file so that it is said whatever the captain's opening says.
  */
-export const LAUNCH_PROMPT = [
-  "ahoy! You are the first mate, and I am your captain.",
-  "Your charter is AGENTS.md in this directory; if it is not already part of your instructions, read it in full now.",
-  "Then take the helm as its section 3 says, and report to me in one short message.",
-].join(" ");
-
-/**
- * The first turn after a restart. The new first mate has the records but not
- * the conversation, and Paseo notifies only the agent that prompted a
- * crewmate — so crewmates its predecessor started will finish without a word
- * to it, which is what the heartbeat is for.
- */
-export const RESTART_PROMPT = [
-  "ahoy! You are the first mate, and I am your captain.",
+export const RESTART_NOTE = [
   "This is a fresh start: another first mate held the helm before you, and its conversation is gone; what it knew is in your records.",
-  "Your charter is AGENTS.md in this directory; if it is not already part of your instructions, read it in full now.",
-  "Then take the helm as its section 3 says.",
   "Crewmates your predecessor started will not wake you when they finish, so while any are in flight keep a heartbeat as section 7 says.",
-  "Report to me in one short message.",
 ].join(" ");
 
 /** What a first mate is started with. Empty strings leave the provider's default. */
@@ -86,7 +71,7 @@ export async function launchMate(
         `A first mate is already aboard (${current.agent.title ?? current.agent.id}). Open it, or release it in the FirstMate settings first.`,
       );
     }
-    return startMate(paseo, config, { ...input, thinkingOptionId: "" }, LAUNCH_PROMPT);
+    return startMate(paseo, config, { ...input, thinkingOptionId: "" }, "launch");
   });
 }
 
@@ -122,7 +107,7 @@ export async function restartMate(paseo: PaseoApi): Promise<{ agentId: string; w
     };
     await paseo.agents.ref(agent.id).archive();
     try {
-      return await startMate(paseo, config, setup, RESTART_PROMPT);
+      return await startMate(paseo, config, setup, "restart");
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new Error(`The old first mate was archived, but the new one did not start: ${reason}`);
@@ -130,15 +115,20 @@ export async function restartMate(paseo: PaseoApi): Promise<{ agentId: string; w
   });
 }
 
-/** Writes the home and starts a first mate in it. Callers hold `oneAtATime` and have checked the helm. */
+/**
+ * Writes the home and starts a first mate in it, with the captain's opening — and, after a restart, the
+ * note about the first mate before. Callers hold `oneAtATime` and have checked the helm.
+ */
 async function startMate(
   paseo: PaseoApi,
   config: FirstmateConfig,
   setup: MateSetup,
-  prompt: string,
+  start: "launch" | "restart",
 ): Promise<{ agentId: string; workspaceId: string | null }> {
   const home = resolveHome(config);
   await prepareHome(home, config);
+  const opening = await readOpening(home);
+  const prompt = start === "restart" ? `${opening}\n\n${RESTART_NOTE}` : opening;
 
   const workspace = await paseo.workspaces.open(home);
   nameHomeOnce(paseo, workspace.id, home);

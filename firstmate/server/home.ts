@@ -9,6 +9,7 @@
  *     <home>/data/projects.md   the project registry
  *     <home>/data/backlog.md    every work item; the board reads it
  *     <home>/data/learnings.md
+ *     <home>/data/opening.md    a new first mate's first message; the captain's, never overwritten
  *     <home>/projects/          clones for projects with no local checkout
  *     <home>/icon.svg           the icon Paseo's sidebar shows for the home (`home-icon.ts`)
  *
@@ -27,7 +28,9 @@ import type { BacklogItem, FirstmateConfig, Project } from "../shared/fleet";
 import { EMPTY_BACKLOG, parseBacklog } from "./backlog";
 import {
   CAPTAIN_TEMPLATE,
+  DEFAULT_OPENING,
   LEARNINGS_TEMPLATE,
+  OPENING_TEMPLATE,
   PROJECTS_TEMPLATE,
   renderCharter,
 } from "./charter";
@@ -64,6 +67,7 @@ export async function prepareHome(home: string, config: FirstmateConfig): Promis
   await writeIfMissing(join(home, "data", "projects.md"), PROJECTS_TEMPLATE);
   await writeIfMissing(join(home, "data", "learnings.md"), LEARNINGS_TEMPLATE);
   await writeIfMissing(join(home, "data", "backlog.md"), EMPTY_BACKLOG);
+  await writeIfMissing(join(home, "data", "opening.md"), OPENING_TEMPLATE);
   await writeIfMissing(join(home, HOME_ICON_FILE), HOME_ICON_SVG);
 }
 
@@ -79,6 +83,17 @@ async function readOptional(path: string): Promise<string | null> {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
+}
+
+/**
+ * A new first mate's first message: `data/opening.md` without its HTML comments, which are notes to the
+ * captain. A missing or empty file gives the plugin's own wording, so a first mate is never started with
+ * nothing to act on.
+ */
+export async function readOpening(home: string): Promise<string> {
+  const markdown = await readOptional(join(home, "data", "opening.md"));
+  const text = (markdown ?? "").replace(/<!--[\s\S]*?-->/g, "").trim();
+  return text === "" ? DEFAULT_OPENING : text;
 }
 
 export async function readBacklog(home: string): Promise<BacklogItem[]> {

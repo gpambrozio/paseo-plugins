@@ -1,12 +1,13 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { CREW_LABELS } from "../shared/fleet";
-import { readFirstmateConfig, updateFirstmateConfig } from "./config";
+import { DEFAULT_OPENING } from "./charter";
+import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import type { PaseoApi } from "./host-types";
-import { RESTART_PROMPT, compactMate, restartMate } from "./mate";
+import { RESTART_NOTE, compactMate, launchMate, restartMate } from "./mate";
 
 let paseoHome = "";
 const previousHome = process.env.PASEO_HOME;
@@ -102,7 +103,7 @@ describe("restartMate", () => {
     expect(created[0]).toMatchObject({
       config: { provider: "claude/claude-opus-5-5", modeId: "bypassPermissions", thinkingOptionId: "high" },
       labels: { [CREW_LABELS.role]: CREW_LABELS.mateRole },
-      prompt: RESTART_PROMPT,
+      prompt: `${DEFAULT_OPENING}\n\n${RESTART_NOTE}`,
     });
     expect(await readFirstmateConfig()).toMatchObject({
       mateAgentId: "new-mate",
@@ -123,6 +124,30 @@ describe("restartMate", () => {
     const { paseo, calls } = fakePaseo({});
     await expect(restartMate(paseo)).rejects.toThrow("There is no first mate yet");
     expect(calls).toEqual([]);
+  });
+});
+
+/** Writes the captain's own `data/opening.md` into the home the next launch uses. */
+async function writeOpening(markdown: string): Promise<void> {
+  const data = join(resolveHome(await readFirstmateConfig()), "data");
+  await mkdir(data, { recursive: true });
+  await writeFile(join(data, "opening.md"), markdown, "utf8");
+}
+
+describe("the opening", () => {
+  it("launches with the captain's opening, leaving out its notes", async () => {
+    await writeOpening("<!-- A note to myself. -->\n\nAhoy, first mate. Read AGENTS.md and take the helm.\n");
+    const { paseo, created } = fakePaseo({});
+    await launchMate(paseo, { provider: "claude/claude-sonnet-5", modeId: "" });
+    expect(created[0]?.prompt).toBe("Ahoy, first mate. Read AGENTS.md and take the helm.");
+  });
+
+  it("restarts with the captain's opening and then the note about the first mate before", async () => {
+    await writeOpening("Olá, imediato. Leia o AGENTS.md e assuma o leme.");
+    await updateFirstmateConfig({ mateAgentId: "old-mate" });
+    const { paseo, created } = fakePaseo({ "old-mate": { ...oldMate, status: "idle" } });
+    await restartMate(paseo);
+    expect(created[0]?.prompt).toBe(`Olá, imediato. Leia o AGENTS.md e assuma o leme.\n\n${RESTART_NOTE}`);
   });
 });
 

@@ -145,6 +145,11 @@ settings, and your choice is kept.
 - `data/captain.md` — **your standing orders.** Anything you write here outranks the charter (except
   its hard rules: it never writes to a project, never merges without your word, never throws away
   unlanded work). Never overwritten.
+- `data/opening.md` — **the first thing a new first mate is told**, when you launch it and when you
+  restart it. Change the words, the language, or what it should do before anything else; keep asking
+  it to read `AGENTS.md` and take the helm, which is what makes it a first mate. Notes between `<!--`
+  and `-->` are left out, a restart adds a note of its own after yours about the first mate before, and
+  an empty file means FirstMate's own wording. Never overwritten.
 - `data/projects.md` — the project registry, and how each one ships:
   - `direct-PR` — the worker opens a pull request ready for review;
   - `reviewed-PR` — the worker also reviews its own diff, runs the full test suite and waits for CI;

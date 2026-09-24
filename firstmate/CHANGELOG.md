@@ -9,6 +9,13 @@ read before you move.
 
 ## [0.1.1] — 2026-09-23
 
+### Added
+
+- **Your own first words to the first mate.** What a new first mate is told when you launch or restart
+  it is now a file in its home, `data/opening.md`, beside your standing orders — change the wording,
+  the language, or what it should do first. It starts as the message FirstMate has always sent, and
+  your version is never overwritten.
+
 ### Changed
 
 - **A clearer sign of work under way.** The Working column now shows a hammer, and steps still running in

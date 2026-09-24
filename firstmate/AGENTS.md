@@ -153,14 +153,25 @@ drop out of the first mate's view. Agents get `PASEO_CLI`, `PASEO_HOME` and thei
 
 `server/home.ts` writes `AGENTS.md` (the charter, **rewritten on every launch, every settings save and
 every plugin start** — it names the crew's model, and a charter change should reach a home in use
-without a relaunch; a running first mate still has to be asked to re-read it) and creates `data/captain.md`, `projects.md`, `backlog.md` and
-`learnings.md` only when missing, so a relaunch never loses a record. `data/captain.md` is the
+without a relaunch; a running first mate still has to be asked to re-read it) and creates `data/captain.md`, `projects.md`, `backlog.md`,
+`learnings.md` and `opening.md` only when missing, so a relaunch never loses a record. `data/captain.md` is the
 captain's to edit and outranks the charter below its hard rules; that is where customisation that
 should survive an upgrade goes.
 
 There is **no `CLAUDE.md`**. Claude Code and Codex both read `AGENTS.md`, and a `CLAUDE.md` importing
-it risks the charter twice in every turn. `LAUNCH_PROMPT` asks the agent to read the file if it is not
+it risks the charter twice in every turn. The opening asks the agent to read the file if it is not
 already in its instructions, for a harness that reads neither.
+
+**The opening is the captain's.** A new first mate's first message — what it is told at launch and at
+restart, before the captain has said anything — is `data/opening.md`, written once with the plugin's own
+wording (`DEFAULT_OPENING` in `server/charter.ts`) and read at every launch by `readOpening`. It is a file
+in the home rather than a setting because it sits with the captain's other records, is edited in the Files
+view, and survives an upgrade. HTML comments are notes to the captain and are left out, which is where the
+file explains itself; a file with nothing else in it — emptied, or deleted and not yet rewritten — gives
+the default, so a first mate is never started with nothing to act on. A restart appends `RESTART_NOTE`
+(`server/mate.ts`) after it: the heartbeat that note asks for is not optional, so it does not depend on
+what the captain wrote. The charter's records table marks the file as the captain's, so the first mate
+leaves it alone. An existing home gets the file on the next plugin start, like any missing record.
 
 The backlog format is the contract between an agent and `server/backlog.ts`. Changing one means
 changing both, and the parser stays lenient: unknown groups are ignored, a line it cannot read is
@@ -320,7 +331,8 @@ react-native-web, hover, click and leave.
   two timeline entries — started, finished — fold into one line (`pushCompaction`).
 - **Restart** (`firstmate.mate.restart`) archives the first mate and launches a new one in the home with
   the live agent's model, mode and thinking — not the config's, since they can be changed in its tab and
-  an adopted first mate has none there — and `RESTART_PROMPT`, which tells it it is taking over. Archived
+  an adopted first mate has none there — and the opening followed by `RESTART_NOTE`, which tells it it is
+  taking over. Archived
   *first*, under the same lock as a launch, so two first mates never hold the helm at once; a launch that
   then fails leaves none, and says so. Archiving retires its heartbeat, because Paseo completes a schedule
   whose agent is archived; the conversation stays readable in Paseo's history. Refused mid-turn, like
@@ -331,7 +343,7 @@ What a restart costs: **crewmates the old first mate started no longer wake anyo
 notification goes to the agent that created or prompted the crewmate and is dropped when that agent is
 archived (`setupFinishNotification` in Paseo returns early for an archived caller), and archiving a first
 mate also takes the parent label off its cross-workspace children — which is why Herald 0.5 announces
-them from then on. `RESTART_PROMPT` and charter §7 tell the new first mate to keep a heartbeat while any
+them from then on. `RESTART_NOTE` and charter §7 tell the new first mate to keep a heartbeat while any
 are in flight, which is how it finds out.
 
 Checked on a throwaway 0.9.1 daemon with a Haiku first mate: 33,969 of 200,000 tokens after launch,

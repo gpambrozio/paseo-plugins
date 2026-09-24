@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CREW_LABELS, FirstmateConfigSchema } from "../shared/fleet";
-import { renderCharter } from "./charter";
-import { isHomeReady, parseProjects, prepareHome, readBacklog } from "./home";
+import { DEFAULT_OPENING, renderCharter } from "./charter";
+import { isHomeReady, parseProjects, prepareHome, readBacklog, readOpening } from "./home";
 import { HOME_ICON_FILE } from "./home-icon";
 
 const tempDirs: string[] = [];
@@ -49,6 +49,29 @@ describe("prepareHome", () => {
     await writeFile(join(home, HOME_ICON_FILE), "<svg/>", "utf8");
     await prepareHome(home, FirstmateConfigSchema.parse({}));
     expect(await readFile(join(home, HOME_ICON_FILE), "utf8")).toBe("<svg/>");
+  });
+});
+
+describe("readOpening", () => {
+  it("starts as the plugin's own opening, and keeps the captain's once written", async () => {
+    const home = await tempHome();
+    expect(await readOpening(home)).toBe(DEFAULT_OPENING);
+
+    await prepareHome(home, FirstmateConfigSchema.parse({}));
+    const written = await readFile(join(home, "data", "opening.md"), "utf8");
+    expect(written).toMatch(/^<!--/);
+    expect(await readOpening(home)).toBe(DEFAULT_OPENING);
+
+    await writeFile(join(home, "data", "opening.md"), "Ahoy!\n<!-- in Portuguese next time -->\nTake the helm.\n", "utf8");
+    await prepareHome(home, FirstmateConfigSchema.parse({}));
+    expect(await readOpening(home)).toBe("Ahoy!\n\nTake the helm.");
+  });
+
+  it("falls back to the plugin's own opening when the file says nothing but notes", async () => {
+    const home = await tempHome();
+    await prepareHome(home, FirstmateConfigSchema.parse({}));
+    await writeFile(join(home, "data", "opening.md"), "<!-- nothing to say -->\n\n", "utf8");
+    expect(await readOpening(home)).toBe(DEFAULT_OPENING);
   });
 });
 

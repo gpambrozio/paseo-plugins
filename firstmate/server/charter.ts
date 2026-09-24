@@ -112,6 +112,7 @@ them against the live crew, and carry on.
 | \`data/<id>/brief.md\` | The instructions a crewmate was started with. The durable version of the task. |
 | \`data/<id>/report.md\` | A scout's report. |
 | \`data/learnings.md\` | Facts about the fleet worth keeping across sessions. |
+| \`data/opening.md\` | The first message every new first mate gets, yours included. The captain's to write; leave it alone. |
 | \`projects/\` | Clones you made for projects that had no local checkout. |
 
 **Backlog lines** are one item each, and the board parses them, so keep this exact shape:
@@ -409,6 +410,29 @@ The captain's standing orders for the first mate. Anything written here outranks
 AGENTS.md, except its hard rules. The FirstMate plugin never overwrites this file.
 
 - (none yet)
+`;
+
+/**
+ * A new first mate's first turn, before the captain has said anything. Claude and Codex both read
+ * `AGENTS.md` from the working directory on their own; the sentence asking it to read the file is for a
+ * harness that does not, and costs nothing when the charter is already loaded.
+ */
+export const DEFAULT_OPENING = [
+  "ahoy! You are the first mate, and I am your captain.",
+  "Your charter is AGENTS.md in this directory; if it is not already part of your instructions, read it in full now.",
+  "Then take the helm as its section 3 says, and report to me in one short message.",
+].join(" ");
+
+/** What `data/opening.md` starts as: the opening, under a note to the captain that is never sent. */
+export const OPENING_TEMPLATE = `<!--
+The first message a new first mate gets, when you launch it and when you restart it. It is sent as
+written, without this note. Change the words, the language, what it should do first; keep asking it
+to read AGENTS.md and take the helm, which is what makes it a first mate. A restart adds a note of its
+own after this one, about the first mate before. An empty file means the plugin's own wording, and
+the plugin never overwrites this file.
+-->
+
+${DEFAULT_OPENING}
 `;
 
 export const PROJECTS_TEMPLATE = `# Projects
