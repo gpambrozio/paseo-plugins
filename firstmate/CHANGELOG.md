@@ -21,6 +21,9 @@ read before you move.
   the first mate wrote its status into the title ("…, ready in branch …, awaiting approval to land"), and
   the card grew with it. The title now stays put, and what the first mate needs from you shows on the
   card as your call.
+- **A card you opened closes again when its work moves on.** A worker finishing or starting again used to
+  carry its card into the new column still open, with its buttons showing. Now it arrives closed — unless
+  you were in the middle of something in it, like a message half-typed to the worker, which is kept.
 
 ## [0.1.0] — 2026-09-22
 

@@ -59,6 +59,17 @@ export function splitRows<T>(items: readonly T[], rows: number): T[][] {
   return result;
 }
 
+/**
+ * Whether a card opens the way it was left. One that has moved column since —
+ * its crewmate finished, failed, started again — goes back to rest, because
+ * the actions it was showing were for where it was; one with something in
+ * progress in it (a steer half-typed, an End waiting to be confirmed) stays
+ * open, so the move never costs the captain what they were doing.
+ */
+export function opensAsLeft(left: { column: ColumnId; inProgress: boolean }, column: ColumnId): boolean {
+  return left.inProgress || left.column === column;
+}
+
 export function columnTone(theme: PluginTheme, column: ColumnId): string {
   switch (column) {
     case "working":

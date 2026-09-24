@@ -11,6 +11,7 @@ import {
   errorText,
   formatTokenCount,
   moveColumn,
+  opensAsLeft,
   orderedColumns,
   relativeTime,
   shortPath,
@@ -170,6 +171,12 @@ describe("columns", () => {
     const order = orderedColumns([]);
     expect(moveColumn(order, "working", -1).slice(0, 2)).toEqual(["working", "queued"]);
     expect(moveColumn(order, "queued", -1)).toEqual(order);
+  });
+
+  it("puts a card that moved column back to rest, unless something is in progress in it", () => {
+    expect(opensAsLeft({ column: "working", inProgress: false }, "working")).toBe(true);
+    expect(opensAsLeft({ column: "working", inProgress: false }, "done")).toBe(false);
+    expect(opensAsLeft({ column: "working", inProgress: true }, "done")).toBe(true);
   });
 
   it("splits the board three over four, the extra in the later row", () => {

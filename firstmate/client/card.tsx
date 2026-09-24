@@ -14,8 +14,8 @@ import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native"
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { exitCrew, interruptCrew, relaunchCrew, steerCrew, type FleetCard } from "../shared/fleet";
-import { agentStatusLabel, agentStatusTone, columnTone, modelLabel, relativeTime } from "./format";
+import { exitCrew, interruptCrew, relaunchCrew, steerCrew, type ColumnId, type FleetCard } from "../shared/fleet";
+import { agentStatusLabel, agentStatusTone, columnTone, modelLabel, opensAsLeft, relativeTime } from "./format";
 import { Chip, IconButton, errorText } from "./ui";
 
 /** The card's first action, which opens the crewmate somewhere. */
@@ -28,23 +28,30 @@ export interface CardOpener {
 type Draft = { kind: "steer" | "relaunch"; text: string } | { kind: "end" } | null;
 
 /**
- * Whether each card is open, and what is half-typed in it, by card key.
+ * Whether each card is open, what is half-typed in it, and the column it was
+ * in, by card key.
  *
  * A card changes column exactly when the captain is most likely to act on it
  * — its crewmate just stopped — and a card in another column is a different
- * element to React, so it remounts. Kept here, the open card and the draft
- * survive the move, and the surface unmounting too.
+ * element to React, so it remounts. Kept here, a draft survives the move, and
+ * the surface unmounting too. An open card with nothing in progress does not:
+ * it goes back to rest in its new column (`opensAsLeft`), or every card the
+ * captain had looked into would arrive in Done still showing its actions.
  */
-const cardMemory = new Map<string, { expanded: boolean; draft: Draft }>();
+const cardMemory = new Map<string, { expanded: boolean; draft: Draft; column: ColumnId }>();
 
-function useCardMemory(key: string, startExpanded: boolean) {
+function useCardMemory(key: string, startExpanded: boolean, column: ColumnId) {
   const remembered = cardMemory.get(key);
-  const [expanded, setExpandedState] = useState(remembered?.expanded ?? startExpanded);
-  const [draft, setDraftState] = useState<Draft>(remembered?.draft ?? null);
+  const kept =
+    remembered !== undefined && opensAsLeft({ column: remembered.column, inProgress: remembered.draft !== null }, column)
+      ? remembered
+      : undefined;
+  const [expanded, setExpandedState] = useState(kept?.expanded ?? startExpanded);
+  const [draft, setDraftState] = useState<Draft>(kept?.draft ?? null);
 
   function remember(next: { expanded: boolean; draft: Draft }): void {
     if (!next.expanded && next.draft === null) cardMemory.delete(key);
-    else cardMemory.set(key, next);
+    else cardMemory.set(key, { ...next, column });
   }
   function setExpanded(next: boolean): void {
     remember({ expanded: next, draft });
@@ -90,7 +97,7 @@ export function CrewCard({
   const relaunch = useRpc(relaunchCrew);
   const toast = useToast();
 
-  const { expanded, setExpanded, draft, setDraft } = useCardMemory(card.key, startExpanded);
+  const { expanded, setExpanded, draft, setDraft } = useCardMemory(card.key, startExpanded, card.column);
   const [busy, setBusy] = useState(false);
 
   const agent = card.agent;
