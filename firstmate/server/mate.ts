@@ -10,23 +10,13 @@ import { CREW_LABELS, type AgentSummary, type FirstmateConfig } from "../shared/
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import { fetchLiveAgent, listAgents, resolveMate, summarizeAgent } from "./fleet";
 import { prepareHome, readOpening } from "./home";
+import { TEMPLATES, readTemplate, withoutNotes } from "./templates";
 import { nameHomeOnce } from "./home-name";
 import type { PaseoApi } from "./host-types";
 import { sendSessionRequest } from "./daemon-session";
 import { sendWithoutInterrupting } from "./send";
 
 export const MATE_TITLE = "First mate";
-
-/**
- * What a restart adds after the opening (`data/opening.md`). The new first mate has the records but not
- * the conversation, and Paseo notifies only the agent that prompted a crewmate — so crewmates its
- * predecessor started will finish without a word to it, which is what the heartbeat is for. It stays out
- * of the file so that it is said whatever the captain's opening says.
- */
-export const RESTART_NOTE = [
-  "This is a fresh start: another first mate held the helm before you, and its conversation is gone; what it knew is in your records.",
-  "Crewmates your predecessor started will not wake you when they finish, so while any are in flight keep a heartbeat as section 7 says.",
-].join(" ");
 
 /** What a first mate is started with. Empty strings leave the provider's default. */
 interface MateSetup {
@@ -116,6 +106,15 @@ export async function restartMate(paseo: PaseoApi): Promise<{ agentId: string; w
 }
 
 /**
+ * The note a restart adds after the opening (`templates/parts/restart-note.md`). It stays out of
+ * `data/opening.md` so that it is said whatever the captain's opening says: the heartbeat it asks for is
+ * how a new first mate hears about crewmates its predecessor started, which will not wake it.
+ */
+export async function restartNote(): Promise<string> {
+  return withoutNotes(await readTemplate(TEMPLATES.restartNote));
+}
+
+/**
  * Writes the home and starts a first mate in it, with the captain's opening — and, after a restart, the
  * note about the first mate before. Callers hold `oneAtATime` and have checked the helm.
  */
@@ -128,7 +127,7 @@ async function startMate(
   const home = resolveHome(config);
   await prepareHome(home, config);
   const opening = await readOpening(home);
-  const prompt = start === "restart" ? `${opening}\n\n${RESTART_NOTE}` : opening;
+  const prompt = start === "restart" ? `${opening}\n\n${await restartNote()}` : opening;
 
   const workspace = await paseo.workspaces.open(home);
   nameHomeOnce(paseo, workspace.id, home);

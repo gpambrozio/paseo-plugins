@@ -18,7 +18,9 @@ compile time. This file covers only what is specific to `firstmate`.
 | `index.client.tsx`            | Wiring — the surface, sidebar item, two panels, settings screen, ⌘K items, `/fm` `/bearings` `/ahoy`. |
 | `shared/fleet.ts`             | Every RPC contract, the card/fleet shapes, the daemon config shape, and `CREW_LABELS`.     |
 | `shared/settings.ts`          | The host settings document: column order and folds, the chat's width, the poll interval.   |
-| `server/charter.ts`           | **The first mate's charter** — the `AGENTS.md` written into its home. The behaviour lives here. |
+| `templates/`                  | **Every file the plugin writes into the home**, as Markdown laid out as it lands there, and the parts that go inside them. The first mate's behaviour is `templates/data/charter.md`. |
+| `server/templates.ts`         | Finds `templates/` — through `paseo plugin ls`, since the compiled plugin cannot say where it lives — and reads it. |
+| `server/charter.ts`           | Renders `AGENTS.md`: the charter's placeholders filled, under its heading note.            |
 | `server/charter-file.ts`      | `data/charter.md`, the captain's copy it is rendered from: follows the plugin until edited. |
 | `server/home.ts`              | The home directory: writes the charter and records, reads the backlog and project registry. |
 | `server/backlog.ts`           | `data/backlog.md` → `BacklogItem[]`. Lenient, because an agent writes the file.            |
@@ -29,7 +31,6 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
 | `server/cli.ts`               | `paseo stop` and `paseo project rename`, for what the SDK does not have.                   |
 | `server/home-name.ts`         | Names the home's project and workspace "FirstMate" instead of the folder's "home".         |
-| `server/home-icon.ts`         | `icon.svg`, written into the home, which Paseo finds and shows as the project's icon.      |
 | `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing the first mate's attention.    |
 | `server/config.ts`            | `$PASEO_HOME/plugins/firstmate/config.json`, read on every call.                           |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
@@ -150,6 +151,39 @@ that tool defaults to the last 48 hours and 50 agents, and a crewmate older than
 drop out of the first mate's view. Agents get `PASEO_CLI`, `PASEO_HOME` and their own
 `PASEO_AGENT_ID` in their environment (seen on 0.9.1), which is what the charter points at.
 
+## The templates
+
+**No text the plugin writes into the home lives in code.** `templates/` holds every such file as it
+lands there — `AGENTS.md`, `icon.svg`, `data/captain.md` and the other records, `data/charter.md` with its
+note, `data/charter.new.md` — and `templates/parts/` holds the text that goes inside them or into a
+message: the crew's model and mode sentences that fill `{{crewProviderRule}}` and `{{crewModeRule}}`, one
+for a setting left open and one for a setting chosen, and the note a restart adds after the opening.
+`TEMPLATES` in `server/templates.ts` names every one, and `templates.test.ts` fails if the folder and that
+list disagree, or if `package.json` stops shipping the folder (`files` names it; a top-level directory it
+does not name is silently left out of the npm package).
+
+HTML comments in a template are notes for whoever edits it. Where a template becomes a message or a part
+of another file, `withoutNotes` leaves them out, so each part starts with a note saying where it goes;
+where a template is copied into the home as a file, its notes go with it and speak to the captain.
+Placeholders are `{{name}}` throughout, filled by `fill`, which leaves any name it was not given alone.
+
+**Finding the folder is the one hard part.** Paseo compiles the server half into one CommonJS script and
+evaluates it from memory: `import.meta` is an empty object in it (esbuild's CommonJS output), the process
+runs in the daemon's directory, and nothing in the plugin API names the plugin's. The daemon knows, and
+`paseo plugin ls --json` says — the folder of a directory install, and for an npm install the package
+itself, inside the daemon's `node_modules` — so `templatesDirectory` asks it, once per process, through the
+same CLI lookup as `paseo stop`. In the tests, where the code runs from its own files, `import.meta.url` is
+real and the folder beside it is used. A failed lookup is not kept; the next call tries again.
+
+Templates are read once per process, so a changed template reaches a home in use on the next reload, and
+only as far as the home takes it: the charter is re-rendered, an untouched `data/charter.md` follows, and a
+record the home already has is never rewritten.
+
+Checked on a throwaway 0.9.1 daemon from the packed tarball, unpacked and installed as a directory: a home
+got every file, `AGENTS.md` with no placeholder left; and on the real daemon a reload rendered the same
+`AGENTS.md`, byte for byte, as the charter held in code before the move. An npm install of 0.1.0 lists its
+`path` as the package folder in the daemon's `node_modules`, where `templates/` ships from 0.1.1.
+
 ## The home
 
 `server/home.ts` writes `AGENTS.md` (the charter, **rendered from `data/charter.md` on every launch,
@@ -166,18 +200,18 @@ already in its instructions, for a harness that reads neither.
 
 **The opening is the captain's.** A new first mate's first message — what it is told at launch and at
 restart, before the captain has said anything — is `data/opening.md`, written once with the plugin's own
-wording (`DEFAULT_OPENING` in `server/charter.ts`) and read at every launch by `readOpening`. It is a file
+wording (`templates/data/opening.md`) and read at every launch by `readOpening`. It is a file
 in the home rather than a setting because it sits with the captain's other records, is edited in the Files
 view, and survives an upgrade. HTML comments are notes to the captain and are left out, which is where the
 file explains itself; a file with nothing else in it — emptied, or deleted and not yet rewritten — gives
-the default, so a first mate is never started with nothing to act on. A restart appends `RESTART_NOTE`
-(`server/mate.ts`) after it: the heartbeat that note asks for is not optional, so it does not depend on
+the template's wording, so a first mate is never started with nothing to act on. A restart appends its
+note (`templates/parts/restart-note.md`) after it: the heartbeat that note asks for is not optional, so it does not depend on
 what the captain wrote. The charter's records table marks the file as the captain's, so the first mate
 leaves it alone. An existing home gets the file on the next plugin start, like any missing record.
 
 **The charter is the captain's to edit, too.** `AGENTS.md` is rendered, so an edit there is lost at the
-next reload; it is rendered from `data/charter.md`, which starts as the plugin's charter (`CHARTER_TEMPLATE`)
-under a note and is the file to edit. The note lists the placeholders and records a fingerprint of the
+next reload; it is rendered from `data/charter.md`, which starts as `templates/data/charter.md` — the
+plugin's charter under a note — and is the file to edit. The note lists the placeholders and records a fingerprint of the
 plugin charter the copy was taken from, and that fingerprint is how `syncCharter` (`server/charter-file.ts`)
 tells the two cases apart when a new plugin version changes the charter:
 
@@ -224,7 +258,7 @@ never fails the launch or the board.
 `favicon.png`, `icon.svg`, `icon.png` and more, in `public/`, `assets/` and the like first and then the
 root, square and 32 KB at most, an SVG taken as square (`project-icon.ts` in Paseo) — and shows it unless
 an icon was uploaded in the project's settings. So `prepareHome` writes `icon.svg` into the home when it is
-missing: the plugin's own sidebar ship, white on blue, 640 bytes (`server/home-icon.ts`). The captain can
+missing: the plugin's own sidebar ship, white on blue, 640 bytes (`templates/icon.svg`). The captain can
 replace it, in the Files view or on disk, or upload one in Paseo, which wins. An earlier build set the icon
 with the daemon's internal `project.icon.set.request` instead; a project it reached keeps that upload until
 it is reset to automatic in the project's settings.
@@ -355,7 +389,7 @@ react-native-web, hover, click and leave.
   two timeline entries — started, finished — fold into one line (`pushCompaction`).
 - **Restart** (`firstmate.mate.restart`) archives the first mate and launches a new one in the home with
   the live agent's model, mode and thinking — not the config's, since they can be changed in its tab and
-  an adopted first mate has none there — and the opening followed by `RESTART_NOTE`, which tells it it is
+  an adopted first mate has none there — and the opening followed by the restart note, which tells it it is
   taking over. Archived
   *first*, under the same lock as a launch, so two first mates never hold the helm at once; a launch that
   then fails leaves none, and says so. Archiving retires its heartbeat, because Paseo completes a schedule
@@ -367,7 +401,7 @@ What a restart costs: **crewmates the old first mate started no longer wake anyo
 notification goes to the agent that created or prompted the crewmate and is dropped when that agent is
 archived (`setupFinishNotification` in Paseo returns early for an archived caller), and archiving a first
 mate also takes the parent label off its cross-workspace children — which is why Herald 0.5 announces
-them from then on. `RESTART_NOTE` and charter §7 tell the new first mate to keep a heartbeat while any
+them from then on. The restart note and charter §7 tell the new first mate to keep a heartbeat while any
 are in flight, which is how it finds out.
 
 Checked on a throwaway 0.9.1 daemon with a Haiku first mate: 33,969 of 200,000 tokens after launch,

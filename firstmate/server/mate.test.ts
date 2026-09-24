@@ -4,10 +4,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { CREW_LABELS } from "../shared/fleet";
-import { DEFAULT_OPENING } from "./charter";
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import type { PaseoApi } from "./host-types";
-import { RESTART_NOTE, compactMate, launchMate, restartMate } from "./mate";
+import { compactMate, launchMate, restartMate, restartNote } from "./mate";
+import { TEMPLATES, readTemplate, withoutNotes } from "./templates";
 
 let paseoHome = "";
 const previousHome = process.env.PASEO_HOME;
@@ -103,7 +103,7 @@ describe("restartMate", () => {
     expect(created[0]).toMatchObject({
       config: { provider: "claude/claude-opus-5-5", modeId: "bypassPermissions", thinkingOptionId: "high" },
       labels: { [CREW_LABELS.role]: CREW_LABELS.mateRole },
-      prompt: `${DEFAULT_OPENING}\n\n${RESTART_NOTE}`,
+      prompt: `${withoutNotes(await readTemplate(TEMPLATES.opening))}\n\n${await restartNote()}`,
     });
     expect(await readFirstmateConfig()).toMatchObject({
       mateAgentId: "new-mate",
@@ -147,7 +147,7 @@ describe("the opening", () => {
     await updateFirstmateConfig({ mateAgentId: "old-mate" });
     const { paseo, created } = fakePaseo({ "old-mate": { ...oldMate, status: "idle" } });
     await restartMate(paseo);
-    expect(created[0]?.prompt).toBe(`Olá, imediato. Leia o AGENTS.md e assuma o leme.\n\n${RESTART_NOTE}`);
+    expect(created[0]?.prompt).toBe(`Olá, imediato. Leia o AGENTS.md e assuma o leme.\n\n${await restartNote()}`);
   });
 });
 

@@ -34,8 +34,9 @@ There is nothing else to install.
   *Agent tools* switch in the FirstMate settings too.
 - A capable model for the first mate. It spends its day reading records and deciding who does what,
   and a small model gets the tools wrong. Claude Sonnet or better, or a comparable Codex model, works.
-- The `paseo` command on the daemon machine, which a Paseo install puts there. It is used to interrupt
-  a worker from the board and to name the first mate's project in Paseo's sidebar.
+- The `paseo` command on the daemon machine, which a Paseo install puts there. It is used to find the
+  plugin's own files, to interrupt a worker from the board, and to name the first mate's project in
+  Paseo's sidebar.
 
 ## Install
 
@@ -44,7 +45,9 @@ paseo plugin install npm:@gpambrozio/paseo-firstmate
 ```
 
 To hack on it, clone the repository and run `paseo plugin install "$PWD"` from this folder after
-`npm install` and `npm run typecheck`.
+`npm install` and `npm run typecheck`. Everything the plugin writes into the first mate's home — its
+charter, the records it starts with, the home's icon — is in `templates/`, as the files it becomes;
+`paseo plugin reload firstmate` puts a change to work.
 
 ## Getting started
 

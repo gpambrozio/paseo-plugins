@@ -5,7 +5,8 @@
  * stop a turn — the handle has no cancel. The CLI can (`paseo stop <id>`, a
  * no-op for an idle agent), and plugin code runs unsandboxed next to the
  * daemon, so that is the way in. Likewise the SDK can title a workspace but
- * not rename a project. `herald` deletes its helpers the same way; the lookup
+ * not rename a project, and nothing in the plugin API says where the plugin
+ * is installed, which `paseo plugin ls` does. `herald` deletes its helpers the same way; the lookup
  * below is the same one.
  */
 import { spawn } from "node:child_process";
@@ -111,6 +112,33 @@ export async function stopAgent(agentId: string): Promise<void> {
   }
   const result = await spawnCli(cli, ["stop", agentId, "--home", paseoHome(), "--json"], CLI_TIMEOUT_MS);
   if (result.code !== 0) throw new Error(`paseo stop failed: ${cliError(result)}`);
+}
+
+/** The directory `paseo plugin ls --json` lists for a plugin: where the daemon loads it from, however installed. */
+export function pluginPathIn(listing: string, pluginId: string): string | null {
+  let plugins: unknown;
+  try {
+    plugins = JSON.parse(listing);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(plugins)) return null;
+  const entry: unknown = plugins.find(
+    (plugin: unknown) => typeof plugin === "object" && plugin !== null && Reflect.get(plugin, "id") === pluginId,
+  );
+  const path: unknown = typeof entry === "object" && entry !== null ? Reflect.get(entry, "path") : null;
+  return typeof path === "string" && path !== "" ? path : null;
+}
+
+/** Where the daemon loads a plugin from — a directory install's folder, or an npm install's package. */
+export async function pluginDirectory(pluginId: string): Promise<string> {
+  const cli = await paseoCli();
+  if (cli === null) throw new Error("The `paseo` command is not on the daemon's PATH, so the plugin cannot find its own files.");
+  const result = await spawnCli(cli, ["plugin", "ls", "--home", paseoHome(), "--json"], CLI_TIMEOUT_MS);
+  if (result.code !== 0) throw new Error(`paseo plugin ls failed: ${cliError(result)}`);
+  const path = pluginPathIn(result.stdout, pluginId);
+  if (path === null) throw new Error(`paseo plugin ls does not list a directory for ${pluginId}.`);
+  return path;
 }
 
 /** Sets the name Paseo shows for a project, as `paseo project rename` does. */

@@ -219,7 +219,8 @@ every dependency is a devDependency and `dependencies` stays empty; anything mov
 `dependencies` is downloaded onto every user's daemon for nothing.
 
 `files` in each `package.json` is what ships — the manifest, the two entries, `client/`, `server/`,
-`shared/`, the changelog, minus `**/*.test.ts`. npm adds `README.md` and `LICENSE` on its own, which
+`shared/`, the changelog, minus `**/*.test.ts`; `firstmate` adds `templates/`, the files it writes into
+its home, read at runtime rather than compiled in. npm adds `README.md` and `LICENSE` on its own, which
 is why each plugin folder carries its own copy of the repo's MIT `LICENSE`. **Run `npm pack
 --dry-run` before publishing**; a new top-level directory is invisible to `files` and simply will
 not be in the tarball, and the plugin fails to load with no clue why.
@@ -478,7 +479,7 @@ sidebar surface puts the conversation beside a board of the crew. A Paseo-native
 [firstmate](https://github.com/kunchenguid/firstmate) agent distro, replacing
 ABorakati's `paseo-firstmate`, which was a dashboard over that distro's bash scripts and tmux sessions.
 Three things shape it, all in `firstmate/AGENTS.md`: **the plugin never dispatches a crewmate** — the
-first mate does, with Paseo's own MCP tools, following a charter (`server/charter.ts`) written into its
+first mate does, with Paseo's own MCP tools, following a charter (`templates/data/charter.md`) written into its
 home as `AGENTS.md`; **supervision is Paseo's** — the MCP `create_agent` call's `notifyOnFinish` wakes the
 first mate when a crewmate finishes, errors or asks for permission, so there is no watcher, and those
 tools are off by default in Paseo (`daemon.mcp.injectIntoAgents`), which the board offers to turn on;

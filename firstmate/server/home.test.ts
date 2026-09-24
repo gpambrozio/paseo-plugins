@@ -4,9 +4,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CREW_LABELS, FirstmateConfigSchema } from "../shared/fleet";
-import { DEFAULT_OPENING, renderCharter } from "./charter";
+import { renderCharter } from "./charter";
 import { isHomeReady, parseProjects, prepareHome, readBacklog, readOpening } from "./home";
-import { HOME_ICON_FILE } from "./home-icon";
+import { TEMPLATES, readTemplate, withoutNotes } from "./templates";
+
+const HOME_ICON_FILE = TEMPLATES.icon;
+const defaultOpening = async () => withoutNotes(await readTemplate(TEMPLATES.opening));
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -55,12 +58,12 @@ describe("prepareHome", () => {
 describe("readOpening", () => {
   it("starts as the plugin's own opening, and keeps the captain's once written", async () => {
     const home = await tempHome();
-    expect(await readOpening(home)).toBe(DEFAULT_OPENING);
+    expect(await readOpening(home)).toBe(await defaultOpening());
 
     await prepareHome(home, FirstmateConfigSchema.parse({}));
     const written = await readFile(join(home, "data", "opening.md"), "utf8");
     expect(written).toMatch(/^<!--/);
-    expect(await readOpening(home)).toBe(DEFAULT_OPENING);
+    expect(await readOpening(home)).toBe(await defaultOpening());
 
     await writeFile(join(home, "data", "opening.md"), "Ahoy!\n<!-- in Portuguese next time -->\nTake the helm.\n", "utf8");
     await prepareHome(home, FirstmateConfigSchema.parse({}));
@@ -71,14 +74,14 @@ describe("readOpening", () => {
     const home = await tempHome();
     await prepareHome(home, FirstmateConfigSchema.parse({}));
     await writeFile(join(home, "data", "opening.md"), "<!-- nothing to say -->\n\n", "utf8");
-    expect(await readOpening(home)).toBe(DEFAULT_OPENING);
+    expect(await readOpening(home)).toBe(await defaultOpening());
   });
 });
 
 describe("renderCharter", () => {
-  it("fills every placeholder and names the labels the board reads", () => {
+  it("fills every placeholder and names the labels the board reads", async () => {
     for (const crewProvider of ["", "claude/sonnet"]) {
-      const charter = renderCharter({ home: "/h", crewProvider, crewModeId: crewProvider === "" ? "" : "acceptEdits" });
+      const charter = await renderCharter({ home: "/h", crewProvider, crewModeId: crewProvider === "" ? "" : "acceptEdits" });
       expect(charter).not.toMatch(/\{\{[a-zA-Z]+\}\}/);
       for (const key of [CREW_LABELS.role, CREW_LABELS.task, CREW_LABELS.kind, CREW_LABELS.project]) {
         expect(charter).toContain(key);

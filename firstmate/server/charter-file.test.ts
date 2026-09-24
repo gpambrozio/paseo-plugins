@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { FirstmateConfigSchema } from "../shared/fleet";
-import { CHARTER_TEMPLATE } from "./charter";
 import {
   CHARTER_FILE,
   NEW_CHARTER_FILE,
@@ -13,8 +12,10 @@ import {
   readCharterState,
   syncCharter,
   writeNewCharter,
+  type PluginCharter,
 } from "./charter-file";
 import { prepareHome } from "./home";
+import { TEMPLATES, fill, readTemplate } from "./templates";
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -44,19 +45,21 @@ async function editCopy(home: string, words: string): Promise<void> {
   await writeFile(join(home, CHARTER_FILE), `${copy.slice(0, noteEnd)}\n\n${words}\n`, "utf8");
 }
 
-// Two versions of the plugin's charter, as two releases would ship them.
-const V1 = "# First mate\n\nVersion one. Home: {{home}}.\n";
-const V2 = "# First mate\n\nVersion two. Home: {{home}}.\n";
+// Two versions of the plugin's charter templates, as two releases would ship them.
+const BODY1 = "# First mate\n\nVersion one. Home: {{home}}.";
+const BODY2 = "# First mate\n\nVersion two. Home: {{home}}.";
+const NEW = "<!-- for comparing -->\n\n{{charter}}\n";
+const V1: PluginCharter = { charter: `<!-- firstmate-charter {{fingerprint}} -->\n\n${BODY1}\n`, charterNew: NEW };
+const V2: PluginCharter = { charter: `<!-- firstmate-charter {{fingerprint}} -->\n\n${BODY2}\n`, charterNew: NEW };
 
 describe("syncCharter", () => {
   it("writes the plugin's charter under a note with its fingerprint", async () => {
     const home = await tempHome();
     const state = await syncCharter(home, V1);
-    expect(state).toEqual({ template: V1.trim(), edited: false, outdated: false });
+    expect(state).toEqual({ template: BODY1, edited: false, outdated: false });
     const copy = await read(home, CHARTER_FILE);
-    expect(copy).toMatch(/^<!--/);
-    expect(copy).toContain(`firstmate-charter ${fingerprint(V1)}`);
-    expect(copy.endsWith(V1)).toBe(true);
+    expect(copy).toBe(fill(V1.charter, { fingerprint: fingerprint(V1.charter) }));
+    expect(fingerprint(V1.charter)).toBe(fingerprint(BODY1));
     expect(await exists(join(home, NEW_CHARTER_FILE))).toBe(false);
   });
 
@@ -64,7 +67,7 @@ describe("syncCharter", () => {
     const home = await tempHome();
     await syncCharter(home, V1);
     const state = await syncCharter(home, V2);
-    expect(state).toEqual({ template: V2.trim(), edited: false, outdated: false });
+    expect(state).toEqual({ template: BODY2, edited: false, outdated: false });
     expect(await read(home, CHARTER_FILE)).toContain("Version two.");
   });
 
@@ -96,8 +99,8 @@ describe("syncCharter", () => {
     await syncCharter(home, V1);
     await editCopy(home, "Mine.");
     await writeFile(join(home, CHARTER_FILE), "<!-- nothing but a note -->\n", "utf8");
-    expect(await syncCharter(home, V2)).toEqual({ template: V2.trim(), edited: false, outdated: false });
-    expect(await read(home, CHARTER_FILE)).toContain(`firstmate-charter ${fingerprint(V2)}`);
+    expect(await syncCharter(home, V2)).toEqual({ template: BODY2, edited: false, outdated: false });
+    expect(await read(home, CHARTER_FILE)).toContain(`firstmate-charter ${fingerprint(V2.charter)}`);
 
     await rm(join(home, CHARTER_FILE));
     expect(await syncCharter(home, V2)).toMatchObject({ edited: false });
@@ -111,7 +114,7 @@ describe("syncCharter", () => {
 
     await acknowledgeCharter(home, V1);
     const copy = await read(home, CHARTER_FILE);
-    expect(copy).toContain(`firstmate-charter ${fingerprint(V1)}`);
+    expect(copy).toContain(`firstmate-charter ${fingerprint(V1.charter)}`);
     expect(copy).toContain("# Written from scratch");
     expect(await readCharterState(home, V1)).toMatchObject({ edited: true, outdated: false });
   });
@@ -135,7 +138,9 @@ describe("prepareHome and the charter", () => {
     expect(agents).toMatch(/^<!-- Written by the Paseo FirstMate plugin from data\/charter\.md/);
     expect(agents).toContain(`Your home is \`${home}\``);
     expect(agents).not.toContain("firstmate-charter");
-    expect(fingerprint(await read(home, CHARTER_FILE))).toBe(fingerprint(CHARTER_TEMPLATE));
+    expect(fingerprint(await read(home, CHARTER_FILE))).toBe(fingerprint(await readTemplate(TEMPLATES.charter)));
+    // The charter moved into templates/ word for word: a copy taken before the move is still untouched.
+    expect(fingerprint(await readTemplate(TEMPLATES.charter))).toBe("e0b749cb695c5df6");
 
     await editCopy(home, "# My first mate\n\n<!-- a note to myself -->\nYour home is {{home}}; keep it tidy.");
     await prepareHome(home, FirstmateConfigSchema.parse({}));

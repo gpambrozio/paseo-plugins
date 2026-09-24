@@ -1,7 +1,7 @@
 /**
  * The captain's copy of the charter, `data/charter.md`, which `AGENTS.md` is rendered from.
  *
- * It starts as the plugin's charter (`CHARTER_TEMPLATE`) under a note, and the note records a
+ * It starts as `templates/data/charter.md`: the plugin's charter under a note, the note recording a
  * fingerprint of the charter it was copied from. That is how a new plugin version tells two cases
  * apart:
  *
@@ -9,69 +9,58 @@
  *   the plugin, and a changed plugin charter replaces it.
  * - **Edited**: it does not. The captain's text is kept and used. When the plugin's charter has moved
  *   on since the version the edit started from, the new one is written beside it as
- *   `data/charter.new.md` and the board says so; `acknowledgeCharter` moves the fingerprint on once the
- *   captain has taken what they want from it, and removes that file.
+ *   `data/charter.new.md` (from `templates/data/charter.new.md`) and the board says so;
+ *   `acknowledgeCharter` moves the fingerprint on once the captain has taken what they want from it,
+ *   and removes that file.
  *
  * An emptied or deleted copy goes back to the plugin's charter. A copy whose fingerprint is gone — the
  * note deleted — counts as edited and based on nothing, so any plugin charter is news to it.
  *
- * HTML comments are notes to the captain: they are left out of `AGENTS.md` and of the comparison.
+ * HTML comments are notes to the captain: they are left out of `AGENTS.md` and of the comparison, so
+ * the fingerprint is of the words alone.
  */
 import { createHash } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { CHARTER_PLACEHOLDERS, CHARTER_TEMPLATE } from "./charter";
+import { TEMPLATES, fill, readTemplate, withoutNotes } from "./templates";
 
-export const CHARTER_FILE = "data/charter.md";
-export const NEW_CHARTER_FILE = "data/charter.new.md";
+export const CHARTER_FILE = TEMPLATES.charter;
+export const NEW_CHARTER_FILE = TEMPLATES.charterNew;
 
 /** Where in the note the fingerprint is, and its shape. */
 const MARK = /firstmate-charter ([0-9a-f]{16})/;
 
-/** The text a charter says, without its notes or incidental whitespace. */
-function words(text: string): string {
-  return text.replace(/\r\n?/g, "\n").replace(/<!--[\s\S]*?-->/g, "").trim();
+/** The plugin's two charter templates, as written: the copy's, and the comparison's. */
+export interface PluginCharter {
+  /** `templates/data/charter.md`: the note, with `{{fingerprint}}`, then the charter. */
+  charter: string;
+  /** `templates/data/charter.new.md`: a note, then `{{charter}}`. */
+  charterNew: string;
+}
+
+async function pluginTemplates(): Promise<PluginCharter> {
+  const [charter, charterNew] = await Promise.all([readTemplate(TEMPLATES.charter), readTemplate(TEMPLATES.charterNew)]);
+  return { charter, charterNew };
 }
 
 export function fingerprint(charter: string): string {
-  return createHash("sha256").update(words(charter)).digest("hex").slice(0, 16);
+  return createHash("sha256").update(withoutNotes(charter)).digest("hex").slice(0, 16);
 }
 
-function note(base: string): string {
-  const placeholders = Object.entries(CHARTER_PLACEHOLDERS)
-    .map(([name, meaning]) => `  {{${name}}}  ${meaning}`)
-    .join("\n");
-  return `<!--
-The first mate's charter. The FirstMate plugin writes AGENTS.md from this file whenever it starts,
-whenever a first mate is launched and whenever you save this file in the panel, so change the charter
-here, not there. A running first mate reads it at its next session, or when you ask it to re-read
-AGENTS.md. Notes like this one are left out.
-
-Until you edit it, this file follows FirstMate: a new version of the plugin brings its new charter.
-Once you have, your version is kept, and if the plugin's charter changes after that, the new one is
-put beside this file as charter.new.md for you to compare. Empty this file to go back to the plugin's.
-
-These are filled in when AGENTS.md is written:
-${placeholders}
-
-firstmate-charter ${base} (the plugin charter this started from; leave it as it is)
--->`;
+/** The copy as the plugin writes it: its template, fingerprinted. */
+function copyOf(plugin: PluginCharter): string {
+  return fill(plugin.charter, { fingerprint: fingerprint(plugin.charter) });
 }
 
-function copyOf(plugin: string): string {
-  return `${note(fingerprint(plugin))}\n\n${words(plugin)}\n`;
+function newCopyOf(plugin: PluginCharter): string {
+  return fill(plugin.charterNew, { charter: withoutNotes(plugin.charter) });
 }
 
-function newCopyOf(plugin: string): string {
-  return `<!--
-FirstMate's own charter as it is now, for comparing with data/charter.md, which you have edited. Take
-what you want from it into charter.md, then press Done on the board's notice; to take all of it, empty
-charter.md instead. The plugin rewrites this file while it is needed and removes it afterwards.
--->
-
-${words(plugin)}
-`;
+/** The note the copy's template starts with, fingerprinted — for a copy whose note was deleted. */
+function noteOf(plugin: PluginCharter, base: string): string {
+  const note = /^\s*<!--[\s\S]*?-->/.exec(plugin.charter)?.[0].trim() ?? `<!-- firstmate-charter {{fingerprint}} -->`;
+  return fill(note, { fingerprint: base });
 }
 
 export interface CharterState {
@@ -84,15 +73,16 @@ export interface CharterState {
 }
 
 /** What a copy means, given the plugin's current charter; `rewrite` when the copy should become it. */
-export function assessCharter(copy: string | null, plugin: string): CharterState & { rewrite: boolean } {
-  const text = copy === null ? "" : words(copy);
-  if (text === "") return { template: words(plugin), edited: false, outdated: false, rewrite: true };
+export function assessCharter(copy: string | null, pluginCharter: string): CharterState & { rewrite: boolean } {
+  const text = copy === null ? "" : withoutNotes(copy);
+  const plugin = withoutNotes(pluginCharter);
+  if (text === "") return { template: plugin, edited: false, outdated: false, rewrite: true };
   const base = MARK.exec(copy ?? "")?.[1] ?? null;
-  const current = fingerprint(plugin);
+  const current = fingerprint(pluginCharter);
   if (base !== null && fingerprint(text) === base) {
     return base === current
       ? { template: text, edited: false, outdated: false, rewrite: false }
-      : { template: words(plugin), edited: false, outdated: false, rewrite: true };
+      : { template: plugin, edited: false, outdated: false, rewrite: true };
   }
   return { template: text, edited: true, outdated: base !== current, rewrite: false };
 }
@@ -107,8 +97,9 @@ async function readOptional(path: string): Promise<string | null> {
 }
 
 /** The copy's state, touching nothing: what the board reads on every poll. */
-export async function readCharterState(home: string, plugin: string = CHARTER_TEMPLATE): Promise<CharterState> {
-  const { rewrite: _rewrite, ...state } = assessCharter(await readOptional(join(home, CHARTER_FILE)), plugin);
+export async function readCharterState(home: string, plugin?: PluginCharter): Promise<CharterState> {
+  const templates = plugin ?? (await pluginTemplates());
+  const { rewrite: _rewrite, ...state } = assessCharter(await readOptional(join(home, CHARTER_FILE)), templates.charter);
   return state;
 }
 
@@ -117,19 +108,21 @@ export async function readCharterState(home: string, plugin: string = CHARTER_TE
  * and out of date, and `charter.new.md` beside an edited one that is out of date — and says what
  * `AGENTS.md` should be rendered from. The caller has created `data/`.
  */
-export async function syncCharter(home: string, plugin: string = CHARTER_TEMPLATE): Promise<CharterState> {
+export async function syncCharter(home: string, plugin?: PluginCharter): Promise<CharterState> {
+  const templates = plugin ?? (await pluginTemplates());
   const path = join(home, CHARTER_FILE);
-  const { rewrite, ...state } = assessCharter(await readOptional(path), plugin);
-  if (rewrite) await writeFile(path, copyOf(plugin), "utf8");
-  if (state.outdated) await writeFile(join(home, NEW_CHARTER_FILE), newCopyOf(plugin), "utf8");
+  const { rewrite, ...state } = assessCharter(await readOptional(path), templates.charter);
+  if (rewrite) await writeFile(path, copyOf(templates), "utf8");
+  if (state.outdated) await writeFile(join(home, NEW_CHARTER_FILE), newCopyOf(templates), "utf8");
   else await rm(join(home, NEW_CHARTER_FILE), { force: true });
   return state;
 }
 
 /** Writes `charter.new.md` for the captain to compare, when there is anything to compare. */
-export async function writeNewCharter(home: string, plugin: string = CHARTER_TEMPLATE): Promise<boolean> {
-  const state = await readCharterState(home, plugin);
-  if (state.outdated) await writeFile(join(home, NEW_CHARTER_FILE), newCopyOf(plugin), "utf8");
+export async function writeNewCharter(home: string, plugin?: PluginCharter): Promise<boolean> {
+  const templates = plugin ?? (await pluginTemplates());
+  const state = await readCharterState(home, templates);
+  if (state.outdated) await writeFile(join(home, NEW_CHARTER_FILE), newCopyOf(templates), "utf8");
   return state.outdated;
 }
 
@@ -138,14 +131,15 @@ export async function writeNewCharter(home: string, plugin: string = CHARTER_TEM
  * Moves the fingerprint on — restoring the note if it was deleted — keeps every word the captain wrote,
  * and removes `charter.new.md`.
  */
-export async function acknowledgeCharter(home: string, plugin: string = CHARTER_TEMPLATE): Promise<void> {
+export async function acknowledgeCharter(home: string, plugin?: PluginCharter): Promise<void> {
+  const templates = plugin ?? (await pluginTemplates());
   const path = join(home, CHARTER_FILE);
   const copy = await readOptional(path);
-  const current = fingerprint(plugin);
-  if (copy !== null && words(copy) !== "") {
+  const current = fingerprint(templates.charter);
+  if (copy !== null && withoutNotes(copy) !== "") {
     const next = MARK.test(copy)
       ? copy.replace(MARK, `firstmate-charter ${current}`)
-      : `${note(current)}\n\n${copy.trimStart()}`;
+      : `${noteOf(templates, current)}\n\n${copy.trimStart()}`;
     if (next !== copy) await writeFile(path, next, "utf8");
   }
   await rm(join(home, NEW_CHARTER_FILE), { force: true });

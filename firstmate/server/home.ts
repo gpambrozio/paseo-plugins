@@ -12,10 +12,19 @@
  *     <home>/data/learnings.md
  *     <home>/data/opening.md    a new first mate's first message; the captain's, never overwritten
  *     <home>/projects/          clones for projects with no local checkout
- *     <home>/icon.svg           the icon Paseo's sidebar shows for the home (`home-icon.ts`)
+ *     <home>/icon.svg           the icon Paseo's sidebar shows for the home
  *
- * Everything but the charter is written only when missing, so a relaunch
- * never loses a record the first mate has been keeping.
+ * Every file starts as its namesake in the plugin's `templates/` folder, which
+ * is laid out the same way (`templates.ts`). Everything but the charter is
+ * written only when missing, so a relaunch never loses a record the first
+ * mate has been keeping.
+ *
+ * The icon is Lucide's ship — the plugin's own sidebar icon, ISC-licensed — in
+ * white on a blue rounded square. It is a file, not something the plugin sets:
+ * Paseo looks for an icon in every project's folder on its own (`favicon.svg`,
+ * `icon.svg`, `icon.png` and more, square and 32 KB at most; an SVG counts as
+ * square) and shows it unless the captain uploaded one in the project's
+ * settings.
  *
  * There is no `CLAUDE.md`. Claude Code and Codex both read `AGENTS.md` from
  * the working directory, and a `CLAUDE.md` importing it risks the charter
@@ -26,17 +35,20 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { BacklogItem, FirstmateConfig, Project } from "../shared/fleet";
-import { EMPTY_BACKLOG, parseBacklog } from "./backlog";
-import {
-  CAPTAIN_TEMPLATE,
-  DEFAULT_OPENING,
-  LEARNINGS_TEMPLATE,
-  OPENING_TEMPLATE,
-  PROJECTS_TEMPLATE,
-  renderCharter,
-} from "./charter";
+import { parseBacklog } from "./backlog";
+import { renderCharter } from "./charter";
 import { syncCharter } from "./charter-file";
-import { HOME_ICON_FILE, HOME_ICON_SVG } from "./home-icon";
+import { TEMPLATES, readTemplate, withoutNotes, type TemplatePath } from "./templates";
+
+/** The home's records: written from their templates when missing, and the captain's or the first mate's after. */
+const RECORDS: readonly TemplatePath[] = [
+  TEMPLATES.captain,
+  TEMPLATES.projects,
+  TEMPLATES.learnings,
+  TEMPLATES.backlog,
+  TEMPLATES.opening,
+  TEMPLATES.icon,
+];
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -65,21 +77,16 @@ export async function prepareHome(home: string, config: FirstmateConfig): Promis
   await mkdir(join(home, "projects"), { recursive: true });
   const charter = await syncCharter(home);
   await writeFile(
-    join(home, "AGENTS.md"),
-    renderCharter({ home, crewProvider: config.crewProvider, crewModeId: config.crewModeId }, charter.template),
+    join(home, TEMPLATES.agents),
+    await renderCharter({ home, crewProvider: config.crewProvider, crewModeId: config.crewModeId }, charter.template),
     "utf8",
   );
-  await writeIfMissing(join(home, "data", "captain.md"), CAPTAIN_TEMPLATE);
-  await writeIfMissing(join(home, "data", "projects.md"), PROJECTS_TEMPLATE);
-  await writeIfMissing(join(home, "data", "learnings.md"), LEARNINGS_TEMPLATE);
-  await writeIfMissing(join(home, "data", "backlog.md"), EMPTY_BACKLOG);
-  await writeIfMissing(join(home, "data", "opening.md"), OPENING_TEMPLATE);
-  await writeIfMissing(join(home, HOME_ICON_FILE), HOME_ICON_SVG);
+  for (const record of RECORDS) await writeIfMissing(join(home, record), await readTemplate(record));
 }
 
 /** Whether a launch has ever prepared this home. */
 export function isHomeReady(home: string): Promise<boolean> {
-  return exists(join(home, "AGENTS.md"));
+  return exists(join(home, TEMPLATES.agents));
 }
 
 async function readOptional(path: string): Promise<string | null> {
@@ -93,13 +100,12 @@ async function readOptional(path: string): Promise<string | null> {
 
 /**
  * A new first mate's first message: `data/opening.md` without its HTML comments, which are notes to the
- * captain. A missing or empty file gives the plugin's own wording, so a first mate is never started with
+ * captain. A missing or empty file gives the template's wording, so a first mate is never started with
  * nothing to act on.
  */
 export async function readOpening(home: string): Promise<string> {
-  const markdown = await readOptional(join(home, "data", "opening.md"));
-  const text = (markdown ?? "").replace(/<!--[\s\S]*?-->/g, "").trim();
-  return text === "" ? DEFAULT_OPENING : text;
+  const text = withoutNotes((await readOptional(join(home, TEMPLATES.opening))) ?? "");
+  return text === "" ? withoutNotes(await readTemplate(TEMPLATES.opening)) : text;
 }
 
 export async function readBacklog(home: string): Promise<BacklogItem[]> {

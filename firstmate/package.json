@@ -17,6 +17,7 @@
     "client/",
     "server/",
     "shared/",
+    "templates/",
     "CHANGELOG.md",
     "!**/*.test.ts"
   ],

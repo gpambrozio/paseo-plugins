@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_BACKLOG, parseBacklog } from "./backlog";
+import { parseBacklog } from "./backlog";
+import { TEMPLATES, readTemplate } from "./templates";
 
 const SAMPLE = `# Backlog
 
@@ -58,8 +59,8 @@ describe("parseBacklog", () => {
     ]);
   });
 
-  it("ignores items outside a known section, and an empty backlog has none", () => {
+  it("ignores items outside a known section, and a new home's backlog has none", async () => {
     expect(parseBacklog("- [ ] stray - Not under a heading\n## Ideas\n- [ ] x - Nope")).toEqual([]);
-    expect(parseBacklog(EMPTY_BACKLOG)).toEqual([]);
+    expect(parseBacklog(await readTemplate(TEMPLATES.backlog))).toEqual([]);
   });
 });

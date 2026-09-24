@@ -12,12 +12,15 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { FirstmateConfigSchema, type FirstmateConfig } from "../shared/fleet";
 
+/** The id in `paseo-plugin.json`, which names the plugin's data directory and its `paseo plugin ls` entry. */
+export const PLUGIN_ID = "firstmate";
+
 export function paseoHome(): string {
   return process.env.PASEO_HOME ?? join(homedir(), ".paseo");
 }
 
 export function pluginDir(): string {
-  return join(paseoHome(), "plugins", "firstmate");
+  return join(paseoHome(), "plugins", PLUGIN_ID);
 }
 
 function configPath(): string {

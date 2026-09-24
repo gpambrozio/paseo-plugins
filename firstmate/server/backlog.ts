@@ -111,15 +111,3 @@ export function parseBacklog(markdown: string): BacklogItem[] {
   }
   return items;
 }
-
-/** What a new home's backlog starts as: the three headings and nothing under them. */
-export const EMPTY_BACKLOG = `# Backlog
-
-Work items only, one line each. The first mate keeps this file; the FirstMate board reads it.
-
-## In flight
-
-## Queued
-
-## Done
-`;
