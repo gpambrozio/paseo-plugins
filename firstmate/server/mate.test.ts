@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CREW_LABELS } from "../shared/fleet";
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import type { PaseoApi } from "./host-types";
-import { commandText, compactMate, launchMate, restartMate, restartNote } from "./mate";
+import { adoptMate, commandText, compactMate, launchMate, releaseMate, restartMate, restartNote } from "./mate";
 import { TEMPLATES, readTemplate, withoutNotes } from "./templates";
 
 let paseoHome = "";
@@ -70,6 +70,7 @@ function fakePaseo(agents: Record<string, Snapshot>) {
             async create(input: (typeof created)[number]) {
               calls.push("create");
               created.push(input);
+              agents["new-mate"] = { ...oldMate, id: "new-mate", status: "idle" };
               return { id: "new-mate" };
             },
           },
@@ -124,6 +125,35 @@ describe("restartMate", () => {
     const { paseo, calls } = fakePaseo({});
     await expect(restartMate(paseo)).rejects.toThrow("There is no first mate yet");
     expect(calls).toEqual([]);
+  });
+});
+
+describe("changing the first mate", () => {
+  const other: Snapshot = { ...oldMate, id: "other", status: "idle" };
+
+  it("refuses an adoption that lands while a launch is starting a first mate", async () => {
+    const { paseo, created } = fakePaseo({ other: { ...other } });
+    const results = await Promise.allSettled([
+      launchMate(paseo, { provider: "claude/claude-sonnet-5", modeId: "" }),
+      adoptMate(paseo, "other"),
+    ]);
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected"]);
+    expect(String((results[1] as PromiseRejectedResult).reason)).toMatch(/already aboard/);
+    expect(created).toHaveLength(1);
+    expect((await readFirstmateConfig()).mateAgentId).toBe("new-mate");
+  });
+
+  it("applies a release that lands during a restart after it, not before", async () => {
+    await updateFirstmateConfig({ mateAgentId: "old-mate" });
+    const { paseo } = fakePaseo({ "old-mate": { ...oldMate, status: "idle" } });
+    await Promise.all([restartMate(paseo), releaseMate()]);
+    expect((await readFirstmateConfig()).mateAgentId).toBe("");
+  });
+
+  it("adopts an agent when the configured first mate is gone", async () => {
+    await updateFirstmateConfig({ mateAgentId: "old-mate" });
+    const { paseo } = fakePaseo({ other: { ...other } });
+    await expect(adoptMate(paseo, "other")).resolves.toMatchObject({ mateAgentId: "other" });
   });
 });
 

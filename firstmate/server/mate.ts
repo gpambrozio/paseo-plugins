@@ -28,10 +28,11 @@ interface MateSetup {
 const NO_MATE = "There is no first mate yet. Open the FirstMate board and launch one.";
 
 /**
- * The launch or restart in progress, if any. The "already aboard" check below
- * reads the config, which is only written once the agent exists, so two
- * launches that overlap — a double press, the desktop and a phone — would both
- * pass it. Every client of this daemon reaches the same plugin process, so
+ * The change of first mate in progress, if any — a launch, restart, adoption or
+ * release. The "already aboard" check below reads the config, which is only
+ * written once the agent exists, so two launches that overlap — a double press,
+ * the desktop and a phone — would both pass it, and an adoption or release
+ * landing mid-launch would be overwritten by it. Every client of this daemon reaches the same plugin process, so
  * holding the change here is enough to make the second one wait for the first
  * — and then refuse, or restart the first mate the first one started.
  */
@@ -153,14 +154,23 @@ async function startMate(
  * session; one working elsewhere never sees it, which the board points out.
  */
 export async function adoptMate(paseo: PaseoApi, agentId: string): Promise<FirstmateConfig> {
-  if ((await fetchLiveAgent(paseo, agentId)) === null) throw new Error(`Paseo has no live agent ${agentId}.`);
-  const config = await readFirstmateConfig();
-  await prepareHome(resolveHome(config), config);
-  return updateFirstmateConfig({ mateAgentId: agentId });
+  return oneAtATime(async () => {
+    if ((await fetchLiveAgent(paseo, agentId)) === null) throw new Error(`Paseo has no live agent ${agentId}.`);
+    const config = await readFirstmateConfig();
+    // Checked here rather than trusted from the launch panel: a launch may have finished while this waited.
+    const current = await resolveMate(paseo, config);
+    if (current.agent !== null && current.agent.id !== agentId) {
+      throw new Error(
+        `A first mate is already aboard (${current.agent.title ?? current.agent.id}). Release it in the FirstMate settings first.`,
+      );
+    }
+    await prepareHome(resolveHome(config), config);
+    return updateFirstmateConfig({ mateAgentId: agentId });
+  });
 }
 
 export async function releaseMate(): Promise<FirstmateConfig> {
-  return updateFirstmateConfig({ mateAgentId: "" });
+  return oneAtATime(() => updateFirstmateConfig({ mateAgentId: "" }));
 }
 
 /** Every live agent that could be adopted, those already working in the home first. */
