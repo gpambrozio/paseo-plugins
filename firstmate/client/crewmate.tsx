@@ -22,7 +22,7 @@ import { useFollowEnd } from "./follow-end";
 import { agentStatusLabel, agentStatusTone } from "./format";
 import { Markdown } from "./markdown";
 import { PermissionCard, usePendingRequests } from "./permission-card";
-import { Chip, IconButton, JumpToEnd, MONOSPACE, errorText } from "./ui";
+import { Chip, IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useAgentTimeline } from "./use-timeline";
 
 /** How much of a crewmate's history is read: its tail, this many entries long. */
@@ -247,7 +247,7 @@ function ActivityTranscript({
 
   function toolStatusIcon(status: Extract<ActivityRow, { kind: "tool" }>["status"]) {
     const { colors } = theme;
-    if (status === "running") return <Icon name="Loader" size={12} color={colors.accent} />;
+    if (status === "running") return <Spinner size={12} color={colors.accent} />;
     if (status === "failed") return <Icon name="CircleX" size={12} color={colors.statusDanger} />;
     if (status === "canceled") return <Icon name="Ban" size={12} color={colors.foregroundMuted} />;
     return null;
@@ -389,7 +389,7 @@ function ActivityTranscript({
         ))}
         {running && pending.length === 0 ? (
           <View style={styles.line}>
-            <Icon name="Loader" size={11} color={theme.colors.accent} />
+            <Spinner size={11} color={theme.colors.accent} />
             <Text style={styles.lineText}>Working…</Text>
           </View>
         ) : null}

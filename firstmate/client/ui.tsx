@@ -6,7 +6,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native";
 
 /** A fixed-width font on every platform; iOS has no font named "monospace". */
 export const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" });
@@ -150,6 +150,24 @@ export function JumpToEnd({ theme, onPress }: { theme: PluginTheme; onPress: () 
       <Pressable accessibilityRole="button" accessibilityLabel="Scroll to the latest" onPress={onPress} style={styles.button}>
         <Icon name="ChevronDown" size={20} color={colors.foreground} />
       </Pressable>
+    </View>
+  );
+}
+
+/** The box of `ActivityIndicator`'s "small" size, which the spinner is scaled down from. */
+const SMALL_SPINNER = 20;
+
+/**
+ * Something running, drawn the size of the icon it stands in for. Lucide's
+ * Loader is a spinner drawn standing still, and at a glance a still spinner
+ * reads as broken; React Native's own `ActivityIndicator` turns on every
+ * platform. It has only two sizes, so the small one is scaled into a box of
+ * the icon's size, keeping the row it sits in the same height.
+ */
+export function Spinner({ size, color }: { size: number; color: string }) {
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      <ActivityIndicator size="small" color={color} style={{ transform: [{ scale: size / SMALL_SPINNER }] }} />
     </View>
   );
 }

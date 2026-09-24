@@ -9,6 +9,12 @@ read before you move.
 
 ## [0.1.1] — 2026-09-23
 
+### Changed
+
+- **A clearer sign of work under way.** The Working column now shows a hammer, and steps still running in
+  the chat and in Watch show a spinner that actually turns — the old sign was a spinner drawn standing
+  still, which looked stuck.
+
 ### Fixed
 
 - **Task titles on the board stay as you asked for them.** While finished work waited for your go-ahead,

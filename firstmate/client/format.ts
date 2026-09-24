@@ -13,7 +13,7 @@ export interface ColumnMeta {
 
 export const COLUMNS: Readonly<Record<ColumnId, ColumnMeta>> = {
   queued: { id: "queued", title: "Queued", icon: "Inbox", empty: "Nothing is queued." },
-  working: { id: "working", title: "Working", icon: "Loader", empty: "Nobody is working." },
+  working: { id: "working", title: "Working", icon: "Hammer", empty: "Nobody is working." },
   blocked: { id: "blocked", title: "Blocked", icon: "Ban", empty: "Nothing is waiting on a call." },
   parked: { id: "parked", title: "Parked", icon: "Clock", empty: "Nothing is parked." },
   done: { id: "done", title: "Done", icon: "Check", empty: "Nothing has landed yet." },

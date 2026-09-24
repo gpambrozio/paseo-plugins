@@ -17,7 +17,7 @@ import { MateControls } from "./mate-controls";
 import { Markdown } from "./markdown";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
-import { IconButton, JumpToEnd, MONOSPACE, errorText } from "./ui";
+import { IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
 
@@ -193,11 +193,15 @@ export function MateChat({
           ) : null}
           {shown.map((tool) => (
             <View key={tool.key} style={styles.line}>
-              <Icon
-                name={tool.status === "failed" ? "X" : tool.status === "running" ? "Loader" : "Wrench"}
-                size={11}
-                color={tool.status === "failed" ? theme.colors.statusDanger : theme.colors.foregroundMuted}
-              />
+              {tool.status === "running" ? (
+                <Spinner size={11} color={theme.colors.foregroundMuted} />
+              ) : (
+                <Icon
+                  name={tool.status === "failed" ? "X" : "Wrench"}
+                  size={11}
+                  color={tool.status === "failed" ? theme.colors.statusDanger : theme.colors.foregroundMuted}
+                />
+              )}
               <Text style={styles.toolText} numberOfLines={1}>
                 {tool.text}
               </Text>
