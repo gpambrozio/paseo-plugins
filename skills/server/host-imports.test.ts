@@ -28,7 +28,7 @@
  * would miss a specifier built at runtime, which is not a thing a plugin can do
  * anyway, since the daemon has to resolve it statically.
  *
- * This file is duplicated in all five plugins. There is no workspace root to
+ * This file is duplicated in every plugin here. There is no workspace root to
  * share it from, and a published dev package would be a heavier dependency than
  * the duplication it saves.
  */

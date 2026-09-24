@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Plugins for [Paseo](https://paseo.sh), one self-contained folder per plugin: `skills/`,
-`github-board/`, `launchd-jobs/`, `herald/`, and `model-pricing/`. Plugin code is trusted and
+`github-board/`, `launchd-jobs/`, `herald/`, `model-pricing/`, and `firstmate/`. Plugin code is trusted and
 unsandboxed — the server half runs next to the daemon with its files, processes, and credentials;
 the client half runs inside the Paseo app.
 
@@ -11,8 +11,9 @@ Each plugin has its own `AGENTS.md` for what only that plugin does — `skills/A
 touching skill discovery, `github-board/AGENTS.md` before touching the `gh` queries or the board's
 caching, `launchd-jobs/AGENTS.md` before touching anything that calls `launchctl` or writes a
 plist, `herald/AGENTS.md` before touching the lifecycle hooks or the summary helper,
-`model-pricing/AGENTS.md` before touching where a price comes from or how it is cached. This file
-is only what they share.
+`model-pricing/AGENTS.md` before touching where a price comes from or how it is cached,
+`firstmate/AGENTS.md` before touching the first mate's charter or how the board finds the crew. This
+file is only what they share.
 
 ## There is no workspace root
 
@@ -24,7 +25,7 @@ Every command below runs from inside a plugin folder, never from the repo root.
 path on every start, so moving this clone means reinstalling every plugin in it.
 
 ```bash
-cd skills          # or github-board, launchd-jobs, herald, model-pricing
+cd skills          # or github-board, launchd-jobs, herald, model-pricing, firstmate
 npm install
 npm run typecheck  # every plugin
 npm test           # every plugin
@@ -45,11 +46,12 @@ paseo plugin logs skills          # load errors and stderr
 ```
 
 - The plugin id comes from `paseo-plugin.json`, which `paseo plugin init` seeds from the directory
-  basename. The ids are `skills`, `github-board`, `launchd-jobs`, `herald`, and `model-pricing`.
+  basename. The ids are `skills`, `github-board`, `launchd-jobs`, `herald`, `model-pricing`, and
+  `firstmate`.
 - **A failed reload stays failed.** Paseo does not restore the previous code.
 - **Never restart the daemon** — it manages the user's running agents.
 - The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.9.0 or newer**. All
-  five plugins declare `requirements.paseo: ">=0.9.0"`; on an older daemon they do not degrade,
+  six plugins declare `requirements.paseo: ">=0.9.0"`; on an older daemon they do not degrade,
   they refuse to load. There are no version fallbacks left in this repo — see *Versions* below for
   why the app-side check made them unnecessary.
 - There is no harness for plugin UI. A clean typecheck and a clean reload prove a `client/` change
@@ -187,7 +189,7 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
 
 `paseo-plugin.json` carries `requirements.paseo`, an npm semver range. **A missing
 `requirements.paseo` means `<0.8.0`**, so 0.8 rejects the plugin outright with a link to the
-migration guide — adding the field is part of migrating, not a substitute for it. All five plugins
+migration guide — adding the field is part of migrating, not a substitute for it. All six plugins
 here declare `>=0.9.0`.
 
 **The manifest may only carry what the *oldest* declared version accepts.** `PluginManifestSchema`
@@ -208,7 +210,7 @@ optional.
 
 ### npm packages
 
-All five plugins publish to npm under the `@gpambrozio` scope as `@gpambrozio/paseo-<id>`, which is
+Every plugin here publishes to npm under the `@gpambrozio` scope as `@gpambrozio/paseo-<id>`, which is
 how Paseo 0.9 installs them: the daemon writes a throwaway `package.json`, runs `npm install
 --ignore-scripts --legacy-peer-deps --omit=dev`, and loads the plugin out of `node_modules`. **That
 means `devDependencies` and `peerDependencies` are never installed on a user's machine, and npm
@@ -217,7 +219,8 @@ every dependency is a devDependency and `dependencies` stays empty; anything mov
 `dependencies` is downloaded onto every user's daemon for nothing.
 
 `files` in each `package.json` is what ships — the manifest, the two entries, `client/`, `server/`,
-`shared/`, the changelog, minus `**/*.test.ts`. npm adds `README.md` and `LICENSE` on its own, which
+`shared/`, the changelog, minus `**/*.test.ts`; `firstmate` adds `templates/`, the files it writes into
+its home, read at runtime rather than compiled in. npm adds `README.md` and `LICENSE` on its own, which
 is why each plugin folder carries its own copy of the repo's MIT `LICENSE`. **Run `npm pack
 --dry-run` before publishing**; a new top-level directory is invisible to `files` and simply will
 not be in the tarball, and the plugin fails to load with no clue why.
@@ -229,7 +232,7 @@ There is no build step. Paseo compiles the TypeScript itself, so the package is 
 reachable from an entry, type imports included, and fails the *install* when one is missing:
 `Could not resolve type dependency`. A directory or Git install never shows it, because
 `npm install` in the folder has already put the whole SDK on disk and `--omit=dev` on an npm
-install has not — `server/sdk-types.ts` imports `@getpaseo/client` in all five and is fine only
+install has not — `server/sdk-types.ts` imports `@getpaseo/client` in every plugin and is fine only
 because nothing imports *it*.
 
 When reachable code needs a Paseo type, project it out of `@getpaseo/plugin`, which re-declares
@@ -238,7 +241,7 @@ them structurally: `herald/server/host-types.ts` takes `PaseoApi` from `PluginHa
 0.2.1, 0.2.2 and 0.2.3 broken this way and no typecheck, test or `npm pack` noticed — 0.2.3
 because the build stops at the *first* unresolved import, so the second one only appeared once the
 first was fixed. Fixing one and re-installing is the loop; do not assume one error means one bug.
-`server/host-imports.test.ts` is the guard, duplicated in all five: it walks the graph from the
+`server/host-imports.test.ts` is the guard, duplicated in every plugin: it walks the graph from the
 entry points and fails on any crossing that is not host-injected, a Node builtin, or a real runtime
 `dependency`. It is why `github-board` has a test script at all. It cannot prove the install
 works — only the daemon resolving the real tree does that — so **before publishing anything whose
@@ -260,7 +263,7 @@ over itself on the real daemon would replace that with an npm copy. Use the thro
 **Publishing is npm trusted publishing (OIDC), so there is no npm token anywhere** — not in the
 repo, not in a secret. `.github/workflows/publish.yml` asks GitHub for a short-lived identity token
 via `permissions: id-token: write`, and each package names *that file, by path* as its trusted
-publisher on npmjs.com. Renaming or moving the workflow silently breaks all five publishes until
+publisher on npmjs.com. Renaming or moving the workflow silently breaks every publish until
 every package is reconfigured, so treat its filename as an interface. The same mechanism attaches
 provenance to each release for free, because the repository and the packages are public.
 
@@ -273,7 +276,7 @@ cost per plugin, not per release.
 
 ### The SDK dependency
 
-All five plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
+All six plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
 the daemon runs — `0.9.0` at the time of writing. Pin it *exactly*: `npm install --save-dev` writes
 a caret, and a range here is the same bet on an unreleased shape that the prerelease trap below
 describes. `skills` used to ship a hand-written
@@ -343,7 +346,7 @@ Three properties worth knowing, all of them deliberate:
   assumed.
 
 **`checks.yml` is what a pull request has to pass**, and `main` requires it. It typechecks and
-tests all five plugins, and runs `.github/scripts/check-plugin-consistency.mjs`, which reads the
+tests every plugin, and runs `.github/scripts/check-plugin-consistency.mjs`, which reads the
 declarations inside each plugin that only a human keeps in step: the version in `package.json`
 against both copies of it in `package-lock.json`, every declared dependency range against the
 lockfile's, and the existence of a `## [<version>]` changelog section. Nothing else sees a plugin
@@ -388,8 +391,8 @@ release would publish nothing and say nothing about it.
 Watch a merge with `gh run watch` until you trust it.
 
 **What earns a version** is what a user of the plugin can observe, which is the same bar the
-changelog entry has to clear. A dev-dependency bump earns neither: every dependency in all five
-plugins is a devDependency and reaches no bundle, so there is no line worth reading and nothing
+changelog entry has to clear. A dev-dependency bump earns neither: every dependency in every
+plugin is a devDependency and reaches no bundle, so there is no line worth reading and nothing
 changes for someone who re-pins.
 
 **The "Latest" badge is repo-wide and arbitrary.** GitHub designates exactly one non-draft,
@@ -405,10 +408,10 @@ as released. It is unofficial — not run by, endorsed by, or affiliated with Pa
 *generated from this repo*: description, version, licence, screenshots and a limitations excerpt are
 all read from the plugin's own folder, so submitting is one small file opened as a PR against
 [`paseo-cafe/paseo-cafe`](https://github.com/paseo-cafe/paseo-cafe) and nothing here is written
-twice. All five plugins are listed, submitted as `gpambrozio`, and each entry declares its
-`package` so that 0.9 installs it from npm — the registry's CI checks that the published package
-carries the same plugin id *and the same version* as the folder here, which is the other reason to
-publish before tagging.
+twice. Every plugin but `firstmate` is listed, submitted as `gpambrozio`, and each entry declares
+its `package` so that 0.9 installs it from npm; `firstmate` is on npm and not submitted yet. The
+registry's CI checks that the published package carries the same plugin id *and the same version* as
+the folder here, which is the other reason to publish before tagging.
 
 **Read the current instructions before submitting, and do not follow a remembered shape — including
 the shape of the entries already there.** The required fields, the validation and the CI behind them
@@ -468,3 +471,17 @@ Two things there are worth knowing before touching it. `null` on a capability me
 not say, not "no", and the filters and the table both honour that. And the whole settings document is
 client-read — "which providers to refresh" and "which to show" are one switch, because the surface
 passes the enabled ids into the RPC rather than the daemon keeping a copy.
+
+## firstmate
+
+Talk to one "first mate" agent and it runs a crew of worker agents, each in its own Paseo worktree; a
+sidebar surface puts the conversation beside a board of the crew. A Paseo-native port of the
+[firstmate](https://github.com/kunchenguid/firstmate) agent distro, replacing
+ABorakati's `paseo-firstmate`, which was a dashboard over that distro's bash scripts and tmux sessions.
+Three things shape it, all in `firstmate/AGENTS.md`: **the plugin never dispatches a crewmate** — the
+first mate does, with Paseo's own MCP tools, following a charter (`templates/data/charter.md`) written into its
+home as `AGENTS.md`; **supervision is Paseo's** — the MCP `create_agent` call's `notifyOnFinish` wakes the
+first mate when a crewmate finishes, errors or asks for permission, so there is no watcher, and those
+tools are off by default in Paseo (`daemon.mcp.injectIntoAgents`), which the board offers to turn on;
+and **the crew is found by label**, `firstmate.role=crew`, which the charter and the board read from the
+same constant.

@@ -13,6 +13,7 @@ updates:
       - /github-board
       - /launchd-jobs
       - /model-pricing
+      - /firstmate
     schedule:
       interval: weekly
     groups:

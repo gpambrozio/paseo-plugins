@@ -1,0 +1,45 @@
+{
+  "name": "@gpambrozio/paseo-firstmate",
+  "version": "0.1.1",
+  "description": "Paseo plugin: talk to one first mate agent that runs a crew of Paseo agents in their own worktrees, with a live board of the crew",
+  "license": "MIT",
+  "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/firstmate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gpambrozio/paseo-plugins.git",
+    "directory": "firstmate"
+  },
+  "type": "module",
+  "files": [
+    "paseo-plugin.json",
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/",
+    "templates/",
+    "CHANGELOG.md",
+    "!**/*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@getpaseo/client": "0.9.0",
+    "@getpaseo/plugin": "0.9.0",
+    "@getpaseo/protocol": "0.9.0",
+    "@tanstack/react-query": "^5.103.2",
+    "@types/node": "^26.5.0",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0",
+    "zod": "^4.5.4"
+  }
+}
