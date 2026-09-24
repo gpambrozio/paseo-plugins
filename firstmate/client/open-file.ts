@@ -16,3 +16,8 @@ export function markSaved(
   if (current?.kind !== "text" || current.path !== saved.path) return current;
   return { ...current, modifiedMs: saved.modifiedMs, saved: saved.content };
 }
+
+/** Whether the open file has text its last save did not include. */
+export function isDirty(file: OpenFile | null): boolean {
+  return file?.kind === "text" && file.draft !== file.saved;
+}

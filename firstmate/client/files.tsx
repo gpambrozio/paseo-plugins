@@ -24,7 +24,7 @@ import { relativeTime } from "./format";
 import { useKeyboardOverlap } from "./keyboard";
 import { isSaveKey, type WebKeyPressEvent } from "./keys";
 import { Markdown } from "./markdown";
-import { markSaved, type OpenFile } from "./open-file";
+import { isDirty, markSaved, type OpenFile } from "./open-file";
 import { Banner, IconButton, MONOSPACE, errorText } from "./ui";
 
 interface FilesMemory {
@@ -55,6 +55,12 @@ function isMarkdown(path: string): boolean {
   return /\.(md|markdown)$/i.test(path);
 }
 
+/** What the captain asked to do, held back while the open file has unsaved changes. */
+interface PendingAction {
+  label: string;
+  run: () => void;
+}
+
 /** A file another part of the panel asks the view to open — the board's charter Compare. `at` tells two asks apart. */
 export interface FilesRequest {
   path: string;
@@ -83,7 +89,7 @@ export function FilesView({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ text: string; conflict: boolean } | null>(null);
   /** An action held back because the open file has unsaved changes. */
-  const [pending, setPending] = useState<{ label: string; run: () => void } | null>(null);
+  const [pending, setPending] = useState<PendingAction | null>(null);
   const [newName, setNewName] = useState<string | null>(null);
   const editorPane = useRef<View>(null);
   const keyboard = useKeyboardOverlap(editorPane);
@@ -108,7 +114,7 @@ export function FilesView({
     refetchInterval: 10_000,
   });
 
-  const dirty = open?.kind === "text" && open.draft !== open.saved;
+  const dirty = isDirty(open);
 
   /** Runs `action` now, or once the captain has decided what to do with unsaved changes. */
   function guarded(label: string, action: () => void): void {
@@ -142,7 +148,7 @@ export function FilesView({
       .finally(() => setLoadingPath(null));
   }
 
-  function save(force: boolean, then?: () => void): void {
+  function save(force: boolean, then?: PendingAction): void {
     if (open?.kind !== "text" || saving) return;
     const file = open;
     setSaving(true);
@@ -150,10 +156,14 @@ export function FilesView({
     write({ path: file.path, content: file.draft, expectedModifiedMs: file.modifiedMs, force })
       .then((result) => {
         // `memory.open`, not `file`: the captain may have typed on, or opened another file, since.
-        setOpen(markSaved(memory.open, { path: file.path, content: file.draft, modifiedMs: result.modifiedMs }));
+        const next = markSaved(memory.open, { path: file.path, content: file.draft, modifiedMs: result.modifiedMs });
+        setOpen(next);
         void queryClient.invalidateQueries({ queryKey: LIST_QUERY });
         toast.show(`Saved ${file.path}`, { variant: "success" });
-        then?.();
+        // Typed on while it saved: going on now would drop that, so ask again.
+        if (then === undefined) return;
+        if (isDirty(next)) setPending(then);
+        else then.run();
       })
       .catch((caught: unknown) => {
         const text = errorText(caught);
@@ -387,9 +397,8 @@ export function FilesView({
           tone="accent"
           theme={theme}
           onPress={() => {
-            const run = pending.run;
             setPending(null);
-            save(false, run);
+            save(false, pending);
           }}
         />
         <IconButton
