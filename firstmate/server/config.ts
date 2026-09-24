@@ -6,11 +6,13 @@
  * Read on every call rather than cached: a save from the settings screen has
  * to take effect on the next one, and the file is a few hundred bytes.
  */
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { FirstmateConfigSchema, type FirstmateConfig } from "../shared/fleet";
+import { serialized } from "./serialize";
 
 /** The id in `paseo-plugin.json`, which names the plugin's data directory and its `paseo plugin ls` entry. */
 export const PLUGIN_ID = "firstmate";
@@ -72,9 +74,15 @@ export type FirstmateConfigPatch = { [Key in keyof FirstmateConfig]?: FirstmateC
 /**
  * Merges `patch` into the saved config — a field left `undefined` keeps its
  * saved value — and writes it to a temporary file that is then renamed, so a
- * crash never leaves half a file.
+ * crash never leaves half a file. Updates run one at a time, so a settings
+ * save landing during a launch cannot write back a config without the launch's
+ * `mateAgentId`.
  */
-export async function updateFirstmateConfig(patch: FirstmateConfigPatch): Promise<FirstmateConfig> {
+export function updateFirstmateConfig(patch: FirstmateConfigPatch): Promise<FirstmateConfig> {
+  return serialized(configPath(), () => applyConfigPatch(patch));
+}
+
+async function applyConfigPatch(patch: FirstmateConfigPatch): Promise<FirstmateConfig> {
   const defined = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
   const previous = await readFirstmateConfig();
   const next = FirstmateConfigSchema.parse({ ...previous, ...defined });
@@ -88,7 +96,7 @@ export async function updateFirstmateConfig(patch: FirstmateConfigPatch): Promis
   }
   const path = configPath();
   await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.${process.pid}.tmp`;
+  const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   await rename(temporary, path);
   return next;
