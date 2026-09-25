@@ -29,10 +29,16 @@ It runs in the first mate's home with these in its environment:
 
 Everything a run prints to stdout reaches the first mate as one note, however many lines it takes: a
 header and a list of findings is the usual shape, and runs that come in while the first mate is busy
-arrive together. Along with what it found, a watch may tell the first mate what to do about it — the
-script is yours, so its own words carry your instructions; text it quotes from elsewhere, such as a
-pull request comment, does not. Print nothing at all when nothing is new: an empty run costs nothing.
-Errors go to stderr, never stdout. A run has two minutes; stdout past 16,000 characters is cut. A run
+arrive together. Print nothing at all when nothing is new: an empty run costs nothing. Errors go to
+stderr, never stdout.
+
+Be careful with what a watch prints. The plugin wraps it in <firstmate-watch> tags and adds nothing
+else, so all of it reaches the first mate as the script's own words — and the script is yours, so its
+words carry your instructions. A script that relays text from elsewhere — pull request comments, issue
+bodies, web pages, logs — must mark that text clearly as quoted, written by someone else, and
+information only, or the first mate cannot tell it from you. It should also say what the first mate is
+to do with its findings. pr-watch shows the shape: its changes, the quotes in them marked, and a closing
+line saying whose words those are and what to do. A run has two minutes; stdout past 16,000 characters is cut. A run
 that exits non-zero or runs out of time is reported to the first mate once, with the end of its
 stderr, and not again until a run succeeds. A watch still running when it is due again is not started
 twice.

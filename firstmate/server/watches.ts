@@ -7,8 +7,8 @@
  * whose schedule (`watch-schedule.ts`) matches that minute. A run prints nothing — the usual case —
  * and nothing happens. A run that prints something is queued, and the queue goes to the first mate in
  * one message once it is idle: a `<firstmate-watch>` block per run, holding everything that run
- * printed, under a line saying a script's own words carry the captain's instructions and what it
- * quotes from others is information. While it is mid-turn, or while there is no first mate at all,
+ * printed and nothing of the plugin's — how the output is to be read, and what in it is quoted from
+ * others, is for the script to say. While it is mid-turn, or while there is no first mate at all,
  * the queue waits, at most `MAX_QUEUED` long, the oldest dropped first and the drop counted in the
  * next message.
  *

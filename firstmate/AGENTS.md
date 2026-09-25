@@ -312,10 +312,13 @@ never assumes, since a note sent into a newer turn can replace that turn where t
 The first mate's own `agent.turn_ended` tries the queue 1, 5 and 15 seconds later (`flushAfterTurn`: its
 snapshot can still say running for a moment, and a crewmate's finish note may start a turn at once), and
 every tick tries again. The queue holds `MAX_QUEUED` and counts what it drops. **A run is one block**,
-everything it printed, never a turn per line: a script prints its findings together — and may say what to
-do about them, which the note and charter §7 tell the first mate to take as the captain's word, since the
-captain approved the script — while text it quotes from others, a pull request comment, is information
-only. Each script's output is quoted so it cannot close its own `<firstmate-watch>` block.
+everything it printed, never a turn per line, and **the note carries nothing of the plugin's** — only the
+tags, the output, and the plugin's own facts (a failure, a count of dropped outputs). How output is to be
+read is the script's to say: charter §7 has the first mate take a script's own instructions as the
+captain's, since the captain approved the script, and what it marks as quoted from others as information
+only, so a script that relays outside text has to mark it (`pr-watch` prints its own line saying the
+reviews and comments it quotes are other people's). Each script's output is escaped so it cannot close
+its own `<firstmate-watch>` block.
 
 **The timer has no Paseo handle of its own.** The plugin API passes `paseo` only to RPC handlers and hooks —
 but it is one object per plugin process (`plugin-process.ts` in Paseo creates it once), so

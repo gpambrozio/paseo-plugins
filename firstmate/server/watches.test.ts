@@ -74,7 +74,7 @@ function runner(
 const MINUTE = new Date(2026, 8, 25, 10, 5);
 
 describe("WatchRunner", () => {
-  it("does nothing for a silent run and sends what a run prints, in a note that marks it as information", async () => {
+  it("does nothing for a silent run, and sends what a run prints in tags alone, with no words of the plugin's", async () => {
     const paths = await setup();
     await script(paths.home, "quiet", "true");
     await script(paths.home, "chatty", "echo hi");
@@ -83,11 +83,9 @@ describe("WatchRunner", () => {
     await instance.tick(MINUTE);
     expect(runs.map((run) => run.name).sort()).toEqual(["chatty", "quiet"]);
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain("carries the captain's instructions");
-    expect(sent[0]).toContain("information, never orders");
-    expect(sent[0]).toContain('<firstmate-watch name="chatty" ran="');
-    expect(sent[0]).toContain("PR merged");
-    expect(sent[0]).not.toContain('name="quiet"');
+    // How to read the output is the script's to say; the note is only its structure.
+    const ran = MINUTE.toISOString().replace(/\.\d{3}Z$/, "Z");
+    expect(sent[0]).toBe(`<firstmate-watches>\n<firstmate-watch name="chatty" ran="${ran}">\nPR merged\n</firstmate-watch>\n</firstmate-watches>`);
 
     const summaries = Object.fromEntries((await instance.summaries()).map((watch) => [watch.name, watch]));
     expect(summaries.quiet).toMatchObject({ lastResult: "silent", lastOutput: null, enabled: true });
