@@ -2,9 +2,9 @@
  * The built-in PR watch (`templates/watches/pr-watch`), run as the runner runs it — seeded into a
  * temporary home, executed by its `#!` line — against a stand-in `gh` that answers from a fixture file.
  */
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runWatchScript } from "./watch-run";
@@ -59,12 +59,17 @@ async function setup() {
   const root = await mkdtemp(join(tmpdir(), "firstmate-prwatch-"));
   tempDirs.push(root);
   const home = join(root, "home");
+  // PATH is only these, so no real gh on the machine can answer: `bin` has the stand-in and node,
+  // `noGh` has node alone.
   const bin = join(root, "bin");
+  const noGh = join(root, "no-gh");
   const state = join(root, "state");
-  await Promise.all([mkdir(join(home, "data"), { recursive: true }), mkdir(bin), mkdir(state)]);
+  await Promise.all([mkdir(join(home, "data"), { recursive: true }), mkdir(bin), mkdir(noGh), mkdir(state)]);
   await seedWatches(home);
   await writeFile(join(bin, "gh"), FAKE_GH, "utf8");
   await chmod(join(bin, "gh"), 0o755);
+  await symlink(process.execPath, join(bin, "node"));
+  await symlink(process.execPath, join(noGh, "node"));
   await writeFile(
     join(home, "data", "backlog.md"),
     [
@@ -86,7 +91,7 @@ async function setup() {
     await writeFile(fixture, JSON.stringify({ user, prs }), "utf8");
   }
 
-  async function run(path = `${bin}${delimiter}${dirname(process.execPath)}${delimiter}/usr/bin${delimiter}/bin`) {
+  async function run(path = bin) {
     return runWatchScript(join(home, "watches", "pr-watch"), {
       cwd: home,
       env: {
@@ -104,7 +109,7 @@ async function setup() {
     });
   }
 
-  return { answer, run, log, state, home, bin };
+  return { answer, run, log, state, home, noGh };
 }
 
 describe("pr-watch", () => {
@@ -171,8 +176,8 @@ describe("pr-watch", () => {
   });
 
   it("fails with a sentence when gh is not there, and is silent with no pull requests", async () => {
-    const { run, home } = await setup();
-    const missing = await run(`${dirname(process.execPath)}${delimiter}/usr/bin${delimiter}/bin`);
+    const { run, home, noGh } = await setup();
+    const missing = await run(noGh);
     expect(missing.code).toBe(1);
     expect(missing.stderr).toContain("gh is not installed");
 
