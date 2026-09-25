@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { legacyPluginDir, migrateLegacyData, pluginDir, PLUGIN_ID } from "./data-dir";
+import { legacyPluginDir, migrateLegacyData, pluginDir, PLUGIN_ID, usingLegacyDir } from "./data-dir";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -27,6 +27,16 @@ afterEach(async () => {
   else process.env.PASEO_HOME = previousHome;
   await rm(paseoHome, { recursive: true, force: true });
 });
+
+function newDir(): string {
+  return join(paseoHome, "plugin-data", PLUGIN_ID);
+}
+
+function failRenameOnce(): void {
+  vi.mocked(fs.renameSync).mockImplementationOnce(() => {
+    throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+  });
+}
 
 async function put(path: string, content: string): Promise<void> {
   await mkdir(join(path, ".."), { recursive: true });
@@ -95,14 +105,58 @@ describe("migrateLegacyData", () => {
 
   it("keeps the original and leaves no partial copy when the move fails", async () => {
     await put(join(legacyPluginDir(), "config.json"), "old config");
-    vi.mocked(fs.renameSync).mockImplementationOnce(() => {
-      throw Object.assign(new Error("permission denied"), { code: "EACCES" });
-    });
+    failRenameOnce();
 
     expect(migrateLegacyData(["config.json"])).toEqual({ "config.json": "failed" });
 
     expect(await readFile(join(legacyPluginDir(), "config.json"), "utf8")).toBe("old config");
-    expect(await readdir(pluginDir())).toEqual([]);
+    expect(fs.existsSync(join(newDir(), "config.json"))).toBe(false);
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining(legacyPluginDir()), expect.any(Error));
+  });
+
+  it("stays on the legacy directory after a failed move, so a fresh write cannot supersede the real file", async () => {
+    await put(join(legacyPluginDir(), "config.json"), "old config");
+    failRenameOnce();
+    migrateLegacyData(["config.json"]);
+
+    // What a handler does next: it writes where pluginDir() says.
+    expect(usingLegacyDir()).toBe(true);
+    expect(pluginDir()).toBe(legacyPluginDir());
+    await put(join(pluginDir(), "config.json"), "edited after the failure");
+
+    // The next start retries, and carries the edited file over.
+    expect(migrateLegacyData(["config.json"])).toEqual({ "config.json": "moved" });
+    expect(pluginDir()).toBe(newDir());
+    expect(await readFile(join(pluginDir(), "config.json"), "utf8")).toBe("edited after the failure");
+  });
+
+  it("moves back what it already moved when a later entry fails, so the plugin never runs split", async () => {
+    await put(join(legacyPluginDir(), "config.json"), "old config");
+    await put(join(legacyPluginDir(), "state.json"), "old state");
+    const actual = vi.mocked(fs.renameSync).getMockImplementation();
+    vi.mocked(fs.renameSync)
+      .mockImplementationOnce((from, to) => actual?.(from, to))
+      .mockImplementationOnce(() => {
+        throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+      });
+
+    expect(migrateLegacyData(["config.json", "state.json"])).toEqual({
+      "config.json": "restored",
+      "state.json": "failed",
+    });
+
+    expect(await readFile(join(legacyPluginDir(), "config.json"), "utf8")).toBe("old config");
+    expect(await readFile(join(legacyPluginDir(), "state.json"), "utf8")).toBe("old state");
+    expect(await readdir(newDir())).toEqual([]);
+    expect(pluginDir()).toBe(legacyPluginDir());
+  });
+
+  it("moves a path inside a directory, creating the parent", async () => {
+    await put(join(legacyPluginDir(), "logs", "a.log"), "old log");
+
+    expect(migrateLegacyData([join("logs", "a.log")])).toEqual({ [join("logs", "a.log")]: "moved" });
+
+    expect(await readFile(join(pluginDir(), "logs", "a.log"), "utf8")).toBe("old log");
+    expect(await readdir(join(legacyPluginDir(), "logs"))).toEqual([]);
   });
 });

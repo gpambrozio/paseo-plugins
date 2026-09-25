@@ -45,35 +45,39 @@ export function resolveHome(config: FirstmateConfig): string {
 
 /**
  * Moves the config out of `plugins/firstmate/`, and the old default home with
- * it when nothing depends on where that home is. Called by the server entry
- * before any handler is bound.
+ * it when nothing depends on where that home is. One call, so a failure moves
+ * both back and the plugin stays on the legacy directory for this start (see
+ * `migrateLegacyData`). Called by the server entry before any handler is bound.
  *
- * A home that has to stay is used where it is — `defaultHome()` finds it — and
- * the reason is logged on every start until it can go.
+ * A home that has to stay is used where it is — `defaultHome()` finds it, or
+ * the config names it — and the reason is logged on every start until it can go.
  */
 export function migrateLegacyFiles(): void {
-  migrateLegacyData(["config.json"]);
+  const entries = ["config.json"];
   const legacyHome = join(legacyPluginDir(), "home");
-  if (!existsSync(legacyHome)) return;
-  const reason = legacyHomeMustStay(legacyHome);
-  if (reason !== null) {
-    console.warn(`[firstmate] leaving the first mate's home at ${legacyHome}: ${reason}`);
-    return;
+  if (existsSync(legacyHome)) {
+    const reason = legacyHomeMustStay(legacyHome);
+    if (reason === null) entries.push("home");
+    else console.warn(`[firstmate] leaving the first mate's home at ${legacyHome}: ${reason}`);
   }
-  migrateLegacyData(["home"]);
+  migrateLegacyData(entries);
 }
 
 /**
  * Why the legacy home cannot move yet, or null when it can. A first mate
- * works in the directory it was launched in, and a clone under `projects/` is
- * a Paseo project, and the first mate's registry, by its absolute path — the
- * same reasons the settings refuse to move a home with a first mate aboard.
+ * works in the directory it was launched in, a home the settings name by path
+ * is the captain's choice, and a clone under `projects/` is a Paseo project,
+ * and the first mate's registry, by its absolute path.
  */
 function legacyHomeMustStay(legacyHome: string): string | null {
   const config = readConfigSync();
   if (config === null) return "its config could not be read, so whether a first mate is aboard is unknown";
-  if (config.home.trim() === "" && config.mateAgentId !== "") {
-    return "a first mate is aboard in it; it moves on the first start after the first mate is released";
+  if (config.home.trim() === "") {
+    if (config.mateAgentId !== "") {
+      return "a first mate is aboard in it; it moves on the first start after the first mate is released";
+    }
+  } else if (namesDirectory(config, legacyHome)) {
+    return "the settings name it as the home; choose another there to move it";
   }
   let clones: string[];
   try {
@@ -86,6 +90,15 @@ function legacyHomeMustStay(legacyHome: string): string | null {
     return `projects/ holds clones Paseo knows by path (${clones.join(", ")}); to move it, move it by hand and name the new place as the home in the settings`;
   }
   return null;
+}
+
+/** Whether the home the config names is `directory`; a home it cannot resolve is not. */
+function namesDirectory(config: FirstmateConfig, directory: string): boolean {
+  try {
+    return resolveHome(config) === resolve(directory);
+  } catch {
+    return false;
+  }
 }
 
 function parseConfig(raw: string): FirstmateConfig {
@@ -104,13 +117,18 @@ function parseConfig(raw: string): FirstmateConfig {
   return parsed.data;
 }
 
-/** The saved config, or null when it cannot be read at all; the defaults when there is none. */
+/**
+ * The saved config, from the new directory or else the legacy one, since this
+ * runs before the move; null when it cannot be read at all, the defaults when
+ * there is none.
+ */
 function readConfigSync(): FirstmateConfig | null {
+  const path = [configPath(), join(legacyPluginDir(), "config.json")].find((candidate) => existsSync(candidate));
+  if (path === undefined) return FirstmateConfigSchema.parse({});
   try {
-    return parseConfig(readFileSync(configPath(), "utf8"));
+    return parseConfig(readFileSync(path, "utf8"));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return FirstmateConfigSchema.parse({});
-    console.error(`[firstmate] could not read ${configPath()}:`, error);
+    console.error(`[firstmate] could not read ${path}:`, error);
     return null;
   }
 }

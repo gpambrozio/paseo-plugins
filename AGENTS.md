@@ -119,7 +119,9 @@ Paseo never touches `plugin-data/`. Every plugin here used to write under `plugi
 carries `server/data-dir.ts`, a duplicated helper that names the new directory and, called from the
 server entry before any handler is bound, moves the plugin's own files over *by name* — never the
 directory, never an entry the new place already has, and never deleting an original it has not
-copied. A file that moves is referenced by absolute path somewhere else only in `launchd-jobs` (the
+copied. It is all or nothing: when one entry fails, the ones already moved go back and `pluginDir()`
+answers the old directory until the next start retries, so a handler never writes a fresh file into
+the new place and makes the user's real one look superseded. A file that moves is referenced by absolute path somewhere else only in `launchd-jobs` (the
 plists) and `firstmate` (a default home holding clones); both plugin AGENTS.md say what they do.
 
 `github-board` splits exactly on that line: the repository filter, the prompt templates and the

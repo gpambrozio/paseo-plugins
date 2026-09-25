@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { chmod, lstat, mkdir, open, readdir, readFile, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +15,7 @@ import {
   type CalendarEntry,
 } from "../shared/cron";
 import type { Job, JobSpec, RunRecord, Schedule } from "../shared/jobs";
-import { legacyPluginDir, pluginDir } from "./data-dir";
+import { legacyPluginDir, migrateLegacyData, pluginDir, usingLegacyDir } from "./data-dir";
 
 /**
  * The daemon half: every `launchctl` and `plutil` call, the plist files, the
@@ -277,9 +278,11 @@ async function writeAcks(file: AckFile): Promise<void> {
 // ---------------------------------------------------------------------------
 // Reading a job back
 
-interface PlistFile {
+export interface PlistFile {
   Label?: unknown;
   ProgramArguments?: unknown;
+  EnvironmentVariables?: unknown;
+  StandardErrorPath?: unknown;
   WorkingDirectory?: unknown;
   StartCalendarInterval?: unknown;
   StartInterval?: unknown;
@@ -690,10 +693,11 @@ function assertSupported(): void {
 // Moving out of `plugins/launchd-jobs`
 //
 // The runner, logs and history used to live in `$PASEO_HOME/plugins/launchd-jobs/`,
-// which `paseo plugin remove` deletes on an npm or Git install. The server entry
-// moves the files; this points the jobs at them, because every plist names the
-// runner, the directory and the stderr log by absolute path, and launchd keeps
-// the definition it loaded until the job is booted out and back in.
+// which `paseo plugin remove` deletes on an npm or Git install. Every plist names
+// the runner, the directory and the stderr log by absolute path, and launchd keeps
+// the definition it loaded until the job is booted out and back in — so the files
+// move first (`moveLegacyFiles`, synchronously, from the server entry) and the jobs
+// follow (`relocateLegacyJobs`, after it).
 
 function legacyRunnerPath(): string {
   return join(legacyPluginDir(), RUNNER_NAME);
@@ -713,6 +717,46 @@ function forwardingRunner(): string {
     `exec /bin/zsh ${shellQuote(runnerPath())} "$@"`,
     "",
   ].join("\n");
+}
+
+function writeScriptSync(path: string, content: string): void {
+  writeFileSync(path, content, "utf8");
+  chmodSync(path, 0o755);
+}
+
+/** What `logs/` or `runs/` holds in the legacy directory, as entries to move one by one. */
+function legacyEntriesIn(directory: string): string[] {
+  try {
+    return readdirSync(join(legacyPluginDir(), directory)).map((name) => join(directory, name));
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw error;
+  }
+}
+
+/**
+ * Moves the plugin's files, called by the server entry before any handler is
+ * bound. Jobs launchd loaded from the old runner can fire at any moment, so the
+ * new runner and the forwarder go in *before* anything moves: from then on a
+ * fire writes to the new directory. Logs and history move file by file rather
+ * than as directories, so a fire that has already created `logs/` in the new
+ * directory cannot make the old ones look superseded. `runner.sh` itself is
+ * not moved: it is regenerated, and the old path is the forwarder's.
+ *
+ * A failed move leaves the plugin on the legacy directory for this start (see
+ * `migrateLegacyData`), and the real runner goes back where the jobs expect it.
+ */
+export function moveLegacyFiles(): void {
+  const legacyRunner = legacyRunnerPath();
+  const forwarding = existsSync(legacyRunner);
+  if (forwarding) {
+    mkdirSync(join(pluginDir(), "logs"), { recursive: true });
+    mkdirSync(join(pluginDir(), "runs"), { recursive: true });
+    writeScriptSync(runnerPath(), RUNNER_SCRIPT);
+    writeScriptSync(legacyRunner, forwardingRunner());
+  }
+  migrateLegacyData(["jobs.json", "acknowledged.json", ...legacyEntriesIn("logs"), ...legacyEntriesIn("runs")]);
+  if (forwarding && usingLegacyDir()) writeScriptSync(legacyRunner, RUNNER_SCRIPT);
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -735,43 +779,67 @@ async function writeForwardingRunner(): Promise<void> {
 async function removeForwardingRunner(): Promise<void> {
   await unlink(legacyRunnerPath());
   // launchd creates the loaded job's stderr file there, empty, since the
-  // forwarded runner writes the real log. Only empty files go, and then the
+  // forwarded runner writes the real log. Only empty files go, and then each
   // directory only if nothing else is left in it.
-  const logs = join(legacyPluginDir(), "logs");
-  let names: string[];
-  try {
-    names = await readdir(logs);
-  } catch (error) {
-    if (isMissing(error)) return;
-    throw error;
-  }
-  await Promise.all(
-    names.map(async (name) => {
-      const path = join(logs, name);
-      const info = await lstat(path);
-      if (info.isFile() && info.size === 0) await unlink(path);
-    }),
-  );
-  try {
-    await rmdir(logs);
-  } catch (error) {
-    if ((error as { code?: string }).code !== "ENOTEMPTY") throw error;
+  for (const directory of ["logs", "runs"]) {
+    const path = join(legacyPluginDir(), directory);
+    let names: string[];
+    try {
+      names = await readdir(path);
+    } catch (error) {
+      if (isMissing(error)) continue;
+      throw error;
+    }
+    await Promise.all(
+      names.map(async (name) => {
+        const file = join(path, name);
+        const info = await lstat(file);
+        if (info.isFile() && info.size === 0) await unlink(file);
+      }),
+    );
+    try {
+      await rmdir(path);
+    } catch (error) {
+      if ((error as { code?: string }).code !== "ENOTEMPTY") throw error;
+    }
   }
 }
 
 /**
- * Points the three paths at the new directory, leaving everything the user
- * wrote as it is. The arguments are replaced whole: `plutil -replace` on an
- * array index inserts rather than replaces.
+ * The `plutil -replace` arguments that bring one of this plugin's plists onto
+ * the new directory: each of the three paths compared on its own, so a rewrite
+ * cut short after the first — a failed `plutil`, a stopped daemon — is finished
+ * on the next start rather than skipped because the runner already looks new.
+ * `ProgramArguments` is replaced whole: `-replace` on an array index inserts.
+ * Empty for a plist that is not in the runner shape, or already right.
  */
-async function repointPlist(slug: string, args: readonly unknown[]): Promise<void> {
+export function plistRepairs(plist: PlistFile, slug: string): [keyPath: string, type: string, value: string][] {
+  const args = Array.isArray(plist.ProgramArguments) ? (plist.ProgramArguments as unknown[]) : [];
+  const ours = args.length === 4 && args[0] === "/bin/zsh" && (args[1] === legacyRunnerPath() || args[1] === runnerPath());
+  if (!ours) return [];
+  const repairs: [string, string, string][] = [];
+  if (args[1] !== runnerPath()) {
+    repairs.push(["ProgramArguments", "-json", JSON.stringify(args.map((arg, index) => (index === 1 ? runnerPath() : arg)))]);
+  }
+  const env = plist.EnvironmentVariables;
+  const dir = typeof env === "object" && env !== null ? (env as Record<string, unknown>)["PASEO_LAUNCHD_JOBS_DIR"] : undefined;
+  if (dir !== pluginDir()) repairs.push(["EnvironmentVariables.PASEO_LAUNCHD_JOBS_DIR", "-string", pluginDir()]);
+  if (plist.StandardErrorPath !== logPath(slug)) repairs.push(["StandardErrorPath", "-string", logPath(slug)]);
+  return repairs;
+}
+
+/** Whether launchd's loaded definition (`launchctl print`) still names anything under the legacy directory. */
+export function loadedFromLegacy(printed: string): boolean {
+  const legacy = legacyPluginDir();
+  return printed.split("\n").some((line) => {
+    const text = line.trim();
+    return text.includes(`${legacy}/`) || text.endsWith(legacy);
+  });
+}
+
+async function repointPlist(slug: string, repairs: readonly [string, string, string][]): Promise<void> {
   const path = plistPath(slug);
-  const replacements: [string, string, string][] = [
-    ["ProgramArguments", "-json", JSON.stringify(args.map((arg, index) => (index === 1 ? runnerPath() : arg)))],
-    ["EnvironmentVariables.PASEO_LAUNCHD_JOBS_DIR", "-string", pluginDir()],
-    ["StandardErrorPath", "-string", logPath(slug)],
-  ];
-  for (const [keyPath, type, value] of replacements) {
+  for (const [keyPath, type, value] of repairs) {
     try {
       await exec("plutil", ["-replace", keyPath, type, value, path], { encoding: "utf8" });
     } catch (error) {
@@ -781,20 +849,19 @@ async function repointPlist(slug: string, args: readonly unknown[]): Promise<voi
 }
 
 /**
- * Returns true when the job is done with the old runner path, false when it
+ * Returns true when the job is done with the legacy directory, false when it
  * still needs the forwarding runner: launchd holds it from there and it is
  * running now, so a bootout would kill it. The next start tries it again.
  */
-async function relocateJob(slug: string, legacyRunner: string): Promise<boolean> {
-  const plist = await readPlist(plistPath(slug));
-  const args = Array.isArray(plist.ProgramArguments) ? plist.ProgramArguments : [];
-  if (args[1] === legacyRunner) {
-    await repointPlist(slug, args);
-    console.log(`[launchd-jobs] pointed ${plistPath(slug)} at ${runnerPath()}`);
+async function relocateJob(slug: string): Promise<boolean> {
+  const repairs = plistRepairs(await readPlist(plistPath(slug)), slug);
+  if (repairs.length > 0) {
+    await repointPlist(slug, repairs);
+    console.log(`[launchd-jobs] pointed ${plistPath(slug)} at ${pluginDir()}`);
   }
   const label = labelFor(slug);
   const loaded = await printService(label);
-  if (loaded === null || !loaded.includes(legacyRunner)) return true;
+  if (loaded === null || !loadedFromLegacy(loaded)) return true;
   if (statusOf(loaded).running) {
     console.warn(`[launchd-jobs] ${label} is running, so it is reloaded from its new plist on a later start`);
     return false;
@@ -805,24 +872,22 @@ async function relocateJob(slug: string, legacyRunner: string): Promise<boolean>
 }
 
 /**
- * Called once from the server entry, after the files have moved. A job it
- * cannot move keeps the forwarding runner, so no job stops firing because of
- * the move; every failure is logged with the paths involved.
+ * Called once from the server entry, after `moveLegacyFiles`. A job it cannot
+ * move keeps the forwarding runner, so no job stops firing because of the move;
+ * every failure is logged with the paths involved.
  */
 export async function relocateLegacyJobs(): Promise<void> {
-  if (process.platform !== "darwin") return;
+  if (process.platform !== "darwin" || usingLegacyDir()) return;
   const legacyRunner = legacyRunnerPath();
   await ensureRunner();
-  // Forward first, so a job firing while the rest of this runs already uses the new directory.
-  if (await pathExists(legacyRunner)) await writeForwardingRunner();
 
   let forwardingNeeded = false;
   for (const slug of await listSlugs()) {
     try {
-      if (!(await relocateJob(slug, legacyRunner))) forwardingNeeded = true;
+      if (!(await relocateJob(slug))) forwardingNeeded = true;
     } catch (error) {
       forwardingNeeded = true;
-      console.error(`[launchd-jobs] could not move ${plistPath(slug)} off ${legacyRunner}: ${errorMessage(error)}`);
+      console.error(`[launchd-jobs] could not move ${plistPath(slug)} off ${legacyPluginDir()}: ${errorMessage(error)}`);
     }
   }
 

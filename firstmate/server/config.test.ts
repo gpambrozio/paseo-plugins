@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -5,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defaultHome, migrateLegacyFiles, readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import { legacyPluginDir, pluginDir } from "./data-dir";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, renameSync: vi.fn(actual.renameSync) };
+});
 
 let paseoHome = "";
 const previousHome = process.env.PASEO_HOME;
@@ -69,6 +75,7 @@ describe("the first mate's home", () => {
   beforeEach(() => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -128,6 +135,37 @@ describe("the first mate's home", () => {
 
     expect(resolveHome(await readFirstmateConfig())).toBe("/Users/captain/firstmate");
     expect(await readFile(join(pluginDir(), "home", "AGENTS.md"), "utf8")).toBe("charter");
+  });
+
+  it("leaves a home the settings name by its legacy path where it is, first mate and all", async () => {
+    const home = join(legacyPluginDir(), "home");
+    await legacyConfig({ home, mateAgentId: "mate" });
+    await legacyHome();
+
+    migrateLegacyFiles();
+
+    expect(resolveHome(await readFirstmateConfig())).toBe(home);
+    expect(await readFile(join(home, "AGENTS.md"), "utf8")).toBe("charter");
+    expect(fs.existsSync(join(pluginDir(), "home"))).toBe(false);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("the settings name it"));
+  });
+
+  it("keeps the config and the home together on the legacy side when the home fails to move", async () => {
+    await legacyConfig({ mateProvider: "claude/claude-sonnet-5" });
+    const home = await legacyHome();
+    const actual = vi.mocked(fs.renameSync).getMockImplementation();
+    vi.mocked(fs.renameSync)
+      .mockImplementationOnce((from, to) => actual?.(from, to))
+      .mockImplementationOnce(() => {
+        throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+      });
+
+    migrateLegacyFiles();
+
+    expect(pluginDir()).toBe(legacyPluginDir());
+    expect(await readFirstmateConfig()).toMatchObject({ mateProvider: "claude/claude-sonnet-5" });
+    expect(resolveHome(await readFirstmateConfig())).toBe(home);
+    expect(fs.existsSync(join(paseoHome, "plugin-data", "firstmate", "config.json"))).toBe(false);
   });
 
   it("prefers a home already in plugin-data, and leaves the old one untouched", async () => {

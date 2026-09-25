@@ -234,9 +234,11 @@ should survive an upgrade goes.
 AGENTS.md). `migrateLegacyFiles` (`server/config.ts`) moves the config on start, and the old default home
 only when nothing knows it by path: not while a first mate is aboard in it, since the agent keeps working
 in the directory it was launched in, and not while `projects/` holds clones, which are Paseo projects and
-registry entries by absolute path (and the roots of their crewmates' worktrees). A home that has to stay
-is used where it is — `defaultHome()` prefers it while `plugin-data/` has none — and the reason is logged on
-every start. A home the config names is never moved. Once the old home has moved, the Paseo project
+registry entries by absolute path (and the roots of their crewmates' worktrees). Nor when the settings
+name that very directory as the home. A home that has to stay is used where it is — `defaultHome()`
+prefers it while `plugin-data/` has none — and the reason is logged on every start. A home the config
+names elsewhere is never touched. The config and the home move in one call, so a failure leaves both on
+the old side together. Once the old home has moved, the Paseo project
 still registered at its old path is left for the captain to remove.
 
 There is **no `CLAUDE.md`**. Claude Code and Codex both read `AGENTS.md`, and a `CLAUDE.md` importing

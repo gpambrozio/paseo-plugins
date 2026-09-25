@@ -19,7 +19,7 @@ compile time. This file covers only what is specific to `launchd-jobs`.
 | `client/log-follow.ts` | Follow mode: the `tail -f` terminal behind the log pane's live view.        |
 | `client/failure-alert.ts` | The sidebar item, and the failing count in its title and icon.           |
 | `shared/cron.ts`         | Unsuffixed, in both bundles: cron ⇄ `StartCalendarInterval`, and the sentences.  |
-| `shared/cron.test.ts`    | With `server/data-dir.test.ts`, the only tests. `npm test`.                      |
+| `shared/cron.test.ts`    | With `server/data-dir.test.ts` and `server/jobs.test.ts`, the tests. `npm test`. |
 | `README.md`       | What a job is to a user, and what launchd does and does not promise.             |
 
 ## launchd is the scheduler and the store
@@ -100,22 +100,30 @@ the detail pane says so.
 
 The files used to live in `$PASEO_HOME/plugins/launchd-jobs/`, which is also Paseo's install root for
 an npm or Git install and is deleted whole by `paseo plugin remove`. They now live in
-`$PASEO_HOME/plugin-data/launchd-jobs/`, and the server entry moves them on start — `jobs.json`,
-`acknowledged.json`, `logs/`, `runs/`, by name, never the directory. That alone would break every
-existing job: each plist names the runner, `PASEO_LAUNCHD_JOBS_DIR` and `StandardErrorPath` by
-absolute path, and launchd runs the definition it *loaded*, not the file.
+`$PASEO_HOME/plugin-data/launchd-jobs/`. Each plist names the runner, `PASEO_LAUNCHD_JOBS_DIR` and
+`StandardErrorPath` by absolute path, and launchd runs the definition it *loaded*, not the file, so
+moving the files is two steps.
 
-So `relocateLegacyJobs` follows it. It rewrites those three values in each plist whose runner is the
-old one, with `plutil -replace` — `ProgramArguments` whole, because `-replace` on an array index
-*inserts* — and boots out and back in every loaded job whose `launchctl print` still names the old
-runner. **A job that is running is not reloaded**, because bootout kills it. Until it can be, the old
-runner path holds a forwarding script that execs the new runner against the new directory, so its
-next fire still works and logs where the surface reads; a later start reloads it and removes the
-forwarder, plus the empty stderr file launchd created beside it. The one run in flight at the moment
-of the move loses its history line (the runner already resolved the old `runs/` path).
+**`moveLegacyFiles`, synchronously, before any handler is bound.** A loaded job can fire at any
+moment, so the new runner and a *forwarder* at the old runner path — a script that execs the new
+runner against the new directory — go in before anything moves. `jobs.json`, `acknowledged.json` and
+each file of `logs/` and `runs/` then move **one by one**, not as directories: a fire through the
+forwarder creates the new `logs/`, and a directory-level move would then call the old one superseded
+and strand it. A failed move leaves the plugin on the old directory for that start (the shared
+`migrateLegacyData` rule), and the real runner goes back at the old path.
 
-Checked on a scratch `PASEO_HOME` with two throwaway jobs made by the previous `server/jobs.ts`, one of
-them mid-run, and a fake version directory beside the data.
+**`relocateLegacyJobs`, asynchronously, after it.** `plistRepairs` compares each of the three paths on
+its own, so a rewrite cut short after the first `plutil` is finished on the next start rather than
+skipped because the runner already looks new; `ProgramArguments` is replaced whole, because
+`plutil -replace` on an array index *inserts*. Every loaded job whose `launchctl print` still names
+the old directory anywhere is booted out and back in — **except one that is running**, since bootout
+kills it. The forwarder stays until a later start has reloaded it, then goes, with the empty stderr
+file launchd created beside it. The one run in flight at the moment of the move loses its history line
+(the runner resolved the old `runs/` path before the forwarder existed).
+
+The file moves and `plistRepairs` are covered by `server/jobs.test.ts`, which calls no `launchctl`. The
+whole sequence was checked once on a scratch `PASEO_HOME` with two throwaway jobs made by the previous
+`server/jobs.ts`, one of them mid-run.
 
 ## cron ⇄ calendar entries
 
