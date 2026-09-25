@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 
 import { askMate, askMateCommand, type AgentSummary, type MateCommand } from "../shared/fleet";
+import { drafts } from "./draft";
 import { useFollowEnd } from "./follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { MateControls } from "./mate-controls";
@@ -19,12 +20,6 @@ import { transcriptRows, type TranscriptRow } from "./transcript-rows";
 import { IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
-
-/**
- * A half-typed message survives the surface unmounting, which it does every
- * time the captain opens a workspace. Not worth persisting; worth not losing.
- */
-let cachedDraft = "";
 
 /** A run of tool calls shows this many before folding the rest behind a count. */
 const TOOL_RUN_VISIBLE = 2;
@@ -82,7 +77,12 @@ export function MateChat({
   /** What the first mate is waiting on — a question, a permission, a plan. */
   const { pending, respond } = usePendingRequests(mate.id, timeline.agent?.pendingPermissions, follow.pin);
 
-  const [draft, setDraftState] = useState(cachedDraft);
+  /**
+   * A half-typed message survives the surface unmounting, which it does every
+   * time the captain opens a workspace, and the plugin being evaluated afresh
+   * after a lost connection — see `./draft`.
+   */
+  const [draft, setDraftState] = useState(() => drafts.get(mate.id));
   const [sending, setSending] = useState(false);
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
   const pane = useRef<View>(null);
@@ -99,7 +99,7 @@ export function MateChat({
   const usage = timeline.agent?.lastUsage;
 
   function setDraft(text: string): void {
-    cachedDraft = text;
+    drafts.set(mate.id, text);
     setDraftState(text);
   }
 
@@ -166,7 +166,7 @@ export function MateChat({
     ask({ text: trimmed })
       .catch((caught: unknown) => {
         toast.error(errorText(caught));
-        if (fromDraft && cachedDraft.trim() === "") setDraft(text);
+        if (fromDraft && drafts.get(mate.id).trim() === "") setDraft(text);
       })
       .finally(() => setSending(false));
   }
