@@ -28,7 +28,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
-| `server/crew-seen.ts`         | Clears a crewmate's "finished" flag once the first mate has read its finish note.          |
+| `server/crew-seen.ts`         | Clears a crewmate's "finished" flag once a later first-mate turn has completed.            |
 | `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
 | `server/cli.ts`               | `paseo stop` and `paseo project rename`, for what the SDK does not have.                   |
 | `server/home-name.ts`         | Names the home's project and workspace "FirstMate" instead of the folder's "home".         |
@@ -451,21 +451,28 @@ leaves it there until someone looks at the agent. Nobody looks at a crewmate in 
 reads about it in the `<paseo-system>` finish note — so without help every crewmate the first mate
 ever ran piled up there.
 
-`server/crew-seen.ts` hooks `agent.turn_ended` for **the first mate**, not the crewmate: when one of
-its turns *completes*, the crewmates named in the `Agent <id> (<title>) finished.` lines of the notes
-that turn read are cleared, the same way `markMateSeen` clears the first mate. Three reasons for that
-trigger over the crewmate's own `turn_ended`: that hook fires from the crewmate's stream and can run
-before the daemon sets the flag; a hook's agent carries no labels, so it cannot tell crew from the
-captain's own agents without a fetch anyway; and a note in the first mate's timeline is the evidence
-it was actually delivered. A cancelled or failed first-mate turn leaves its notes for the next
-completed one. An in-memory cursor per first mate keeps a note from being acted on by every later
-turn — the hook's timeline is the agent's whole in-memory timeline, not the turn's — and after a
-plugin reload the whole timeline is read once more.
+**The note is not in any timeline a plugin can read.** The daemon drops every user message that is a
+whole `<paseo-system>` envelope (`isSystemInjectedEnvelope` in Paseo's agent manager) before recording
+it, so neither `turn_ended`'s `timeline` nor `paseo logs` ever shows one, even though the provider's
+own session holds every note. The first version parsed the notes out of the hook's timeline and so
+never cleared anything. Checked on the live 0.9.1 daemon: the first mate's Claude session held 23 notes,
+its Paseo timeline none.
 
-Only an agent labelled `firstmate.role=crew`, whose flag is still `"finished"`, with no pending
-permission, not running and not in error, is cleared. A permission or an error still reaches the
-captain, and Paseo ranks both above the flag regardless. The first mate itself does nothing: the note
-arriving is the whole signal, so the charter is unchanged.
+So `server/crew-seen.ts` goes by time. It hooks **the first mate's** `agent.turn_started` and
+`agent.turn_ended`: when a first-mate turn *completes*, every crewmate the first mate created
+(`firstmate.role=crew` and Paseo's own `paseo.parent-agent-id` set to the first mate — the note goes to
+the creator) whose `attentionTimestamp` is no later than that turn's start is cleared, the same way
+`markMateSeen` clears the first mate. The daemon sets the flag before it sends the note, and the note
+either starts a turn or is steered into a running one, so a finish from before a turn started has
+reached the first mate by the time that turn completes. A finish during a turn waits for the next one.
+The first-mate hooks rather than the crewmate's own `turn_ended`, because that fires from the
+crewmate's stream and can run before the daemon sets the flag. A cancelled or failed turn leaves the
+work for the next completed one, and a turn whose start the plugin did not see — one running across a
+reload — is skipped. Each clear logs `cleared N crewmates` to `paseo plugin logs firstmate`.
+
+Only a crewmate of this first mate whose flag is still `"finished"`, with no pending permission, not
+running and not in error, is cleared. A permission or an error still reaches the captain, and Paseo
+ranks both above the flag regardless. The first mate itself does nothing, so the charter is unchanged.
 
 **This relies on Paseo's internal message format, like `markMateSeen`**: `clear_agent_attention` over
 `server/daemon-session.ts`, because neither `PaseoApi`, the MCP tools nor the CLI can clear attention
