@@ -136,7 +136,7 @@ export default function contribute(server: PluginServerContext) {
   server.registerSettings(displaySettings);
 
   const unregisterRelay = registerSteerRelay(server, steers, readFirstmateConfig);
-  // A crewmate whose finish the first mate has read leaves Paseo's "Ready to review"; see server/crew-seen.ts.
+  // A crewmate whose finish the first mate has been told about leaves Paseo's "Ready to review"; see server/crew-seen.ts.
   const unregisterCrewSeen = registerCrewSeen(server, readFirstmateConfig);
 
   // A charter change reaches a home already in use on the next reload, rather

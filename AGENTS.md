@@ -170,6 +170,10 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   plugin runtime gets its own instance, so the app's own observations do not reach it. Open one and
   release it on teardown; a snapshot is one page (`pageInfo.hasMore`), not the whole list. See
   `skills/client/agents.ts` and `herald/client/agents.ts`.
+- **Paseo's `<paseo-system>` notes never reach a timeline.** The daemon drops a user message that is a
+  whole `<paseo-system>` envelope — a finish note, a schedule fire, a chat mention — before recording
+  it, so a hook's `timeline`, a timeline fetch and `paseo logs` all omit it, though the provider's own
+  session has it. Code that reacts to one has to go by what caused it; see `firstmate/server/crew-seen.ts`.
 - **`useWorkspace` and `useAgent` work only inside workspace panels.** Called from a sidebar surface
   they throw "Plugin state hooks must run inside a workspace panel" on mount, and the surface renders
   that error instead of itself. A surface reads workspaces and agents through `usePaseo()` — see

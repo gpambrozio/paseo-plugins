@@ -1,193 +1,213 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CREW_LABELS, type FirstmateConfig } from "../shared/fleet";
-import { MateTimelineCursor, finishedAgentIds, isClearableCrew, markCrewSeen, registerCrewSeen } from "./crew-seen";
+import { isClearableCrew, markCrewSeen, registerCrewSeen } from "./crew-seen";
 import type { PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
 
-const CREW = { [CREW_LABELS.role]: CREW_LABELS.crewRole };
+const MATE = "020789e4-a3ca-4b30-894e-f5b3af46818f";
+const CREW = { [CREW_LABELS.role]: CREW_LABELS.crewRole, "paseo.parent-agent-id": MATE };
+const FINISHED_AT = "2026-09-25T00:50:28.202Z";
+const LATER = new Date("2026-09-25T01:29:30.000Z");
 
-function user(text: string): TimelineItem {
-  return { type: "user_message", text } as TimelineItem;
-}
-
-function assistant(text: string): TimelineItem {
-  return { type: "assistant_message", text } as TimelineItem;
-}
-
-/** A note as Paseo's `formatFinishNotificationBody` and `formatSystemNotificationPrompt` write it. */
-function note(agentId: string, reason: string, title = "fix the parser"): string {
-  return `<paseo-system>\nAgent ${agentId} (${title}) ${reason}.\n\n<agent-response>\ndone: PR https://example.com/1\n</agent-response>\n</paseo-system>`;
-}
-
+/** A crewmate as the daemon reported 5bd93f94 after its finish note reached the first mate. */
 function agent(overrides: Partial<PaseoAgent> = {}): PaseoAgent {
   return {
-    id: "crew-1",
+    id: "5bd93f94-ac32-4e02-93c0-670b98bf563e",
     status: "idle",
-    labels: CREW,
+    labels: { ...CREW, [CREW_LABELS.task]: "fix-cafe-scan-description" },
     requiresAttention: true,
     attentionReason: "finished",
+    attentionTimestamp: FINISHED_AT,
     pendingPermissions: [],
     archivedAt: null,
     ...overrides,
   } as PaseoAgent;
 }
 
-function fakePaseo(agents: Record<string, PaseoAgent>): PaseoApi {
+function fakePaseo(agents: readonly PaseoAgent[]): PaseoApi {
   return {
     agents: {
-      ref(id: string) {
-        return {
-          async refresh() {
-            const found = agents[id];
-            if (found === undefined) throw new Error(`Agent not found: ${id}`);
-            return { agent: found };
-          },
-        };
+      async list(options: { filter?: { labels?: Record<string, string> } }) {
+        const wanted = Object.entries(options.filter?.labels ?? {});
+        const entries = agents
+          .filter((found) => wanted.every(([key, value]) => found.labels[key] === value))
+          .map((found) => ({ agent: found }));
+        return { entries, pageInfo: { nextCursor: null, hasMore: false } };
       },
     },
   } as unknown as PaseoApi;
 }
 
-describe("finishedAgentIds", () => {
-  it("reads the agents Paseo's notes say finished, once each", () => {
-    const items = [
-      user(note("crew-1", "finished")),
-      assistant("Looking at crew-1."),
-      user(note("crew-2", "finished", "a (tricky) title")),
-      user(note("crew-1", "finished")),
-    ];
-    expect(finishedAgentIds(items)).toEqual(["crew-1", "crew-2"]);
-  });
-
-  it("ignores errors, permissions, closings and anything the captain typed", () => {
-    const items = [
-      user(note("crew-1", "errored")),
-      user(note("crew-2", "needs permission")),
-      user(note("crew-3", "was closed")),
-      user("Agent crew-4 (typed by hand) finished."),
-      assistant(note("crew-5", "finished")),
-    ];
-    expect(finishedAgentIds(items)).toEqual([]);
-  });
-
-  it("finds a note steered into a message with other text", () => {
-    expect(finishedAgentIds([user(`first\n\n${note("crew-1", "finished")}`)])).toEqual(["crew-1"]);
-  });
-});
-
 describe("isClearableCrew", () => {
-  it("clears a crewmate whose only flag is a finish", () => {
-    expect(isClearableCrew(agent())).toBe(true);
+  it("clears a crewmate of this first mate whose only flag is a finish from before the turn", () => {
+    expect(isClearableCrew(agent(), MATE, LATER)).toBe(true);
+    expect(isClearableCrew(agent(), MATE, new Date(FINISHED_AT))).toBe(true);
   });
 
-  it("never touches an agent that is not crew", () => {
-    expect(isClearableCrew(agent({ labels: {} }))).toBe(false);
-    expect(isClearableCrew(agent({ labels: { [CREW_LABELS.role]: CREW_LABELS.mateRole } }))).toBe(false);
+  it("never touches an agent that is not this first mate's crew", () => {
+    expect(isClearableCrew(agent({ labels: {} }), MATE, LATER)).toBe(false);
+    expect(isClearableCrew(agent({ labels: { ...CREW, [CREW_LABELS.role]: CREW_LABELS.mateRole } }), MATE, LATER)).toBe(
+      false,
+    );
+    expect(isClearableCrew(agent({ labels: { [CREW_LABELS.role]: CREW_LABELS.crewRole } }), MATE, LATER)).toBe(false);
+    expect(isClearableCrew(agent(), "another-mate", LATER)).toBe(false);
+  });
+
+  it("waits for a turn that started after the finish", () => {
+    expect(isClearableCrew(agent(), MATE, new Date("2026-09-25T00:50:28.000Z"))).toBe(false);
+    expect(isClearableCrew(agent({ attentionTimestamp: null }), MATE, LATER)).toBe(false);
   });
 
   it("leaves what the captain still has to see", () => {
-    expect(isClearableCrew(agent({ pendingPermissions: [{ id: "p" }] as PaseoAgent["pendingPermissions"] }))).toBe(
-      false,
-    );
-    expect(isClearableCrew(agent({ attentionReason: "permission" }))).toBe(false);
-    expect(isClearableCrew(agent({ attentionReason: "error" }))).toBe(false);
-    expect(isClearableCrew(agent({ status: "error" }))).toBe(false);
-    expect(isClearableCrew(agent({ status: "running" }))).toBe(false);
-    expect(isClearableCrew(agent({ requiresAttention: false }))).toBe(false);
-  });
-});
-
-describe("MateTimelineCursor", () => {
-  it("hands each item over once", () => {
-    const cursor = new MateTimelineCursor();
-    const first = [user("a"), user("b")];
-    expect(cursor.take("mate", first)).toEqual(first);
-    const second = [...first, user("c")];
-    expect(cursor.take("mate", second)).toEqual([user("c")]);
-    expect(cursor.take("mate", second)).toEqual([]);
-  });
-
-  it("reads a timeline shorter than last time from the start", () => {
-    const cursor = new MateTimelineCursor();
-    cursor.take("mate", [user("a"), user("b"), user("c")]);
-    expect(cursor.take("mate", [user("x")])).toEqual([user("x")]);
+    const permission = { pendingPermissions: [{ id: "p" }] as PaseoAgent["pendingPermissions"] };
+    expect(isClearableCrew(agent(permission), MATE, LATER)).toBe(false);
+    expect(isClearableCrew(agent({ attentionReason: "permission" }), MATE, LATER)).toBe(false);
+    expect(isClearableCrew(agent({ attentionReason: "error" }), MATE, LATER)).toBe(false);
+    expect(isClearableCrew(agent({ status: "error" }), MATE, LATER)).toBe(false);
+    expect(isClearableCrew(agent({ status: "running" }), MATE, LATER)).toBe(false);
+    expect(isClearableCrew(agent({ requiresAttention: false }), MATE, LATER)).toBe(false);
   });
 });
 
 describe("markCrewSeen", () => {
   it("clears only the crewmates that qualify, and survives a failure", async () => {
-    const paseo = fakePaseo({
-      "crew-1": agent({ id: "crew-1" }),
-      "crew-2": agent({ id: "crew-2", attentionReason: "permission" }),
-      other: agent({ id: "other", labels: {} }),
-      "crew-3": agent({ id: "crew-3" }),
-    });
+    const paseo = fakePaseo([
+      agent({ id: "crew-1" }),
+      agent({ id: "crew-2", attentionReason: "permission" }),
+      agent({ id: "other", labels: {} }),
+      agent({ id: "crew-3" }),
+    ]);
     const clear = vi.fn(async function clear(agentId: string): Promise<void> {
       if (agentId === "crew-3") throw new Error("The daemon did not answer clear_agent_attention within 10 seconds.");
     });
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const cleared = await markCrewSeen(paseo, ["crew-1", "crew-2", "other", "crew-3", "gone"], clear);
+    const cleared = await markCrewSeen(paseo, MATE, LATER, clear);
 
     expect(cleared).toEqual(["crew-1"]);
     expect(clear.mock.calls.map((call) => call[0])).toEqual(["crew-1", "crew-3"]);
     expect(error).toHaveBeenCalledTimes(1);
     error.mockRestore();
   });
+
+  it("does not throw when the crew cannot be listed", async () => {
+    const paseo = {
+      agents: {
+        async list() {
+          throw new Error("Transport not connected");
+        },
+      },
+    } as unknown as PaseoApi;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(markCrewSeen(paseo, MATE, LATER, vi.fn())).resolves.toEqual([]);
+    error.mockRestore();
+  });
 });
 
 describe("registerCrewSeen", () => {
-  type Handler = (
-    event: { agent: { id: string }; outcome: { kind: string }; timeline: readonly TimelineItem[] },
-    context: { paseo: PaseoApi },
-  ) => Promise<void>;
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
-  function setup(mateAgentId = "mate") {
-    let handler: Handler | null = null;
+  type Handler = (
+    event: { agent: { id: string }; outcome?: { kind: string }; timeline?: readonly TimelineItem[] },
+    context: { paseo: PaseoApi },
+  ) => void | Promise<void>;
+
+  /**
+   * The first mate's timeline as the daemon hands it to `turn_ended`: Paseo
+   * keeps every `<paseo-system>` note out of it, so the turn that read
+   * 5bd93f94's finish shows only the captain, the tools and the replies.
+   */
+  const REAL_TIMELINE = [
+    { type: "user_message", text: "land 42" },
+    { type: "tool_call", name: "Bash", status: "completed" },
+    { type: "assistant_message", text: "Landed #42." },
+    { type: "assistant_message", text: "Worker 5bd93f9 finished: PR opened." },
+  ] as unknown as TimelineItem[];
+
+  function setup(agents: readonly PaseoAgent[] = [agent()]) {
+    const handlers = new Map<string, Handler>();
     const server = {
       on(name: string, registered: Handler) {
-        expect(name).toBe("agent.turn_ended");
-        handler = registered;
-        return () => {};
+        handlers.set(name, registered);
+        return () => handlers.delete(name);
       },
     };
     const clear = vi.fn<(agentId: string) => Promise<void>>(async function clear() {});
-    const paseo = fakePaseo({ "crew-1": agent({ id: "crew-1" }), "crew-2": agent({ id: "crew-2" }) });
-    registerCrewSeen(
+    const paseo = fakePaseo(agents);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    let clock = LATER;
+    const unregister = registerCrewSeen(
       server as unknown as Parameters<typeof registerCrewSeen>[0],
       async function readConfig() {
-        return { mateAgentId } as FirstmateConfig;
+        return { mateAgentId: MATE } as FirstmateConfig;
       },
       clear,
+      () => clock,
     );
-    function end(agentId: string, kind: string, timeline: readonly TimelineItem[]): Promise<void> {
-      if (handler === null) throw new Error("no handler registered");
-      return handler({ agent: { id: agentId }, outcome: { kind }, timeline }, { paseo });
+    function handler(name: string): Handler {
+      const found = handlers.get(name);
+      if (found === undefined) throw new Error(`no ${name} handler registered`);
+      return found;
     }
-    return { clear, end };
+    async function start(agentId: string, at: Date): Promise<void> {
+      clock = at;
+      await handler("agent.turn_started")({ agent: { id: agentId } }, { paseo });
+    }
+    async function end(agentId: string, kind: string): Promise<void> {
+      const event = { agent: { id: agentId }, outcome: { kind }, timeline: REAL_TIMELINE };
+      await handler("agent.turn_ended")(event, { paseo });
+    }
+    return { clear, start, end, log, handlers, unregister };
   }
 
-  it("clears the crewmates a completed first-mate turn read about, once", async () => {
-    const { clear, end } = setup();
-    const timeline = [user(note("crew-1", "finished"))];
-    await end("mate", "completed", timeline);
-    await end("mate", "completed", [...timeline, user("captain: thanks")]);
-    expect(clear.mock.calls.map((call) => call[0])).toEqual(["crew-1"]);
+  it("clears a crewmate whose finish note never reached the timeline once a later first-mate turn completes", async () => {
+    const { clear, start, end, log } = setup();
+    await start(MATE, LATER);
+    await end(MATE, "completed");
+    expect(clear.mock.calls.map((call) => call[0])).toEqual(["5bd93f94-ac32-4e02-93c0-670b98bf563e"]);
+    expect(log).toHaveBeenCalledWith("[firstmate] cleared 1 crewmates the first mate has read about");
+  });
+
+  it("leaves a crewmate that finished during the turn for the next one", async () => {
+    const { clear, start, end } = setup();
+    await start(MATE, new Date("2026-09-25T00:50:00.000Z"));
+    await end(MATE, "completed");
+    expect(clear).not.toHaveBeenCalled();
+    await start(MATE, LATER);
+    await end(MATE, "completed");
+    expect(clear).toHaveBeenCalledTimes(1);
   });
 
   it("waits for a completed turn when one is cancelled or fails", async () => {
-    const { clear, end } = setup();
-    const timeline = [user(note("crew-1", "finished"))];
-    await end("mate", "canceled", timeline);
-    await end("mate", "failed", timeline);
+    const { clear, start, end } = setup();
+    await start(MATE, LATER);
+    await end(MATE, "canceled");
+    await start(MATE, LATER);
+    await end(MATE, "failed");
     expect(clear).not.toHaveBeenCalled();
-    await end("mate", "completed", [...timeline, user(note("crew-2", "finished"))]);
-    expect(clear.mock.calls.map((call) => call[0])).toEqual(["crew-1", "crew-2"]);
+    await start(MATE, LATER);
+    await end(MATE, "completed");
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips a turn whose start it did not see, as after a reload", async () => {
+    const { clear, end } = setup();
+    await end(MATE, "completed");
+    expect(clear).not.toHaveBeenCalled();
   });
 
   it("ignores any agent but the first mate", async () => {
-    const { clear, end } = setup();
-    await end("crew-2", "completed", [user(note("crew-1", "finished"))]);
+    const { clear, start, end } = setup();
+    await start("crew-2", LATER);
+    await end("crew-2", "completed");
     expect(clear).not.toHaveBeenCalled();
+  });
+
+  it("unregisters both hooks", () => {
+    const { handlers, unregister } = setup();
+    unregister();
+    expect(handlers.size).toBe(0);
   });
 });
