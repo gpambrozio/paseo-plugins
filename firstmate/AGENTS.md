@@ -30,6 +30,8 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
 | `server/crew-seen.ts`         | Clears a crewmate's "finished" flag once a later first-mate turn has completed.            |
 | `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
+| `shared/attachments.ts`       | What the captain can attach: the message's shape, image-or-file by Paseo's rules, the size cap. |
+| `server/uploads.ts`           | An attached file written to `$PASEO_HOME/uploads/`, described as Paseo's `uploaded_file`.     |
 | `server/cli.ts`               | `paseo stop` and `paseo project rename`, for what the SDK does not have.                   |
 | `server/home-name.ts`         | Names the home's project and workspace "FirstMate" instead of the folder's "home".         |
 | `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing an agent's attention.          |
@@ -38,6 +40,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
 | `client/fleet.tsx`            | The surface: header, banners, chat/board split, compact tabs, the shared fleet query.      |
 | `client/chat.tsx`             | The first mate's conversation, folded to the words, and the composer.                      |
+| `client/draft.ts`, `attachments.ts` | The unsent message and what is attached to it, kept on `globalThis` across reloads.  |
 | `shared/files.ts`, `server/files.ts` | The home as files: list, read, write — confined to the home, saved against the version opened. |
 | `client/files.tsx`            | The Files view: the home's folders, a text editor, a Markdown preview.                     |
 | `client/open-file.ts`         | The file open in the Files view, and what a save changes about it. Pure.                   |
@@ -57,7 +60,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/settings-screen.tsx`  | Settings › Plugins › FirstMate.                                                            |
 | `client/markdown.tsx`         | A trimmed copy of `github-board`'s renderer, for the first mate's replies.                 |
 | `client/option-picker.tsx`    | A copy of `herald`'s searchable picker, for the model lists.                               |
-| `client/web.ts`, `resize-handle.tsx` | The chat/board split's drag; the document-level tracking is a copy of `github-board`'s. |
+| `client/web.ts`, `resize-handle.tsx` | The chat/board split's drag (a copy of `github-board`'s); the chat's file picker, paste and drop. |
 
 ## The plugin never dispatches a crewmate
 
@@ -501,6 +504,33 @@ itself, with what `react-native` offers:
 
 All of it was written against a screenshot and has to be checked on a device.
 
+## Attachments go the way Paseo's composer sends them
+
+Paseo 0.9 gives a plugin no composer to embed: composer pills and attachment sources contribute *to*
+Paseo's own composer, and `@getpaseo/plugin/client/*` exports no input, picker or chip. So the chat
+has its own, and sends what Paseo's composer sends (read in the 0.9.0 app and daemon):
+
+- **An image** goes in the send's `images`, base64 with its type — raster types only, by Paseo's list;
+  an SVG is a file.
+- **Any other file** is written to `$PASEO_HOME/uploads/upload_<uuid>/<safe name>` and goes in
+  `attachments` as `{ type: "uploaded_file", id, fileName, mimeType, size, path }`; the provider tells
+  the agent the path. Paseo's app uploads over a binary channel a plugin cannot reach, so the bytes
+  ride the `firstmate.mate.ask` RPC as base64 and `server/uploads.ts` writes them in Paseo's layout —
+  only once the first mate is known to exist. Paseo caps one file at 50 MB and nothing else, since each
+  upload is its own stream; here one RPC carries the whole message in one WebSocket frame, and the
+  daemon's socket takes `ws`'s default 100 MiB. So the contract holds images and files alike to 50 MB
+  each, 20 per message and 64 MB together (about 85 MiB as base64), and the client checks the same
+  before it reads a byte.
+
+Picking, pasting and dropping are all `client/web.ts`, and **all of it is web-only**. Paseo's native
+app picks with Expo's image and document pickers and pastes through a third-party text input; none
+of those is a host module, so on iOS and Android the attach button is not drawn and the chat takes
+words only. A phone *browser* gets the button, and its picker offers the photo library and camera.
+Paste takes images only, as Paseo's does, so pasting text or a copied file still pastes text.
+
+The pending attachments live beside the draft on `globalThis` (`client/attachments.ts`), bytes and
+all, so a lost connection keeps them; a failed send puts them back unless something new was attached.
+
 ## What was left out
 
 From FirstMate the distro: the session backends (tmux, Herdr, cmux, Zellij, Orca), treehouse, the
@@ -510,8 +540,8 @@ taken by a `reviewed-PR` mode the crewmate carries out itself.
 
 From ABorakati's plugin: changing the first mate's model, thinking or mode from the board (0.9's SDK
 cannot; ABorakati's plugin sent raw daemon frames over the plugin's IPC channel, which is not an
-interface — Paseo's own agent view does it), file attachments in the composer (open the first mate in
-Paseo for those), and dragging columns (arrows instead).
+interface — Paseo's own agent view does it), and dragging columns (arrows instead). Attachments came
+later, web-only — see *Attachments go the way Paseo's composer sends them*.
 
 ## Checking it
 

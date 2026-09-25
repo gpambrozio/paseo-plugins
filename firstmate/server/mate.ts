@@ -6,6 +6,7 @@
  * charter and starts it there; from then on the first mate owns intake,
  * dispatch and supervision, with Paseo's own tools.
  */
+import type { CaptainMessage } from "../shared/attachments";
 import { CREW_LABELS, type AgentSummary, type FirstmateConfig, type MateCommand } from "../shared/fleet";
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import { fetchLiveAgent, listAgents, resolveMate, summarizeAgent } from "./fleet";
@@ -15,6 +16,7 @@ import { nameHomeOnce } from "./home-name";
 import type { PaseoApi } from "./host-types";
 import { sendSessionRequest } from "./daemon-session";
 import { sendWithoutInterrupting } from "./send";
+import { writeUpload } from "./uploads";
 
 export const MATE_TITLE = "First mate";
 
@@ -224,10 +226,19 @@ export function commandText(command: MateCommand, args: string): Promise<string>
   return extra === "" ? message(plain) : message(withArgs, { args: extra });
 }
 
-/** Delivers the captain's words, joining the first mate's turn if it is mid-way through one. */
-export async function askMate(paseo: PaseoApi, text: string): Promise<string> {
+/**
+ * Delivers the captain's words, joining the first mate's turn if it is mid-way through one.
+ * Images go with the message; files are written to Paseo's uploads first and go as their paths —
+ * see `shared/attachments.ts`. Nothing is written until the first mate is known to exist.
+ */
+export async function askMate(paseo: PaseoApi, message: CaptainMessage): Promise<string> {
   const agentId = await requireMate(paseo);
-  await sendWithoutInterrupting(paseo, agentId, text);
+  const images = message.images ?? [];
+  const attachments = await Promise.all((message.files ?? []).map((file) => writeUpload(file)));
+  await sendWithoutInterrupting(paseo, agentId, message.text.trim(), {
+    ...(images.length > 0 ? { images } : {}),
+    ...(attachments.length > 0 ? { attachments } : {}),
+  });
   return agentId;
 }
 
