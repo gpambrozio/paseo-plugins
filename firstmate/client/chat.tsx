@@ -195,10 +195,11 @@ export function MateChat({
       chips: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6 },
       dropZone: {
         position: "absolute" as const,
-        top: 6,
-        right: 6,
-        bottom: 6,
-        left: 6,
+        top: 8,
+        right: 8,
+        bottom: 8,
+        left: 8,
+        zIndex: 10,
         alignItems: "center" as const,
         justifyContent: "center" as const,
         gap: 6,
@@ -207,7 +208,6 @@ export function MateChat({
         borderColor: colors.accent,
         borderRadius: 10,
         backgroundColor: colors.surface1,
-        opacity: 0.92,
       },
       dropText: { color: colors.foreground, fontSize: 13 },
       inputRow: { flexDirection: "row" as const, alignItems: "flex-end" as const, gap: 8 },
@@ -359,13 +359,6 @@ export function MateChat({
         </ScrollView>
         {follow.away ? <JumpToEnd theme={theme} onPress={follow.jumpToEnd} /> : null}
       </View>
-      {dragging ? (
-        // Over the whole chat, since the whole chat takes the drop; it never takes the pointer itself.
-        <View pointerEvents="none" style={styles.dropZone}>
-          <Icon name="Paperclip" size={18} color={theme.colors.accent} />
-          <Text style={styles.dropText}>Drop to attach</Text>
-        </View>
-      ) : null}
       {/*
         The host pads a surface's top, under its header, but not its bottom, so
         on a phone the composer would sit on the home indicator. React Native's
@@ -461,6 +454,20 @@ export function MateChat({
           </View>
         </View>
       </SafeAreaView>
+      {dragging ? (
+        /*
+          Over the whole chat, transcript through composer, since the whole
+          pane takes the drop; it never takes the pointer itself. The pane's
+          last child and raised, because on the web renderer every view is
+          positioned and a later sibling — the composer — paints over an
+          earlier one; opaque, so the transcript's scrollbar does not show
+          through its right edge.
+        */
+        <View pointerEvents="none" style={styles.dropZone}>
+          <Icon name="Paperclip" size={18} color={theme.colors.accent} />
+          <Text style={styles.dropText}>Drop to attach</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
