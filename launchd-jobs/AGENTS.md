@@ -113,7 +113,9 @@ script, and when the forwarder cannot be written nothing moves that start. `jobs
 link. **The forwarder moves its own job's log and history the same way before it runs**, so a fire
 between the forwarder going in and the daemon's move carries that job's old file over instead of
 starting a fresh one under the same name. launchd never runs two instances of one job, and both movers
-link the same inode, so the two cannot collide. A file whose move failed is served from the old place
+link the same inode, so the two cannot collide. When the forwarder cannot move one — `ln` fails across
+filesystems — that run uses the old directory, appending to the history where it is, and the daemon's
+move (which can copy) carries it over later. A file whose move failed is served from the old place
 through `dataPath` (the shared rule) and retried next start; logs and history are always read from the
 new place, where the runner writes.
 

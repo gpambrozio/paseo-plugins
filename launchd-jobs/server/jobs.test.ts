@@ -122,7 +122,7 @@ describe("moveLegacyFiles", () => {
 
     const forwarder = await readFile(join(legacyPluginDir(), "runner.sh"), "utf8");
     expect(forwarder).toContain(`new=${newDir()}`);
-    expect(forwarder).toContain('export PASEO_LAUNCHD_JOBS_DIR="$new"');
+    expect(forwarder).toContain('export PASEO_LAUNCHD_JOBS_DIR="$dir"');
     expect(forwarder).toContain(`exec /bin/zsh ${join(newDir(), "runner.sh")} "$@"`);
     expect(await readFile(join(newDir(), "runner.sh"), "utf8")).toContain('dir="$PASEO_LAUNCHD_JOBS_DIR"');
     expect(await readFile(join(newDir(), "jobs.json"), "utf8")).toContain("Backup");
@@ -163,6 +163,41 @@ describe("moveLegacyFiles", () => {
       expect(runs.startsWith("old runs")).toBe(true);
       expect(fs.existsSync(join(legacyPluginDir(), "logs", "backup.log"))).toBe(false);
       expect(fs.existsSync(join(legacyPluginDir(), "runs", "backup.jsonl"))).toBe(false);
+    },
+  );
+
+  it.skipIf(process.platform !== "darwin")(
+    "runs against the old directory when the forwarder cannot move the job's files, so nothing is stranded",
+    async () => {
+      await legacyInstall();
+      const actual = vi.mocked(fs.linkSync).getMockImplementation();
+      vi.mocked(fs.linkSync).mockImplementationOnce((from, to) => {
+        // The forwarder's `ln` fails, as it does across filesystems, while the job fires.
+        fs.mkdirSync(join(newDir(), "logs"), { recursive: true });
+        fs.mkdirSync(join(newDir(), "runs"), { recursive: true });
+        fs.chmodSync(join(newDir(), "logs"), 0o555);
+        fs.chmodSync(join(newDir(), "runs"), 0o555);
+        try {
+          execFileSync("/bin/zsh", [join(legacyPluginDir(), "runner.sh"), "backup", "echo fired"], {
+            env: { ...process.env, HOME: paseoHome },
+          });
+        } finally {
+          fs.chmodSync(join(newDir(), "logs"), 0o755);
+          fs.chmodSync(join(newDir(), "runs"), 0o755);
+        }
+        expect(fs.existsSync(join(newDir(), "logs", "backup.log"))).toBe(false);
+        actual?.(from, to);
+      });
+
+      moveLegacyFiles();
+
+      const log = await readFile(join(newDir(), "logs", "backup.log"), "utf8");
+      expect(log.startsWith("old log")).toBe(true);
+      expect(log).toContain("fired");
+      const runs = await readFile(join(newDir(), "runs", "backup.jsonl"), "utf8");
+      expect(runs.startsWith("old runs")).toBe(true);
+      expect(runs).toContain('"exitCode":0');
+      expect(fs.existsSync(join(legacyPluginDir(), "logs", "backup.log"))).toBe(false);
     },
   );
 

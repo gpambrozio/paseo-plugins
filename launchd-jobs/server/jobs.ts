@@ -714,7 +714,10 @@ function legacyRunnerPath(): string {
  * instances of one job, so nothing else is writing them, and the new runner
  * never starts a fresh file under a name whose history is still in the old
  * directory. Racing the daemon's move of the same file is harmless: both link
- * the one inode, and whichever lands second finds it there.
+ * the one inode, and whichever lands second finds it there. A file it cannot
+ * move — `ln` fails across filesystems — makes this run use the old directory,
+ * so the run appends to the history rather than starting a new one beside it;
+ * the daemon's move copies it over on a later start.
  */
 function forwardingRunner(): string {
   return [
@@ -723,13 +726,17 @@ function forwardingRunner(): string {
     "# launchd loaded before the move, and is removed once every one of them has been reloaded.",
     `legacy=${shellQuote(legacyPluginDir())}`,
     `new=${shellQuote(pluginDir())}`,
+    'dir="$new"',
     'for file in "logs/$1.log.1" "logs/$1.log" "runs/$1.jsonl"; do',
     '  if [[ -f "$legacy/$file" ]]; then',
     '    mkdir -p "$new/${file:h}"',
     '    ln "$legacy/$file" "$new/$file" 2>/dev/null && rm -f "$legacy/$file"',
+    "    # Could not move it (another filesystem, a permission): this run appends where the history",
+    "    # still is, and the daemon's move, which can copy, carries it over on a later start.",
+    '    [[ -f "$legacy/$file" ]] && dir="$legacy"',
     "  fi",
     "done",
-    'export PASEO_LAUNCHD_JOBS_DIR="$new"',
+    'export PASEO_LAUNCHD_JOBS_DIR="$dir"',
     `exec /bin/zsh ${shellQuote(runnerPath())} "$@"`,
     "",
   ].join("\n");
