@@ -32,7 +32,9 @@ describe("crewColumn", () => {
   });
 
   it("files a stopped crewmate by its status line", () => {
-    expect(crewColumn(agent(), { state: "done", text: "" })).toBe("done");
+    expect(crewColumn(agent(), { state: "done", text: "" })).toBe("idle");
+    expect(crewColumn(agent(), { state: "resolved", text: "" })).toBe("idle");
+    expect(crewColumn(agent(), { state: "blocked", text: "" })).toBe("blocked");
     expect(crewColumn(agent(), { state: "needs-decision", text: "" })).toBe("blocked");
     expect(crewColumn(agent(), { state: "paused", text: "" })).toBe("parked");
     expect(crewColumn(agent(), { state: "failed", text: "" })).toBe("failed");
@@ -88,7 +90,7 @@ describe("buildCards", () => {
     const byKey = new Map(cards.map((card) => [card.key, card]));
 
     expect(byKey.get("agent:a1")).toMatchObject({
-      column: "done",
+      column: "idle",
       title: "Fix the login",
       project: "web",
       url: "https://github.com/o/r/pull/42",
