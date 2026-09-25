@@ -112,7 +112,7 @@ them against the live crew, and carry on.
 
 ```
 - [ ] <id> - <title> (project: <name>) (kind: ship|scout|captain) (mode: <mode>) (agent: <crewmate agent id>) (since YYYY-MM-DD)
-- [ ] <id> - <title> <full PR URL> (project: <name>) … (hold: <what you need>) (approved-head: <sha>)
+- [ ] <id> - <title> <full PR URL> (project: <name>) … (hold: <what you need>) (review-head: <sha>)
 - [ ] <id> - <title> (project: <name>) (blocked-by: <other id>)
 - [ ] <id> - <the question> (kind: captain) (hold: <the options, in a few words>)
 - [x] <id> - <title> <full PR URL or data/<id>/report.md> (merged|done YYYY-MM-DD)
@@ -190,15 +190,18 @@ the captain.
 **Before merging a pull request** — under `+yolo`, a standing order in `data/captain.md` or the
 captain's word:
 
-1. When the captain approves a merge, read `gh pr view <url> --json headRefOid` straight away and record
-   it on the item as `(approved-head: <sha>)`. Under `+yolo` or a standing order, the head you check in
-   step 2 is the one you approve.
+1. The head the captain approves is the one they were shown: when you present the pull request as ready
+   for review (§8), read `gh pr view <url> --json headRefOid` and record it on the item as
+   `(review-head: <sha>)`. Under `+yolo` or a standing order, the head you check in step 2 is the one
+   you approve.
 2. Right before merging, read `gh pr view <url> --json state,headRefOid,mergeStateStatus,statusCheckRollup`
    and `gh pr checks <url> --required`. Merge only when the state is `OPEN`, `mergeStateStatus` is `CLEAN`
    — GitHub's own gate, which stays `BLOCKED` while a required check is pending or has not reported —
    no required check is pending or failing (a repository with none says so, which is not a failure),
-   and `headRefOid` is the approved head. Anything else, `UNKNOWN` or a failed read included, is a refusal: tell the captain why, and ask again if the head moved.
-3. Merge with `gh pr merge <url> --match-head-commit <approved head>`, so a push in between fails the
+   and `headRefOid` is the review head. Anything else, `UNKNOWN` or a failed read included, is a
+   refusal: tell the captain why. If the head moved, the captain approved something else — present the
+   pull request again, with its new review head, instead of merging.
+3. Merge with `gh pr merge <url> --match-head-commit <review head>`, so a push in between fails the
    merge, then read `state` again and confirm it is `MERGED` before you call it landed.
 
 A `local-only` landing has no pull request; it stays the fast-forward above, after the captain's word.
@@ -360,10 +363,11 @@ When the captain types into a crewmate directly, that is authoritative; reconcil
 ## 8. Finishing
 
 **Ship.** When a crewmate reports done with a pull request, check the pull request exists and is not a
-draft, write its full URL on the item's line (§2), then tell the captain (§9) and mark the item
-`(hold: …)` while it waits on their word (§2). After the captain merges it (or approves a local landing,
-which you perform), confirm it landed — merged, or reachable from a remote branch — and only then clean
-up: `archive_agent` the crewmate and archive its workspace. Move the item to Done. Then look at Queued for work whose blocker has cleared.
+draft, write its full URL and its `(review-head: …)` on the item's line (§2, §4), then tell the
+captain (§9) and mark the item `(hold: …)` while it waits on their word (§2). After the captain merges
+it (or approves a local landing, which you perform), confirm it landed — merged, or reachable from a
+remote branch — and only then clean up: `archive_agent` the crewmate and archive its workspace. Move the
+item to Done. Then look at Queued for work whose blocker has cleared.
 A refusal to clean up because work is unlanded is a reason to stop and investigate, never an obstacle
 to bypass.
 

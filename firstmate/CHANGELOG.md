@@ -44,9 +44,9 @@ read before you move.
     something, and one that stops anyway is nudged to carry on.
   - Before merging a pull request — even under a standing order such as merging green dependency
     updates — the first mate checks it again: it will not merge while a required check is still running,
-    missing or failing, or when the pull request changed after you approved it, and it confirms the merge
-    went through. It notes the pull request's address on the work, and what it looked like when you
-    approved it, so it can tell.
+    missing or failing, or when the pull request has changed since it showed it to you — then it shows
+    you the new version instead — and it confirms the merge went through. It notes the pull request's
+    address on the work, and which version it showed you, so it can tell.
   - Its regular check-in now looks at every pull request it is tracking. One you merge on GitHub is
     cleaned up and the work waiting on it starts; one you close without merging still holds work that
     never landed, so it asks you what to do with it rather than throwing it away. It also notices a worker
