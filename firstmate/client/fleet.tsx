@@ -6,6 +6,10 @@
  * interval in the display settings and refetched right after any action. The
  * chat reads the first mate's timeline directly and streams.
  *
+ * The first mate's suggestions are buttons that fill the chat's composer: a
+ * card beside the crew's columns on a wide layout, a tab of their own on a
+ * phone, and nowhere at all while it has none.
+ *
  * A surface is unmounted whenever the captain opens a workspace, so the last
  * fleet, the compact tab and the crewmate being watched live in module scope
  * and the board comes back drawn rather than empty.
@@ -30,16 +34,18 @@ import { displaySettings, type DisplaySettings } from "../shared/settings";
 import { Board } from "./board";
 import { FilesView, type FilesRequest } from "./files";
 import { MateChat } from "./chat";
+import { drafts, withSuggestion } from "./draft";
 import { CrewmateView } from "./crewmate";
 import { agentStatusLabel, agentStatusTone, groupCards, orderedColumns, shortPath } from "./format";
 import { LaunchPanel } from "./launch";
 import { ResizeHandle, clampShare } from "./resize-handle";
+import { SuggestionList } from "./suggestions";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 
 export const FLEET_QUERY_KEY = ["firstmate", "fleet"] as const;
 
 let cachedFleet: Fleet | null = null;
-type Tab = "chat" | "board" | "files";
+type Tab = "chat" | "suggestions" | "board" | "files";
 let cachedTab: Tab = "chat";
 /** What the right-hand pane shows on a wide layout: the crew, or the home's files. */
 let cachedRightPane: "board" | "files" = "board";
@@ -97,6 +103,8 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   const [charterBusy, setCharterBusy] = useState(false);
   /** A file the Files view should open; not kept across a remount, or it would open again on return. */
   const [filesRequest, setFilesRequest] = useState<FilesRequest | null>(null);
+  /** Moves when something other than the chat changed its draft, so the chat reads it again. */
+  const [draftVersion, setDraftVersion] = useState(0);
 
   const fleet = useFleet(values.pollSeconds);
   const data = fleet.data ?? null;
@@ -104,6 +112,17 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: FLEET_QUERY_KEY });
   }, [queryClient]);
+
+  const suggestionCount = data?.suggestions.length ?? 0;
+  /**
+   * The Suggestions tab goes when the first mate clears its list, and the chat
+   * — where a suggestion would have led anyway — shows in its place, now and
+   * the next time the surface mounts.
+   */
+  const shownTab: Tab = tab === "suggestions" && suggestionCount === 0 ? "chat" : tab;
+  useEffect(() => {
+    if (data !== null && suggestionCount === 0 && tab === "suggestions") setTab("chat");
+  }, [data, suggestionCount, tab]);
 
   /**
    * Layout changes are drawn at once and saved behind, batched: a save is
@@ -220,6 +239,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       tabActive: { backgroundColor: colors.accent },
       tabText: { color: colors.foreground, fontSize: 13 },
       tabTextActive: { color: colors.accentForeground, fontWeight: "600" as const },
+      suggestions: { padding: 10, paddingBottom: 24 },
       loading: { color: colors.foregroundMuted, fontSize: 13, padding: 20 },
     };
   }, [theme, compact]);
@@ -250,6 +270,19 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
 
   const openMate =
     mate === null || navigation === undefined ? null : () => navigation.openAgent({ agentId: mate.id });
+
+  /**
+   * A suggestion goes into the draft — alone, or on a new line after what was
+   * typed — and the chat comes into view with it. It is never sent from here;
+   * the captain reads it and presses Send.
+   */
+  function suggest(prompt: string): void {
+    if (mate === null) return;
+    drafts.set(mate.id, withSuggestion(drafts.get(mate.id), prompt));
+    setDraftVersion((version) => version + 1);
+    if (compact) setTab("chat");
+    else if (values.chatCollapsed) save({ chatCollapsed: false });
+  }
 
   function turnOnTools(): void {
     setEnabling(true);
@@ -334,7 +367,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   }
   // The question itself is in the chat; the banner is for when the chat is
   // out of sight — folded away, or behind the Crew tab on a phone.
-  const chatHidden = compact ? tab !== "chat" : values.chatCollapsed;
+  const chatHidden = compact ? shownTab !== "chat" : values.chatCollapsed;
   if (mate !== null && mate.pendingPermissions > 0 && chatHidden) {
     banners.push(
       <Banner
@@ -461,6 +494,8 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       collapsed={values.collapsedColumns}
       theme={theme}
       compact={compact}
+      suggestions={data.suggestions}
+      onSuggest={suggest}
       onWatch={setWatching}
       onChanged={refresh}
       onToggleColumn={(id: ColumnId) =>
@@ -474,7 +509,15 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
     />
   );
   const chat = (
-    <MateChat key={mate.id} mate={mate} theme={theme} compact={compact} onOpen={openMate} onChanged={refresh} />
+    <MateChat
+      key={mate.id}
+      mate={mate}
+      theme={theme}
+      compact={compact}
+      draftVersion={draftVersion}
+      onOpen={openMate}
+      onChanged={refresh}
+    />
   );
   const crew =
     watching === null ? (
@@ -493,27 +536,45 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
     );
 
   if (compact) {
+    const tabs: readonly Tab[] =
+      suggestionCount > 0 ? ["chat", "suggestions", "board", "files"] : ["chat", "board", "files"];
     return (
       <View style={styles.screen}>
         {header}
         {banners.length === 0 ? null : <View style={styles.banners}>{banners}</View>}
         <View style={styles.tabs}>
-          {(["chat", "board", "files"] as const).map((id) => (
+          {tabs.map((id) => (
             <Pressable
               key={id}
               accessibilityRole="tab"
-              accessibilityState={{ selected: tab === id }}
-              style={[styles.tab, tab === id ? styles.tabActive : null]}
+              accessibilityState={{ selected: shownTab === id }}
+              style={[styles.tab, shownTab === id ? styles.tabActive : null]}
               onPress={() => setTab(id)}
             >
-              <Text style={[styles.tabText, tab === id ? styles.tabTextActive : null]}>
-                {id === "chat" ? "First mate" : id === "board" ? `Crew (${data.cards.length})` : "Files"}
+              <Text style={[styles.tabText, shownTab === id ? styles.tabTextActive : null]} numberOfLines={1}>
+                {id === "chat"
+                  ? "First mate"
+                  : id === "suggestions"
+                    ? "Suggestions"
+                    : id === "board"
+                      ? `Crew (${data.cards.length})`
+                      : "Files"}
               </Text>
             </Pressable>
           ))}
         </View>
         <View style={{ flex: 1, minHeight: 0 }}>
-          {tab === "chat" ? chat : tab === "board" ? crew : <FilesView theme={theme} compact request={filesRequest} />}
+          {shownTab === "chat" ? (
+            chat
+          ) : shownTab === "suggestions" ? (
+            <ScrollView contentContainerStyle={styles.suggestions}>
+              <SuggestionList suggestions={data.suggestions} theme={theme} onPick={suggest} />
+            </ScrollView>
+          ) : shownTab === "board" ? (
+            crew
+          ) : (
+            <FilesView theme={theme} compact request={filesRequest} />
+          )}
         </View>
       </View>
     );

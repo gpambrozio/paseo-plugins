@@ -85,6 +85,11 @@ charter, the records it starts with, the home's icon — is in `templates/`, as 
 - **`/ahoy`** — what happened since you last spoke, then every open decision, one at a time, with a
   recommendation.
 - *Bearings* and *Ahoy* are also buttons above the chat, and *FirstMate: bearings* is in ⌘K.
+- **Suggestions** — when the first mate has an idea of what you will want next ("Land web#42", "Review
+  loop on web#42"), it shows as a button: on a wide screen in a card before the board's columns, on a
+  phone in a Suggestions tab after First mate. Pressing one puts the request in the chat's message box —
+  on its own line after anything you had typed — and brings the chat into view. Nothing is sent until
+  you press Send. With no suggestions there is no card and no tab.
 
 ![After the voyage: the first mate's Bearings report in the chat — Captain's Call: nothing needs your
 action; Recently Landed: the knots fix and the dark mode toggle, both landed on main; Underway and
@@ -170,6 +175,8 @@ settings, and your choice is kept.
   - `local-only` — no remote; the worker leaves a clean branch, and the first mate lands it when you say.
   - `+yolo` after the mode lets the first mate merge green work on that project without asking.
 - `data/backlog.md` — every task, in flight, queued and done. The board reads it.
+- `data/suggestions.md` — what the first mate thinks you will want next, one per line as
+  `- <label> :: <what to send>`. The first mate keeps it up to date; the board turns it into buttons.
 - `data/<task>/brief.md`, `data/<task>/report.md` — each worker's instructions, and an investigation's
   findings.
 

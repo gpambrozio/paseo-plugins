@@ -19,12 +19,13 @@ import {
   restoreFailed,
   toAttachment,
 } from "./attachments";
-import { createDraftStore } from "./draft";
+import { createDraftStore, withSuggestion } from "./draft";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { isDirty, markSaved, type OpenFile } from "./open-file";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import {
+  boardItems,
   boardRows,
   contextPercent,
   contextTone,
@@ -223,6 +224,17 @@ describe("columns", () => {
       [3, 4, 5],
     ]);
   });
+
+  it("counts the suggestions card as one of the row's cards, first, and only when there are suggestions", () => {
+    expect(boardRows(boardItems(["working", "idle"], true))).toEqual([["suggestions", "working", "idle"]]);
+    expect(boardRows(boardItems(["working", "blocked", "idle"], true))).toEqual([
+      ["suggestions", "working"],
+      ["blocked", "idle"],
+    ]);
+    expect(boardRows(boardItems(["working", "blocked", "idle"], false))).toEqual([["working", "blocked", "idle"]]);
+    expect(boardRows(boardItems([], true))).toEqual([["suggestions"]]);
+    expect(boardRows(boardItems([], false))).toEqual([]);
+  });
 });
 
 describe("formatting", () => {
@@ -357,6 +369,18 @@ describe("markSaved", () => {
     const other: OpenFile = { kind: "text", path: "AGENTS.md", modifiedMs: 5, saved: "a", draft: "b" };
     expect(markSaved(other, sent)).toBe(other);
     expect(markSaved(null, sent)).toBeNull();
+  });
+});
+
+describe("withSuggestion", () => {
+  it("fills an empty draft with the prompt", () => {
+    expect(withSuggestion("", "Merge https://github.com/you/web/pull/42")).toBe("Merge https://github.com/you/web/pull/42");
+    expect(withSuggestion("  \n", "Land it")).toBe("Land it");
+  });
+
+  it("puts the prompt on a new line after what was typed", () => {
+    expect(withSuggestion("Before that,", "Land it")).toBe("Before that,\nLand it");
+    expect(withSuggestion("Before that,\n", "Land it")).toBe("Before that,\nLand it");
   });
 });
 

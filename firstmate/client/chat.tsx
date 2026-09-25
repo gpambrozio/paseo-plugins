@@ -67,12 +67,15 @@ export function MateChat({
   mate,
   theme,
   compact,
+  draftVersion,
   onOpen,
   onChanged,
 }: {
   mate: AgentSummary;
   theme: PluginTheme;
   compact: boolean;
+  /** Moves when the draft was changed from outside the chat — a suggestion put in — so it is read again. */
+  draftVersion: number;
   /** Opens the first mate in Paseo; absent where the host gives no navigation. */
   onOpen: (() => void) | null;
   /** After a compact or a restart, so the board catches up without waiting for its poll. */
@@ -94,6 +97,9 @@ export function MateChat({
    * after a lost connection — see `./draft`.
    */
   const [draft, setDraftState] = useState(() => drafts.get(mate.id));
+  useEffect(() => {
+    setDraftState(drafts.get(mate.id));
+  }, [draftVersion, mate.id]);
   /** What is attached to the draft, kept beside it for the same reasons — see `./attachments`. */
   const [attachments, setAttachmentsState] = useState(() => pendingAttachments.get(mate.id));
   /** A drag carrying files is over the chat. */

@@ -24,6 +24,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/charter-file.ts`      | `data/charter.md`, the captain's copy it is rendered from: follows the plugin until edited. |
 | `server/home.ts`              | The home directory: writes the charter and records, reads the backlog and project registry. |
 | `server/backlog.ts`           | `data/backlog.md` → `BacklogItem[]`. Lenient, because an agent writes the file.            |
+| `server/suggestions.ts`       | `data/suggestions.md` → `Suggestion[]`, the board's next-step buttons. Lenient, likewise.   |
 | `server/crew-report.ts`       | A crewmate's closing status line (`done: PR …`) → state and text.                          |
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
@@ -50,6 +51,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/keys.ts`              | Enter sends, Shift+Enter is a new line — web and wide layouts only, as in Paseo. Pure.     |
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
+| `client/suggestions.tsx`      | The first mate's suggestions as buttons: a card on the wide board, a tab on a phone.       |
 | `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
 | `client/activity-rows.ts`     | Timeline entries → Watch rows, machinery kept: reasoning, tool detail, the latest plan. Pure. |
 | `client/mate-controls.tsx`    | The context meter, Compact and Restart (with its confirmation), at the end of the chat's buttons. |
@@ -147,7 +149,9 @@ reported done is still alive and In flight until the first mate lands it and mov
 keeps the status line and the item's hold, so "Done: PR …" still reads on it from the Idle column.
 
 The board draws only columns with a card in them, folded or not (`board.tsx`); the wide layout puts
-the shown ones in `boardRows` — one row up to three, two past that, the extra in the second. The saved
+the shown ones in `boardRows` — one row up to three, two past that, the extra in the second — after
+the suggestions card when there is one (`boardItems`), which counts as a column there but never folds
+or moves. The saved
 `columnOrder` still holds all seven. A header's arrows reorder the *shown* columns (`moveColumn` with
 `shown`): the moved column hops past any hidden neighbour to land beside the next shown one, and the
 hidden ones keep their place relative to each other, so a press always moves something on screen and
@@ -219,7 +223,7 @@ got every file, `AGENTS.md` with no placeholder left; and on the real daemon a r
 every settings save, every plugin start and every save of that file in the panel** — it names the crew's
 model, and a charter change should reach a home in use without a relaunch; a running first mate still
 has to be asked to re-read it) and creates `data/captain.md`, `projects.md`, `backlog.md`,
-`learnings.md` and `opening.md` only when missing, so a relaunch never loses a record. `data/captain.md` is the
+`suggestions.md`, `learnings.md` and `opening.md` only when missing, so a relaunch never loses a record. `data/captain.md` is the
 captain's to edit and outranks the charter below its hard rules; that is where customisation that
 should survive an upgrade goes.
 
@@ -269,6 +273,20 @@ two local branches wrote "…, ready in branch fm/…, awaiting captain's approv
 and the cards grew with them. The charter now says where status lives — the section, the crewmate's
 status line, and `(hold: …)` for anything waiting on the captain, which the card already shows as
 "Captain's call".
+
+## Suggestions are the first mate's, and only fill the composer
+
+`data/suggestions.md` is what the captain might do next — `- <label> :: <prompt>`, one per line — and
+the first mate rewrites it whenever that changes (charter §2 and §9). The board reads it with the fleet
+on every poll (`parseSuggestions`): notes are left out, a line without a label and a prompt either side
+of the first `::` is skipped, and at most `MAX_SUGGESTIONS` are kept. Nothing in code writes a
+suggestion; an empty or missing file draws no card and no tab.
+
+A button never sends. It puts the prompt in the chat's draft (`withSuggestion`: alone in an empty one,
+on a new line after a typed one) and brings the chat into view: the First mate tab on a phone, the chat
+unfolded on a wide layout. The draft lives in `client/draft.ts`'s store, which the chat only reads on
+mount, so the surface bumps a `draftVersion` prop to make a mounted chat read it again. A phone left on
+the Suggestions tab when the list empties shows, and then switches to, First mate.
 
 ## The home is called FirstMate in the sidebar, with a ship for its icon
 

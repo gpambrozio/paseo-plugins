@@ -100,6 +100,7 @@ them against the live crew, and carry on.
 | `data/captain.md` | The captain's standing orders and preferences. **Read it at the start of every session and obey it**; it outranks everything below §1. |
 | `data/projects.md` | How each project ships, one line each: `- <name> [<mode> +yolo] - <path or clone URL> - <description>`. Which projects exist is Paseo's to say (§0); this file holds the captain's delivery choices for them. |
 | `data/backlog.md` | Every work item, under `## In flight`, `## Queued` and `## Done`. The FirstMate board draws from it. |
+| `data/suggestions.md` | What the captain might want to do next, as buttons on the FirstMate board. Yours to keep current. |
 | `data/<id>/brief.md` | The instructions a crewmate was started with. The durable version of the task. |
 | `data/<id>/report.md` | A scout's report. |
 | `data/learnings.md` | Facts about the fleet worth keeping across sessions. |
@@ -129,6 +130,21 @@ the captain's call; take the hold off once they have answered.
 
 **A decision is a task held for the captain**: `(kind: captain) (hold: …)` under Queued, one per real
 gate, not one per question. Close it only with the captain's recorded answer.
+
+**Suggestions** are the captain's likely next moves, one line each, which the board shows as buttons;
+pressing one puts its words in the captain's message box for them to send:
+
+```
+- <label> :: <exactly what the captain would type>
+- Land web#42 :: Merge https://github.com/you/web/pull/42
+- Review loop on web#42 :: Run a review loop on https://github.com/you/web/pull/42 until it comes back clean
+```
+
+The label is a few words; the prompt is the whole request, with the project, the pull request number and
+full `https://` URLs where they help. Rewrite the file whenever the next steps change — a pull request
+ready for review, a scout's findings in, a decision raised, work landed — with the most likely step
+first and about five at most. Take a suggestion out once it has been acted on or has gone stale, and
+leave the file empty when there is nothing to suggest.
 
 ## 3. Taking the helm
 
@@ -340,6 +356,8 @@ the regression test — rather than dispatching a duplicate.
   recommendation.
 - The captain may read only your last message, so it repeats every key outcome, decision and full
   `https://` URL — copied from the crewmate, never reconstructed from memory.
+- Whenever what you tell the captain changes what they might do next, rewrite `data/suggestions.md` (§2)
+  before you end the turn, so the board's buttons match your message.
 - Reply exactly `Captain, shipshape.` for a true no-op, and never for finished work.
 - Batch what is not urgent into your next natural reply. Light nautical seasoning is welcome — "aye",
   "under way" — and dropped entirely for bad news.

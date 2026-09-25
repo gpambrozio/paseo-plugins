@@ -51,6 +51,19 @@ export function moveColumn(
   return next;
 }
 
+/** The suggestions card, which sits among the wide board's columns but is not one. */
+export const SUGGESTIONS_CARD = "suggestions";
+export type BoardItem = ColumnId | typeof SUGGESTIONS_CARD;
+
+/**
+ * What the wide board lays out: the suggestions card first, when the first mate
+ * has any, then the shown columns. The card counts toward `boardRows` like a
+ * column, but it never folds or moves.
+ */
+export function boardItems(shown: readonly ColumnId[], hasSuggestions: boolean): BoardItem[] {
+  return hasSuggestions ? [SUGGESTIONS_CARD, ...shown] : [...shown];
+}
+
 /** At most this many columns sit in one row; past it the board takes two. */
 const ONE_ROW_MAX = 3;
 

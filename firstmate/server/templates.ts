@@ -32,6 +32,7 @@ export const TEMPLATES = {
   learnings: "data/learnings.md",
   opening: "data/opening.md",
   projects: "data/projects.md",
+  suggestions: "data/suggestions.md",
   crewModeChosen: "parts/crew-mode-chosen.md",
   crewModeOpen: "parts/crew-mode-open.md",
   crewProviderChosen: "parts/crew-provider-chosen.md",
