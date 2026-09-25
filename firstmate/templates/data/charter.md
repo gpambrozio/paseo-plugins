@@ -112,6 +112,7 @@ them against the live crew, and carry on.
 
 ```
 - [ ] <id> - <title> (project: <name>) (kind: ship|scout|captain) (mode: <mode>) (agent: <crewmate agent id>) (since YYYY-MM-DD)
+- [ ] <id> - <title> <full PR URL> (project: <name>) … (hold: <what you need>) (approved-head: <sha>)
 - [ ] <id> - <title> (project: <name>) (blocked-by: <other id>)
 - [ ] <id> - <the question> (kind: captain) (hold: <the options, in a few words>)
 - [x] <id> - <title> <full PR URL or data/<id>/report.md> (merged|done YYYY-MM-DD)
@@ -186,11 +187,21 @@ landing. With it you merge green, in-scope work yourself and tell the captain in
 URL. Never merge a red pull request. Destructive, irreversible and security-sensitive merges still go to
 the captain.
 
-**Before any merge** — under `+yolo`, a standing order in `data/captain.md` or the captain's word — re-read
-`gh pr view <url> --json state,headRefOid,statusCheckRollup,mergeStateStatus`. Refuse while any required
-check is pending, missing or failing, and refuse if the head has moved since the captain approved it;
-tell the captain why. After merging, read it again and confirm the state is `MERGED` before you call it
-landed.
+**Before merging a pull request** — under `+yolo`, a standing order in `data/captain.md` or the
+captain's word:
+
+1. When the captain approves a merge, read `gh pr view <url> --json headRefOid` straight away and record
+   it on the item as `(approved-head: <sha>)`. Under `+yolo` or a standing order, the head you check in
+   step 2 is the one you approve.
+2. Right before merging, read `gh pr view <url> --json state,headRefOid,mergeStateStatus,statusCheckRollup`
+   and `gh pr checks <url> --required`. Merge only when the state is `OPEN`, `mergeStateStatus` is `CLEAN`
+   — GitHub's own gate, which stays `BLOCKED` while a required check is pending or has not reported —
+   no required check is pending or failing (a repository with none says so, which is not a failure),
+   and `headRefOid` is the approved head. Anything else, `UNKNOWN` or a failed read included, is a refusal: tell the captain why, and ask again if the head moved.
+3. Merge with `gh pr merge <url> --match-head-commit <approved head>`, so a push in between fails the
+   merge, then read `state` again and confirm it is `MERGED` before you call it landed.
+
+A `local-only` landing has no pull request; it stays the fast-forward above, after the captain's word.
 
 A Paseo project with no line in the registry ships `reviewed-PR` without `+yolo` until the captain says
 otherwise; the first time you work on one, record that line and tell the captain in one sentence which
@@ -257,10 +268,11 @@ generalizations the captain did not ask for are follow-up work, not scope.>
 
 # Rules
 
-- First step: `git fetch origin` and rebase fm/<id> onto `origin/<default branch>`, so you start from
-  the latest work. Skip it for a project without a remote.
 - Work only inside this worktree, on branch fm/<id>. If you find yourself in a primary checkout, stop and
   report "blocked: not in an isolated worktree".
+- Then, before anything else: `git fetch origin` and rebase fm/<id> onto `origin/<default branch>`, so you
+  start from the latest work. Skip it for a project without a remote, and when the worktree already
+  holds work — commits on fm/<id> or uncommitted changes, left by a crewmate before you: carry on from it.
 - Never push to the default branch and never merge. <mode-specific delivery, from §4>
 - Write full https:// URLs for pull requests.
 - If you hit the same obstacle twice, stop and report blocked.
@@ -348,10 +360,10 @@ When the captain types into a crewmate directly, that is authoritative; reconcil
 ## 8. Finishing
 
 **Ship.** When a crewmate reports done with a pull request, check the pull request exists and is not a
-draft, then tell the captain (§9) and mark the item `(hold: …)` while it waits on their word (§2).
-After the captain merges it (or approves a local landing, which you perform), confirm it landed —
-merged, or reachable from a remote branch — and only then clean up: `archive_agent` the crewmate and
-archive its workspace. Move the item to Done. Then look at Queued for work whose blocker has cleared.
+draft, write its full URL on the item's line (§2), then tell the captain (§9) and mark the item
+`(hold: …)` while it waits on their word (§2). After the captain merges it (or approves a local landing,
+which you perform), confirm it landed — merged, or reachable from a remote branch — and only then clean
+up: `archive_agent` the crewmate and archive its workspace. Move the item to Done. Then look at Queued for work whose blocker has cleared.
 A refusal to clean up because work is unlanded is a reason to stop and investigate, never an obstacle
 to bypass.
 
