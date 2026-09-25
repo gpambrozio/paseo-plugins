@@ -110,14 +110,16 @@ runner against the new directory — go in before anything moves. Both are writt
 and renamed into place, as is every runner write: launchd must never find an empty or half-written
 script, and when the forwarder cannot be written nothing moves that start. `jobs.json`,
 `acknowledged.json` and each file of `logs/` and `runs/` then move **one by one**, by no-clobber hard
-link. **The forwarder moves its own job's log and history the same way before it runs**, so a fire
-between the forwarder going in and the daemon's move carries that job's old file over instead of
-starting a fresh one under the same name. launchd never runs two instances of one job, and both movers
-link the same inode, so the two cannot collide. When the forwarder cannot move one — `ln` fails across
-filesystems — that run uses the old directory, appending to the history where it is, and the daemon's
-move (which can copy) carries it over later. A file whose move failed is served from the old place
-through `dataPath` (the shared rule) and retried next start; logs and history are always read from the
-new place, where the runner writes.
+link. **The runner then applies the same rule to its own log and history on every fire** (`place` in
+`RUNNER_SCRIPT`): it moves each file out of the legacy directory — derived from its own, `…/plugins/`
+beside `…/plugin-data/` — if only that has it, then appends to the new copy when there is one or
+neither exists, and to the legacy copy only when that file's move failed. That is `dataPath`, file by
+file, and the daemon reads logs and history through `dataPath`, so the surface always reads the copy
+the run wrote and the next start keeps: moved, split (one file moved, one could not), both present, or
+neither. Doing it in the runner rather than the forwarder covers fires after relocation as well, and
+launchd never runs two instances of one job, so the runner is the only writer of those files while it
+decides; a daemon move of the same file links the same inode, so the two cannot collide.
+`StandardErrorPath`, which only the runner's own failures reach, always names the new directory.
 
 **`relocateLegacyJobs`, asynchronously, after it.** `plistRepairs` compares each of the three paths on
 its own, so a rewrite cut short after the first `plutil` is finished on the next start rather than

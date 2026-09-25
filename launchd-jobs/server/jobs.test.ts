@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { dataPath, legacyPluginDir } from "./data-dir";
-import { loadedFromLegacy, moveLegacyFiles, plistRepairs, type PlistFile } from "./jobs";
+import { loadedFromLegacy, moveLegacyFiles, plistRepairs, RUNNER_SCRIPT, type PlistFile } from "./jobs";
 
 // Only the file moves and the pure plist logic are exercised here: nothing in
 // this file calls launchctl or touches ~/Library/LaunchAgents.
@@ -121,8 +121,7 @@ describe("moveLegacyFiles", () => {
     moveLegacyFiles();
 
     const forwarder = await readFile(join(legacyPluginDir(), "runner.sh"), "utf8");
-    expect(forwarder).toContain(`new=${newDir()}`);
-    expect(forwarder).toContain('export PASEO_LAUNCHD_JOBS_DIR="$dir"');
+    expect(forwarder).toContain(`export PASEO_LAUNCHD_JOBS_DIR=${newDir()}`);
     expect(forwarder).toContain(`exec /bin/zsh ${join(newDir(), "runner.sh")} "$@"`);
     expect(await readFile(join(newDir(), "runner.sh"), "utf8")).toContain('dir="$PASEO_LAUNCHD_JOBS_DIR"');
     expect(await readFile(join(newDir(), "jobs.json"), "utf8")).toContain("Backup");
@@ -167,7 +166,7 @@ describe("moveLegacyFiles", () => {
   );
 
   it.skipIf(process.platform !== "darwin")(
-    "runs against the old directory when the forwarder cannot move the job's files, so nothing is stranded",
+    "appends where the files are when a forwarded run cannot move them, so nothing is stranded",
     async () => {
       await legacyInstall();
       const actual = vi.mocked(fs.linkSync).getMockImplementation();
@@ -235,6 +234,84 @@ describe("moveLegacyFiles", () => {
     moveLegacyFiles();
 
     expect(fs.existsSync(newDir())).toBe(false);
+    expect(fs.existsSync(legacyPluginDir())).toBe(false);
+  });
+});
+
+// The runner applies `dataPath`'s rule to each of its own files as it fires.
+// It uses BSD `stat` and zsh, so these run on macOS only.
+describe.skipIf(process.platform !== "darwin")("the runner, choosing each file's place", () => {
+  function fire(): void {
+    const runner = join(newDir(), "runner.sh");
+    fs.mkdirSync(newDir(), { recursive: true });
+    fs.writeFileSync(runner, RUNNER_SCRIPT, "utf8");
+    execFileSync("/bin/zsh", [runner, "backup", "echo fired"], {
+      env: { ...process.env, HOME: paseoHome, PASEO_LAUNCHD_JOBS_DIR: newDir() },
+    });
+  }
+
+  function legacy(file: string): string {
+    return join(legacyPluginDir(), file);
+  }
+
+  function current(file: string): string {
+    return join(newDir(), file);
+  }
+
+  it("moves both files and appends in the new directory", async () => {
+    await put(legacy("logs/backup.log"), "old log\n");
+    await put(legacy("runs/backup.jsonl"), "old runs\n");
+
+    fire();
+
+    expect(await readFile(current("logs/backup.log"), "utf8")).toMatch(/^old log\n=== .* start\nfired\n/);
+    expect(await readFile(current("runs/backup.jsonl"), "utf8")).toMatch(/^old runs\n\{"startedAt"/);
+    expect(fs.existsSync(legacy("logs/backup.log"))).toBe(false);
+    expect(fs.existsSync(legacy("runs/backup.jsonl"))).toBe(false);
+  });
+
+  it("splits a run between the folders when only one file can move, and the daemon joins the other later", async () => {
+    await put(legacy("logs/backup.log"), "old log\n");
+    await put(legacy("runs/backup.jsonl"), "old runs\n");
+    await mkdir(current("runs"), { recursive: true });
+    fs.chmodSync(current("runs"), 0o555);
+    try {
+      fire();
+    } finally {
+      fs.chmodSync(current("runs"), 0o755);
+    }
+
+    // The log moved and was appended to; the history could not move and was appended where it is.
+    expect(await readFile(current("logs/backup.log"), "utf8")).toMatch(/^old log\n=== .* start\nfired\n/);
+    expect(fs.existsSync(current("runs/backup.jsonl"))).toBe(false);
+    expect(await readFile(legacy("runs/backup.jsonl"), "utf8")).toMatch(/^old runs\n\{"startedAt"/);
+    expect(dataPath("runs/backup.jsonl")).toBe(legacy("runs/backup.jsonl"));
+
+    // The next start moves the history, with the run in it.
+    moveLegacyFiles();
+    expect(await readFile(current("runs/backup.jsonl"), "utf8")).toMatch(/^old runs\n\{"startedAt"/);
+    expect(fs.existsSync(legacy("runs/backup.jsonl"))).toBe(false);
+  });
+
+  it("appends to the new copy when both folders have a file, leaving the old one alone", async () => {
+    await put(legacy("logs/backup.log"), "old log\n");
+    await put(current("logs/backup.log"), "new log\n");
+    await put(legacy("runs/backup.jsonl"), "old runs\n");
+
+    fire();
+
+    expect(await readFile(current("logs/backup.log"), "utf8")).toMatch(/^new log\n=== .* start\nfired\n/);
+    expect(await readFile(legacy("logs/backup.log"), "utf8")).toBe("old log\n");
+    expect(dataPath("logs/backup.log")).toBe(current("logs/backup.log"));
+    // The other file still follows its own rule.
+    expect(await readFile(current("runs/backup.jsonl"), "utf8")).toMatch(/^old runs\n\{"startedAt"/);
+  });
+
+  it("starts fresh files in the new directory when neither folder has them", async () => {
+    fire();
+
+    expect(await readFile(current("logs/backup.log"), "utf8")).toMatch(/^=== .* start\nfired\n/);
+    expect(await readFile(current("runs/backup.jsonl"), "utf8")).toMatch(/^\{"startedAt"/);
     expect(fs.existsSync(legacyPluginDir())).toBe(false);
   });
 });

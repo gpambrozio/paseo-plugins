@@ -90,12 +90,22 @@ function plistPath(slug: string): string {
   return join(launchAgentsDir(), `${labelFor(slug)}.plist`);
 }
 
+/**
+ * The log and history a job's runs append to, chosen per file by the same rule
+ * as the runner's `place` (`dataPath`): the new directory unless only the
+ * legacy one has the file.
+ */
 function logPath(slug: string): string {
-  return join(pluginDir(), "logs", `${slug}.log`);
+  return dataPath(join("logs", `${slug}.log`));
 }
 
 function runsPath(slug: string): string {
-  return join(pluginDir(), "runs", `${slug}.jsonl`);
+  return dataPath(join("runs", `${slug}.jsonl`));
+}
+
+/** Where launchd sends the runner's own failures; always the new directory. */
+function stderrPath(slug: string): string {
+  return join(pluginDir(), "logs", `${slug}.log`);
 }
 
 function runnerPath(): string {
@@ -128,7 +138,7 @@ function isMissing(error: unknown): boolean {
  * moved out from under it would go on receiving output. Only the runner's own
  * stderr goes through launchd, for the case where the runner itself fails.
  */
-const RUNNER_SCRIPT = [
+export const RUNNER_SCRIPT = [
   "#!/bin/zsh",
   "# Written by the launchd-jobs Paseo plugin; rewritten whenever a job is saved.",
   "# launchd runs it as: runner.sh <slug> <command>, with PASEO_LAUNCHD_JOBS_DIR set.",
@@ -137,9 +147,22 @@ const RUNNER_SCRIPT = [
   'slug="$1"',
   'command="$2"',
   'dir="$PASEO_LAUNCHD_JOBS_DIR"',
-  'log="$dir/logs/$slug.log"',
-  'runs="$dir/runs/$slug.jsonl"',
-  'mkdir -p "$dir/logs" "$dir/runs"',
+  "# Where the plugin kept its files before plugin-data; see `place`.",
+  'legacy="${dir:h:h}/plugins/${dir:t}"',
+  "# Prints the path this run uses for one of its files, after moving the file out of the legacy",
+  "# directory if only that has it — the daemon's dataPath rule, file by file: the new directory",
+  "# when it has the file or neither does, the legacy one only when the move failed. launchd never",
+  "# runs two instances of one job, so nothing else writes these files meanwhile.",
+  "place() {",
+  '  if [[ "${dir:h:t}" == plugin-data && -f "$legacy/$1" && ! -e "$dir/$1" ]]; then',
+  '    mkdir -p "$dir/${1:h}"',
+  '    ln "$legacy/$1" "$dir/$1" 2>/dev/null && rm -f "$legacy/$1"',
+  "  fi",
+  '  if [[ -e "$dir/$1" || ! -e "$legacy/$1" ]]; then print -r -- "$dir/$1"; else print -r -- "$legacy/$1"; fi',
+  "}",
+  'log=$(place "logs/$slug.log")',
+  'runs=$(place "runs/$slug.jsonl")',
+  'mkdir -p "${log:h}" "${runs:h}"',
   'if [[ -f "$log" && $(stat -f %z "$log") -gt 1048576 ]]; then',
   '  mv -f "$log" "$log.1"',
   "fi",
@@ -609,7 +632,7 @@ function plistXml(input: {
     scheduleXml(spec.schedule).trimEnd(),
     // Only the runner's own failures reach this file; the command's output is
     // appended by the runner, which is what lets the runner rotate it.
-    `  <key>StandardErrorPath</key>\n  <string>${escapeXml(logPath(slug))}</string>`,
+    `  <key>StandardErrorPath</key>\n  <string>${escapeXml(stderrPath(slug))}</string>`,
     "</dict>",
     "</plist>",
     "",
@@ -707,36 +730,15 @@ function legacyRunnerPath(): string {
 /**
  * What stands at the old runner path while launchd still holds a job loaded
  * from there: it runs the new runner against the new directory, so the next
- * fire works and its log lands where the surface reads it.
- *
- * First it moves this job's own log and history, if they are still in the old
- * place, with the same no-clobber link the daemon uses. launchd never runs two
- * instances of one job, so nothing else is writing them, and the new runner
- * never starts a fresh file under a name whose history is still in the old
- * directory. Racing the daemon's move of the same file is harmless: both link
- * the one inode, and whichever lands second finds it there. A file it cannot
- * move — `ln` fails across filesystems — makes this run use the old directory,
- * so the run appends to the history rather than starting a new one beside it;
- * the daemon's move copies it over on a later start.
+ * fire works. The runner itself carries the job's log and history over, file
+ * by file (`place` in `RUNNER_SCRIPT`).
  */
 function forwardingRunner(): string {
   return [
     "#!/bin/zsh",
     "# Written by the launchd-jobs Paseo plugin, whose files moved to plugin-data. It forwards jobs",
     "# launchd loaded before the move, and is removed once every one of them has been reloaded.",
-    `legacy=${shellQuote(legacyPluginDir())}`,
-    `new=${shellQuote(pluginDir())}`,
-    'dir="$new"',
-    'for file in "logs/$1.log.1" "logs/$1.log" "runs/$1.jsonl"; do',
-    '  if [[ -f "$legacy/$file" ]]; then',
-    '    mkdir -p "$new/${file:h}"',
-    '    ln "$legacy/$file" "$new/$file" 2>/dev/null && rm -f "$legacy/$file"',
-    "    # Could not move it (another filesystem, a permission): this run appends where the history",
-    "    # still is, and the daemon's move, which can copy, carries it over on a later start.",
-    '    [[ -f "$legacy/$file" ]] && dir="$legacy"',
-    "  fi",
-    "done",
-    'export PASEO_LAUNCHD_JOBS_DIR="$dir"',
+    `export PASEO_LAUNCHD_JOBS_DIR=${shellQuote(pluginDir())}`,
     `exec /bin/zsh ${shellQuote(runnerPath())} "$@"`,
     "",
   ].join("\n");
@@ -776,7 +778,9 @@ function legacyEntriesIn(directory: string): string[] {
  *
  * Jobs launchd loaded from the old runner can fire at any moment, so the new
  * runner and the forwarder go in *before* anything moves: from then on a fire
- * writes to the new directory, having first moved its own files there. Logs
+ * runs the new runner, which moves its own files first and appends wherever
+ * each one then is (`place`), so it never starts a file beside one it could
+ * not move. Logs
  * and history move file by file, so a fire that has created `logs/` in the new
  * directory cannot make the old directory look superseded. `runner.sh` itself
  * is not moved: the new one is written fresh, and the old path is the
@@ -864,7 +868,7 @@ export function plistRepairs(plist: PlistFile, slug: string): [keyPath: string, 
   const env = plist.EnvironmentVariables;
   const dir = typeof env === "object" && env !== null ? (env as Record<string, unknown>)["PASEO_LAUNCHD_JOBS_DIR"] : undefined;
   if (dir !== pluginDir()) repairs.push(["EnvironmentVariables.PASEO_LAUNCHD_JOBS_DIR", "-string", pluginDir()]);
-  if (plist.StandardErrorPath !== logPath(slug)) repairs.push(["StandardErrorPath", "-string", logPath(slug)]);
+  if (plist.StandardErrorPath !== stderrPath(slug)) repairs.push(["StandardErrorPath", "-string", stderrPath(slug)]);
   return repairs;
 }
 
