@@ -64,10 +64,11 @@ a process; every crossing is a `defineRpc` contract.
 These have each broken a plugin at runtime. `AGENTS.md` in the repo root has the full list; the ones
 that bite most often:
 
-- **No async arrow functions in client-bundle code.** The app `eval`s the client bundle, and on iOS
-  and Android Hermes evaluates an async *arrow* to `undefined` instead of a function — no compile
-  error, no load error, just "undefined is not a function" when something calls it. Use an async
-  `function` expression. Desktop runs on V8 and won't show you this.
+- **A closure inside a `for (let|const … of …)` body captures the loop's final value on iOS and
+  Android.** The app `eval`s the client bundle, and Hermes does not give each iteration its own
+  binding — no compile error, no load error, just the wrong element when the callback runs. Use
+  `.map` when a callback must capture the element. Desktop runs on V8 and won't show you this.
+  (Async arrows used to break the same way; the daemon has lowered them since Paseo 0.7.0.)
 - **RPC wire names must match `/^[a-z][a-z0-9._-]*$/`.** camelCase load-fails the whole plugin. Use
   dotted namespacing: `board.load`, `skills.list`.
 - **Colour comes from `theme.colors`, never a literal.** The tokens are `surface0`, `surface1`,

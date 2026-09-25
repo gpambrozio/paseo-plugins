@@ -162,7 +162,9 @@ needs both.
 
 "Which providers to refresh" and "which providers to show" are the same switch: the surface passes
 the enabled ids into `pricing.load`, so a provider switched off is genuinely not fetched. That is
-what makes a daemon-side copy of the list unnecessary. **Do not add one.** The cost is that four of
+what makes a daemon-side copy of the list unnecessary. **Do not add one.** Nor does the handler need
+to read the document itself, which the 0.9 SDK allows through the handle `registerSettings`
+returns: the ids already arrive with the request. The cost is that four of
 the five providers share one fetch, so switching Anthropic off saves nothing until OpenAI, Fireworks
 and Ollama Cloud are off too; `sourcesFor` is where that is decided.
 
