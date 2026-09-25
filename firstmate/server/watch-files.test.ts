@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { watchPath } from "../shared/fleet";
 import { TEMPLATES, readTemplate } from "./templates";
 import {
   assessBuiltIn,
@@ -72,6 +73,8 @@ describe("listWatches", () => {
     expect(invalid["bad name"]).toMatch(/only letters, digits/);
     expect(watches.find((watch) => watch.name === "bad-schedule")?.scheduleText).toBe("every five minutes");
     expect(watches.find((watch) => watch.name === "good")?.schedule).not.toBeNull();
+    // The card's link opens, in the Files view, the very file the runner runs.
+    for (const watch of watches) expect(watch.path).toBe(join(home, watchPath(watch.name)));
   });
 
   it("finds none in a home without the folder", async () => {

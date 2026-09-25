@@ -3,6 +3,8 @@
  * printed, and a switch that turns it off or on. The scripts themselves are edited as files, in the
  * Files view; nothing here writes one.
  *
+ * A watch's name opens its script in the Files view, which is where it is edited.
+ *
  * Drawn as a card after the columns on a wide board, and at the foot of the Crew tab on a phone.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
@@ -11,7 +13,7 @@ import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
-import { toggleWatch, type WatchSummary } from "../shared/fleet";
+import { toggleWatch, watchPath, type WatchSummary } from "../shared/fleet";
 import { errorText, watchStatusText, watchTone } from "./format";
 import { MONOSPACE } from "./ui";
 
@@ -22,11 +24,14 @@ export function WatchList({
   watches,
   theme,
   onChanged,
+  onOpenFile,
 }: {
   watches: readonly WatchSummary[];
   theme: PluginTheme;
   /** A watch was switched; the board should load again. */
   onChanged: () => void;
+  /** Opens a home file in the Files view; a watch's name opens its script. */
+  onOpenFile: (path: string) => void;
 }) {
   const toggle = useRpc(toggleWatch);
   const toast = useToast();
@@ -61,7 +66,8 @@ export function WatchList({
       },
       head: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
       dot: { width: 7, height: 7, borderRadius: 4 },
-      name: { flex: 1, minWidth: 0, color: colors.foreground, fontSize: 13, fontWeight: "600" as const },
+      nameButton: { flex: 1, minWidth: 0 },
+      name: { color: colors.foreground, fontSize: 13, fontWeight: "600" as const, textDecorationLine: "underline" as const },
       schedule: { color: colors.foregroundMuted, fontSize: 11, fontFamily: MONOSPACE },
       status: { color: colors.foregroundMuted, fontSize: 12 },
       problem: { color: colors.statusDanger, fontSize: 12 },
@@ -95,9 +101,16 @@ export function WatchList({
           <View key={watch.name} style={styles.row}>
             <View style={styles.head}>
               <View style={[styles.dot, { backgroundColor: watchTone(theme, watch) }]} />
-              <Text style={styles.name} numberOfLines={1}>
-                {watch.name}
-              </Text>
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel={`Open ${watch.name} in Files`}
+                style={styles.nameButton}
+                onPress={() => onOpenFile(watchPath(watch.name))}
+              >
+                <Text style={styles.name} numberOfLines={1}>
+                  {watch.name}
+                </Text>
+              </Pressable>
               {watch.schedule === null ? null : (
                 <Text style={styles.schedule} numberOfLines={1}>
                   {watch.schedule}

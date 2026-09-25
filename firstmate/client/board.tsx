@@ -51,6 +51,8 @@ interface BoardProps {
   onSuggest: (prompt: string) => void;
   /** The home's watch scripts: a card after the columns, or the list's last section; empty draws neither. */
   watches: readonly WatchSummary[];
+  /** Opens a home file in the Files view: the tab on a phone, the right-hand pane on a wide layout. */
+  onOpenFile: (path: string) => void;
   /** Shows one crewmate's card and transcript in place of the board. */
   onWatch: (agentId: string) => void;
   onToggleColumn: (id: ColumnId) => void;
@@ -219,7 +221,7 @@ export function Board(props: BoardProps) {
         {withWatches ? (
           <View style={styles.columnStacked}>
             {renderWatchesHeader()}
-            <WatchList watches={watches} theme={theme} onChanged={props.onChanged} />
+            <WatchList watches={watches} theme={theme} onChanged={props.onChanged} onOpenFile={props.onOpenFile} />
           </View>
         ) : null}
       </ScrollView>
@@ -257,7 +259,7 @@ export function Board(props: BoardProps) {
                 <View key={id} style={styles.column}>
                   {renderWatchesHeader()}
                   <ScrollView contentContainerStyle={styles.body}>
-                    <WatchList watches={watches} theme={theme} onChanged={props.onChanged} />
+                    <WatchList watches={watches} theme={theme} onChanged={props.onChanged} onOpenFile={props.onOpenFile} />
                   </ScrollView>
                 </View>
               );

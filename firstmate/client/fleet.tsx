@@ -305,6 +305,13 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       .finally(() => setEnabling(false));
   }
 
+  /** Shows the Files view — the tab on a phone, the right-hand pane on a wide layout — with `path` open. */
+  function openFile(path: string): void {
+    if (compact) setTab("files");
+    else setRightPane("files");
+    setFilesRequest({ path, at: Date.now() });
+  }
+
   /** Puts the plugin's current charter beside the captain's and opens it in the Files view. */
   function compareCharterFiles(): void {
     setCharterBusy(true);
@@ -314,9 +321,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
           refresh();
           return;
         }
-        if (compact) setTab("files");
-        else setRightPane("files");
-        setFilesRequest({ path, at: Date.now() });
+        openFile(path);
       })
       .catch((caught: unknown) => toast.error(errorText(caught)))
       .finally(() => setCharterBusy(false));
@@ -501,6 +506,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       suggesting={mateSender.sending}
       onSuggest={suggest}
       watches={data.watches}
+      onOpenFile={openFile}
       onWatch={setWatching}
       onChanged={refresh}
       onToggleColumn={(id: ColumnId) =>

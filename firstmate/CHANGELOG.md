@@ -21,7 +21,8 @@ read before you move.
   home that run on a schedule while Paseo is running, and tell the first mate whatever they print —
   saying nothing costs nothing. You can add your own. A new **Watches** card, after the board's columns
   (at the bottom of the Crew tab on a phone), lists each one with when it last ran and what it last said,
-  and switches any of them off or on. The card appears only when there are watches.
+  and switches any of them off or on. Press a watch's name to open its script in the Files view. The
+  card appears only when there are watches.
 
 - **Suggested next steps, one press away.** When the first mate reports something you will probably
   act on — a pull request ready to land, a review to run, a decision to make — it now also offers it as

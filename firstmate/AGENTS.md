@@ -347,7 +347,9 @@ after a 70-second budget, and takes the least recently checked first, saving wha
 slow backlog is covered over a few runs instead of timing out on every one.
 
 The card sits after the columns in `boardItems`, and on a phone at the foot of the Crew tab rather than in
-a tab of its own: it is looked at now and then, and a fifth tab does not fit a phone's width.
+a tab of its own: it is looked at now and then, and a fifth tab does not fit a phone's width. A watch's
+name opens its script (`watchPath`, the same `watches/` the server reads) through the surface's `openFile`,
+the charter Compare's way into the Files view: the Files tab on a phone, the right-hand pane otherwise.
 
 ## Suggestions are the first mate's, and a press sends one
 

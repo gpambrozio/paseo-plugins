@@ -22,10 +22,11 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { WATCHES_DIR } from "../shared/fleet";
 import { parseSchedule, type Schedule } from "./watch-schedule";
 import { TEMPLATES, fill, readTemplate, type TemplatePath } from "./templates";
 
-export const WATCHES_DIR = "watches";
+export { WATCHES_DIR };
 
 /** The plugin's own watches: the file name each has in `watches/`, and its template. */
 export const BUILT_IN_WATCHES: ReadonlyArray<{ name: string; template: TemplatePath }> = [

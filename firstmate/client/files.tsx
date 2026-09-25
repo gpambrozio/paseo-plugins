@@ -61,7 +61,7 @@ interface PendingAction {
   run: () => void;
 }
 
-/** A file another part of the panel asks the view to open — the board's charter Compare. `at` tells two asks apart. */
+/** A file another part of the panel asks the view to open — the charter's Compare, a watch's name. `at` tells two asks apart. */
 export interface FilesRequest {
   path: string;
   at: number;

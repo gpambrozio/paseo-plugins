@@ -200,7 +200,8 @@ you passing it on. It needs the `gh` command, logged in, and Node, on the machin
 
 A **Watches** card after the board's columns — at the bottom of the Crew tab on a phone — lists each
 watch with its schedule, when it last ran and what came of it, and what it last said (press it to read
-it all). Its switch turns a watch off or on without touching the script. A watch that fails is reported
+it all). Its switch turns a watch off or on without touching the script, and a watch's name opens the
+script in the Files view. A watch that fails is reported
 to the first mate once, and shown on the card until it works again.
 
 To write your own, put an executable script in `watches/` with its schedule in a comment near the top,

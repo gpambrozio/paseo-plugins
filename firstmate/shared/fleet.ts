@@ -126,6 +126,14 @@ export const SuggestionSchema = z.object({
 });
 export type Suggestion = z.infer<typeof SuggestionSchema>;
 
+/** The home's folder of watch scripts, relative to the home. */
+export const WATCHES_DIR = "watches";
+
+/** A watch script's path in the home, as the Files view opens it. */
+export function watchPath(name: string): string {
+  return `${WATCHES_DIR}/${name}`;
+}
+
 /**
  * What a watch's last run came to: `silent` printed nothing; `queued` printed something that waits for
  * the first mate to be idle; `delivered` printed something the first mate has been sent; `dropped`

@@ -40,7 +40,7 @@ import {
   watchStatusText,
   watchTone,
 } from "./format";
-import type { WatchSummary } from "../shared/fleet";
+import { watchPath, type WatchSummary } from "../shared/fleet";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
@@ -289,6 +289,10 @@ describe("the Watches card", () => {
     expect(watchStatusText(watch({ invalid: "no schedule", lastRunAt: "2026-09-25T11:00:00.000Z", lastResult: "invalid" }), now)).toBe(
       "cannot run",
     );
+  });
+
+  it("opens a watch's script by its path in the home", () => {
+    expect(watchPath("pr-watch")).toBe("watches/pr-watch");
   });
 
   it("colours a watch by its last result, and a switched-off one as muted", () => {
