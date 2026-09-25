@@ -181,6 +181,7 @@ const WATCH_RESULTS: Readonly<Record<WatchResult, string>> = {
   never: "not run yet",
   silent: "nothing new",
   queued: "waiting for the first mate",
+  dropped: "dropped before the first mate could take it",
   delivered: "sent to the first mate",
   failed: "failed",
   invalid: "cannot run",
@@ -203,6 +204,7 @@ export function watchTone(theme: PluginTheme, watch: WatchSummary): string {
     case "invalid":
       return theme.colors.statusDanger;
     case "queued":
+    case "dropped":
       return theme.colors.statusWarning;
     case "delivered":
       return theme.colors.accent;

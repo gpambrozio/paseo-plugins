@@ -283,6 +283,9 @@ describe("the Watches card", () => {
     expect(watchStatusText(watch({ running: true, lastRunAt: "2026-09-25T11:59:50.000Z", lastResult: "queued" }), now)).toBe(
       "running now · ran just now · waiting for the first mate",
     );
+    expect(watchStatusText(watch({ lastRunAt: "2026-09-25T11:00:00.000Z", lastResult: "dropped" }), now)).toBe(
+      "ran 1h ago · dropped before the first mate could take it",
+    );
     expect(watchStatusText(watch({ invalid: "no schedule", lastRunAt: "2026-09-25T11:00:00.000Z", lastResult: "invalid" }), now)).toBe(
       "cannot run",
     );
@@ -292,6 +295,7 @@ describe("the Watches card", () => {
     expect(watchTone(theme, watch({ lastResult: "failed" }))).toBe("danger");
     expect(watchTone(theme, watch({ lastResult: "invalid" }))).toBe("danger");
     expect(watchTone(theme, watch({ lastResult: "queued" }))).toBe("warning");
+    expect(watchTone(theme, watch({ lastResult: "dropped" }))).toBe("warning");
     expect(watchTone(theme, watch({ lastResult: "delivered" }))).toBe("accent");
     expect(watchTone(theme, watch({ lastResult: "silent" }))).toBe("muted");
     expect(watchTone(theme, watch({ lastResult: "failed", enabled: false }))).toBe("muted");

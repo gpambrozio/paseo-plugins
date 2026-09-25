@@ -405,15 +405,27 @@ export class WatchRunner {
 }
 
 /**
- * A run that printed nothing after one whose output is still waiting says so: the card shows
- * "waiting for the first mate" until that output is sent, rather than "nothing new".
+ * What the card says of a watch's last run, read against the queue rather than trusted from the record.
+ * A run that printed nothing after one whose output is still waiting shows that output as waiting, not
+ * "nothing new"; and output recorded as waiting that has left the queue without being sent — pushed out
+ * of a full queue — shows as dropped, since nothing of it is left to send.
  */
 function shownResult(record: WatchRecord, queue: readonly QueuedNote[], name: string): WatchResult {
   const waiting = queue.some((note) => note.name === name && note.kind === "output");
-  return record.lastResult === "silent" && waiting ? "queued" : record.lastResult;
+  if (record.lastResult === "silent" && waiting) return "queued";
+  if (record.lastResult === "queued" && !waiting) return "dropped";
+  return record.lastResult;
 }
 
-const RESULTS: ReadonlySet<string> = new Set<WatchResult>(["never", "silent", "queued", "delivered", "failed", "invalid"]);
+const RESULTS: ReadonlySet<string> = new Set<WatchResult>([
+  "never",
+  "silent",
+  "queued",
+  "delivered",
+  "dropped",
+  "failed",
+  "invalid",
+]);
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;

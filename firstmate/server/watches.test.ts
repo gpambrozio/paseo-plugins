@@ -277,6 +277,29 @@ describe("WatchRunner", () => {
     expect(sent[0]).toContain(`output ${MAX_QUEUED + 3}\n`);
   });
 
+  it("shows output pushed out of a full queue as dropped, not as still waiting", async () => {
+    const paths = await setup();
+    await script(paths.home, "weekly", "true", "0 9 * * 1");
+    await script(paths.home, "chatty", "true");
+    let count = 0;
+    const { instance, sent, mate } = runner(paths, { weekly: () => ok("once a week"), chatty: () => ok(`chatty ${++count}`) });
+    mate.state = "absent";
+    // Monday at nine: both run, and the weekly one's output waits.
+    await instance.tick(new Date(2026, 8, 28, 9, 0));
+    const weekly = () => instance.summaries().then((watches) => watches.find((watch) => watch.name === "weekly"));
+    expect(await weekly()).toMatchObject({ lastResult: "queued" });
+
+    // The chatty one fills the queue until the weekly output is pushed out.
+    for (let minute = 1; minute <= MAX_QUEUED; minute += 1) await instance.tick(new Date(2026, 8, 28, 9, minute));
+    expect(await weekly()).toMatchObject({ lastResult: "dropped", lastOutput: "once a week" });
+
+    mate.state = "idle";
+    await instance.flush();
+    expect(sent[0]).not.toContain("once a week");
+    expect(sent[0]).toContain("(2 older watch outputs were dropped");
+    expect(await weekly()).toMatchObject({ lastResult: "dropped" });
+  });
+
   it("keeps the queue and what it reported across a restart of the plugin", async () => {
     const paths = await setup();
     await script(paths.home, "a", "true");

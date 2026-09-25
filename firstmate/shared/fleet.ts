@@ -128,10 +128,11 @@ export type Suggestion = z.infer<typeof SuggestionSchema>;
 
 /**
  * What a watch's last run came to: `silent` printed nothing; `queued` printed something that waits for
- * the first mate to be idle; `delivered` printed something the first mate has been sent; `failed` exited
- * non-zero or ran out of time; `invalid` cannot run at all; `never` has not run since it appeared.
+ * the first mate to be idle; `delivered` printed something the first mate has been sent; `dropped`
+ * printed something a full queue pushed out before it could be sent; `failed` exited non-zero or ran out
+ * of time; `invalid` cannot run at all; `never` has not run since it appeared.
  */
-export const WatchResultSchema = z.enum(["never", "silent", "queued", "delivered", "failed", "invalid"]);
+export const WatchResultSchema = z.enum(["never", "silent", "queued", "delivered", "dropped", "failed", "invalid"]);
 export type WatchResult = z.infer<typeof WatchResultSchema>;
 
 /**
