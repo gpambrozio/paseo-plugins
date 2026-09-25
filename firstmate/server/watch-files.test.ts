@@ -109,9 +109,11 @@ describe("built-in watches", () => {
     expect(seeded).toMatch(/firstmate-watch [0-9a-f]{16}/);
     expect(seeded).not.toContain("{{fingerprint}}");
     expect((await stat(path)).mode & 0o111).not.toBe(0);
-    expect(await readFile(join(home, "watches", "README.md"), "utf8")).toBe(
-      await readTemplate(TEMPLATES.watchesReadme),
-    );
+    const readme = await readFile(join(home, "watches", "README.md"), "utf8");
+    expect(readme).toBe(await readTemplate(TEMPLATES.watchesReadme));
+    // It is there to be read: the Files view's preview hides an HTML comment, so none of it is in one.
+    expect(readme).not.toContain("<!--");
+    expect(readme).toContain("## Be careful with your output");
     const [watch] = await listWatches(home);
     expect(watch).toMatchObject({ name: "pr-watch", scheduleText: "*/5 * * * *", invalid: null });
     expect((await builtInStates(home)).get("pr-watch")).toEqual({ rewrite: false, edited: false, outdated: false });
