@@ -20,7 +20,15 @@ import type { PaseoApi } from "./host-types";
 
 type SendOptions = NonNullable<Parameters<ReturnType<PaseoApi["agents"]["ref"]>["send"]>[1]>;
 
-export async function sendWithoutInterrupting(paseo: PaseoApi, agentId: string, text: string): Promise<void> {
-  const options: SendOptions & { activeTurnBehavior: "steer" } = { activeTurnBehavior: "steer" };
+/** What can go with the words: the send's own `images` and `attachments`, as Paseo's composer fills them. */
+export type SendExtras = Pick<SendOptions, "images" | "attachments">;
+
+export async function sendWithoutInterrupting(
+  paseo: PaseoApi,
+  agentId: string,
+  text: string,
+  extras: SendExtras = {},
+): Promise<void> {
+  const options: SendOptions & { activeTurnBehavior: "steer" } = { ...extras, activeTurnBehavior: "steer" };
   await paseo.agents.ref(agentId).send(text, options);
 }

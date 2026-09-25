@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { activityRows, clipLines } from "./activity-rows";
+import { base64Bytes, rasterImageType } from "../shared/attachments";
+import { attachmentProblem, captainMessage, createAttachmentStore, formatBytes, hasContent, toAttachment } from "./attachments";
 import { createDraftStore } from "./draft";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
@@ -346,5 +348,59 @@ describe("createDraftStore", () => {
 
   it("starts empty on a root that has never held drafts", () => {
     expect(createDraftStore({}).get("mate-1")).toBe("");
+  });
+});
+
+describe("attachments", () => {
+  const png = { fileName: "shot.png", mimeType: "image/png", size: 3, data: "AAAA" };
+  const pdf = { fileName: "spec.pdf", mimeType: "application/pdf", size: 3, data: "BBBB" };
+
+  it("sends a raster image as an image and anything else as a file, as Paseo does", () => {
+    expect(toAttachment(png, "a").kind).toBe("image");
+    expect(toAttachment(pdf, "b").kind).toBe("file");
+    // A type the browser gave wins over the extension; with none, the extension decides.
+    expect(toAttachment({ ...png, mimeType: "text/plain" }, "c").kind).toBe("file");
+    expect(toAttachment({ ...png, fileName: "IMG.JPG", mimeType: "" }, "d")).toMatchObject({ kind: "image", mimeType: "image/jpeg" });
+    expect(toAttachment({ ...pdf, mimeType: "" }, "e")).toMatchObject({ kind: "file", mimeType: "application/octet-stream" });
+    expect(rasterImageType("image/jpg", "x")).toBe("image/jpeg");
+    expect(rasterImageType("image/svg+xml", "logo.svg")).toBeNull();
+  });
+
+  it("builds the message: words trimmed, images as images, files to upload, empty lists left out", () => {
+    expect(captainMessage("  hi  ", [])).toEqual({ text: "hi" });
+    expect(captainMessage("", [toAttachment(png, "a"), toAttachment(pdf, "b")])).toEqual({
+      text: "",
+      images: [{ data: "AAAA", mimeType: "image/png" }],
+      files: [{ fileName: "spec.pdf", mimeType: "application/pdf", data: "BBBB" }],
+    });
+  });
+
+  it("has something to send with words or attachments, and nothing with neither", () => {
+    expect(hasContent("  ", [])).toBe(false);
+    expect(hasContent("hi", [])).toBe(true);
+    expect(hasContent("", [toAttachment(png, "a")])).toBe(true);
+  });
+
+  it("refuses a file past Paseo's 50 MB before reading it", () => {
+    expect(attachmentProblem({ fileName: "ok.bin", size: 50 * 1024 * 1024 })).toBeNull();
+    expect(attachmentProblem({ fileName: "big.bin", size: 50 * 1024 * 1024 + 1 })).toBe("big.bin is larger than 50 MB.");
+  });
+
+  it("keeps attachments for a store built later on the same root, apart per first mate", () => {
+    const root = {};
+    createAttachmentStore(root).set("mate-1", [toAttachment(png, "a")]);
+    createAttachmentStore(root).set("mate-2", [toAttachment(pdf, "b")]);
+    expect(createAttachmentStore(root).get("mate-1").map((attachment) => attachment.id)).toEqual(["a"]);
+    createAttachmentStore(root).set("mate-1", []);
+    expect(createAttachmentStore(root).get("mate-1")).toEqual([]);
+    expect(createAttachmentStore(root).get("mate-2")).toHaveLength(1);
+  });
+
+  it("measures base64 and sizes without decoding", () => {
+    expect(base64Bytes(Buffer.from("hello").toString("base64"))).toBe(5);
+    expect(base64Bytes(Buffer.from("hell").toString("base64"))).toBe(4);
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(2048)).toBe("2 KB");
+    expect(formatBytes(3 * 1024 * 1024)).toBe("3.0 MB");
   });
 });

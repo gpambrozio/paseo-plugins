@@ -122,7 +122,9 @@ export function transcriptRows(entries: readonly TimelineEntry[]): TranscriptRow
     switch (item.type) {
       case "user_message": {
         const summary = injectedSummary(item.text);
-        rows.push(summary === null ? { key, kind: "captain", text: item.text } : { key, kind: "event", text: summary });
+        // A message of attachments alone has no words; the row still says the captain sent something.
+        const text = item.text.trim() === "" ? "(attachments)" : item.text;
+        rows.push(summary === null ? { key, kind: "captain", text } : { key, kind: "event", text: summary });
         break;
       }
       case "assistant_message": {

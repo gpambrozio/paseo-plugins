@@ -182,6 +182,13 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   used for a long list — a Mac lists 185 `say` voices. Past about ten options, open a host `Modal`
   with `scrollable={false}` and put the host `FlatList` and a search `TextInput` inside it — see
   `herald/client/option-picker.tsx`.
+- **A plugin cannot open a file or photo picker on iOS or Android.** Paseo's app picks with Expo's
+  image and document pickers, and neither is a host module; `react-native` itself has none, and the
+  host's `TextInput` does not hand over pasted images. On the web renderer — desktop and browsers,
+  phone browsers included — `client/web.ts` can create an `<input type="file">` and listen for paste
+  and drop on a view's element. Nor is Paseo's composer embeddable: composer pills and attachment
+  sources feed Paseo's own. `firstmate/AGENTS.md` records what the chat built instead, and the shapes
+  Paseo sends images and files in.
 - **Another host is reachable from the client, but only as Paseo.** `useHosts()` lists every host the
   app is configured with, and `getPaseoClient(serverId)` borrows the app's own connection to one as
   an ordinary `PaseoApi` — projects, workspaces, agents, providers, terminals — whether or not the

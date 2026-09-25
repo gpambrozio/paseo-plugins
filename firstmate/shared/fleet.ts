@@ -9,6 +9,8 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
+import { CaptainMessageSchema } from "./attachments";
+
 /**
  * The labels a crewmate is created with. The charter tells the first mate to
  * set them, and the board finds the crew by them, so both read this one
@@ -287,10 +289,10 @@ export const compactMate = defineRpc({
   output: z.object({ agentId: z.string() }),
 });
 
-/** Delivers the captain's words to the first mate. */
+/** Delivers the captain's words, and anything attached to them, to the first mate. */
 export const askMate = defineRpc({
   name: "firstmate.mate.ask",
-  input: z.object({ text: z.string().min(1) }),
+  input: CaptainMessageSchema,
   output: z.object({ agentId: z.string() }),
 });
 

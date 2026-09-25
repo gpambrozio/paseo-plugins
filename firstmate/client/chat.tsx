@@ -7,9 +7,18 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
+import { Image, Platform, Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 
 import { askMate, askMateCommand, type AgentSummary, type MateCommand } from "../shared/fleet";
+import {
+  attachmentProblem,
+  captainMessage,
+  formatBytes,
+  hasContent,
+  pendingAttachments,
+  toAttachment,
+  type PendingAttachment,
+} from "./attachments";
 import { drafts } from "./draft";
 import { useFollowEnd } from "./follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
@@ -20,6 +29,7 @@ import { transcriptRows, type TranscriptRow } from "./transcript-rows";
 import { IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
+import { canAttachFiles, pickFiles, receiveFiles, type OfferedFile } from "./web";
 
 /** A run of tool calls shows this many before folding the rest behind a count. */
 const TOOL_RUN_VISIBLE = 2;
@@ -83,6 +93,10 @@ export function MateChat({
    * after a lost connection — see `./draft`.
    */
   const [draft, setDraftState] = useState(() => drafts.get(mate.id));
+  /** What is attached to the draft, kept beside it for the same reasons — see `./attachments`. */
+  const [attachments, setAttachmentsState] = useState(() => pendingAttachments.get(mate.id));
+  /** A drag carrying files is over the chat. */
+  const [dragging, setDragging] = useState(false);
   const [sending, setSending] = useState(false);
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
   const pane = useRef<View>(null);
@@ -101,6 +115,51 @@ export function MateChat({
   function setDraft(text: string): void {
     drafts.set(mate.id, text);
     setDraftState(text);
+  }
+
+  function setAttachments(list: readonly PendingAttachment[]): void {
+    pendingAttachments.set(mate.id, list);
+    setAttachmentsState(list);
+  }
+
+  /**
+   * Reads what was picked, pasted or dropped and adds it to the draft's
+   * attachments. The list is re-read from the store once the bytes are in, so
+   * two quick drops, or a removal while one is reading, both hold.
+   */
+  function attach(files: readonly OfferedFile[]): void {
+    const accepted = files.filter((file) => {
+      const problem = attachmentProblem(file);
+      if (problem !== null) toast.error(problem);
+      return problem === null;
+    });
+    if (accepted.length === 0) return;
+    Promise.all(
+      accepted.map(function readFile(file) {
+        return file.read().then((data) => toAttachment({ fileName: file.fileName, mimeType: file.mimeType, size: file.size, data }));
+      }),
+    )
+      .then((read) => setAttachments([...pendingAttachments.get(mate.id), ...read]))
+      .catch((caught: unknown) => toast.error(errorText(caught)));
+  }
+
+  /** Paste and drop call whichever `attach` the latest render made, so they never hold a stale first mate. */
+  const attachRef = useRef(attach);
+  attachRef.current = attach;
+  useEffect(
+    () =>
+      receiveFiles(
+        pane.current,
+        (files) => attachRef.current(files),
+        (over) => setDragging(over),
+      ),
+    [],
+  );
+
+  function openPicker(): void {
+    pickFiles()
+      .then((files) => attach(files))
+      .catch((caught: unknown) => toast.error(errorText(caught)));
   }
 
   const styles = useMemo(() => {
@@ -133,6 +192,24 @@ export function MateChat({
       },
       composer: { padding: compact ? 8 : 10, gap: 8 },
       quick: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6 },
+      chips: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6 },
+      dropZone: {
+        position: "absolute" as const,
+        top: 6,
+        right: 6,
+        bottom: 6,
+        left: 6,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+        gap: 6,
+        borderWidth: 2,
+        borderStyle: "dashed" as const,
+        borderColor: colors.accent,
+        borderRadius: 10,
+        backgroundColor: colors.surface1,
+        opacity: 0.92,
+      },
+      dropText: { color: colors.foreground, fontSize: 13 },
       inputRow: { flexDirection: "row" as const, alignItems: "flex-end" as const, gap: 8 },
       input: {
         flex: 1,
@@ -152,21 +229,25 @@ export function MateChat({
   }, [theme, compact]);
 
   /**
-   * The draft is cleared as the message goes, not when the daemon answers:
-   * the box stays editable while it is in flight, and a follow-up typed in
-   * that second must not be wiped by the reply. A failed send puts the text
-   * back, unless something new has been typed since.
+   * The draft and its attachments are cleared as the message goes, not when
+   * the daemon answers: the box stays editable while it is in flight, and a
+   * follow-up typed in that second must not be wiped by the reply. A failed
+   * send puts the text back, unless something new has been typed since, and
+   * the attachments, unless something new has been attached.
    */
-  function send(text: string, fromDraft: boolean): void {
-    const trimmed = text.trim();
-    if (trimmed === "" || sending) return;
+  function sendDraft(): void {
+    const text = draft;
+    const attached = attachments;
+    if (!hasContent(text, attached) || sending) return;
     setSending(true);
     follow.pin();
-    if (fromDraft) setDraft("");
-    ask({ text: trimmed })
+    setDraft("");
+    setAttachments([]);
+    ask(captainMessage(text, attached))
       .catch((caught: unknown) => {
         toast.error(errorText(caught));
-        if (fromDraft && drafts.get(mate.id).trim() === "") setDraft(text);
+        if (drafts.get(mate.id).trim() === "") setDraft(text);
+        if (pendingAttachments.get(mate.id).length === 0) setAttachments(attached);
       })
       .finally(() => setSending(false));
   }
@@ -277,6 +358,13 @@ export function MateChat({
         </ScrollView>
         {follow.away ? <JumpToEnd theme={theme} onPress={follow.jumpToEnd} /> : null}
       </View>
+      {dragging ? (
+        // Over the whole chat, since the whole chat takes the drop; it never takes the pointer itself.
+        <View pointerEvents="none" style={styles.dropZone}>
+          <Icon name="Paperclip" size={18} color={theme.colors.accent} />
+          <Text style={styles.dropText}>Drop to attach</Text>
+        </View>
+      ) : null}
       {/*
         The host pads a surface's top, under its header, but not its bottom, so
         on a phone the composer would sit on the home indicator. React Native's
@@ -318,7 +406,22 @@ export function MateChat({
               onChanged={onChanged}
             />
           </View>
+          {attachments.length === 0 ? null : (
+            <View style={styles.chips}>
+              {attachments.map((attachment) => (
+                <AttachmentChip
+                  key={attachment.id}
+                  attachment={attachment}
+                  theme={theme}
+                  onRemove={() =>
+                    setAttachments(pendingAttachments.get(mate.id).filter((kept) => kept.id !== attachment.id))
+                  }
+                />
+              ))}
+            </View>
+          )}
           <View style={styles.inputRow}>
+            {canAttachFiles ? <IconButton icon="Paperclip" label="Attach files or images" theme={theme} onPress={openPicker} /> : null}
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -333,9 +436,9 @@ export function MateChat({
                 submitOnEnter
                   ? (event: WebKeyPressEvent) => {
                       // Nothing to send, or a send in flight: Enter is left alone, as Paseo leaves it.
-                      if (!isSendKey(event.nativeEvent) || sending || draft.trim() === "") return;
+                      if (!isSendKey(event.nativeEvent) || sending || !hasContent(draft, attachments)) return;
                       event.preventDefault();
-                      send(draft, true);
+                      sendDraft();
                     }
                   : undefined
               }
@@ -346,12 +449,87 @@ export function MateChat({
               label="Send"
               tone="accent"
               theme={theme}
-              disabled={sending || draft.trim() === ""}
-              onPress={() => send(draft, true)}
+              disabled={sending || !hasContent(draft, attachments)}
+              onPress={sendDraft}
             />
           </View>
         </View>
       </SafeAreaView>
+    </View>
+  );
+}
+
+/** One attachment waiting to go: a thumbnail for an image, an icon for a file; its name, size and a remove button. */
+function AttachmentChip({
+  attachment,
+  theme,
+  onRemove,
+}: {
+  attachment: PendingAttachment;
+  theme: PluginTheme;
+  onRemove: () => void;
+}) {
+  const { colors } = theme;
+  const styles = useMemo(
+    () => ({
+      chip: {
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 6,
+        maxWidth: 220,
+        paddingLeft: 4,
+        paddingRight: 2,
+        paddingVertical: 4,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface1,
+      },
+      thumb: { width: 28, height: 28, borderRadius: 4, backgroundColor: colors.surface2 },
+      icon: {
+        width: 28,
+        height: 28,
+        borderRadius: 4,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+        backgroundColor: colors.surface2,
+      },
+      text: { flexShrink: 1 },
+      name: { color: colors.foreground, fontSize: 12 },
+      size: { color: colors.foregroundMuted, fontSize: 10 },
+      remove: { padding: 4 },
+    }),
+    [colors],
+  );
+  return (
+    <View style={styles.chip}>
+      {attachment.kind === "image" ? (
+        <Image
+          source={{ uri: `data:${attachment.mimeType};base64,${attachment.data}` }}
+          style={styles.thumb}
+          resizeMode="cover"
+          accessibilityIgnoresInvertColors
+        />
+      ) : (
+        <View style={styles.icon}>
+          <Icon name="File" size={14} color={colors.foregroundMuted} />
+        </View>
+      )}
+      <View style={styles.text}>
+        <Text style={styles.name} numberOfLines={1}>
+          {attachment.fileName}
+        </Text>
+        <Text style={styles.size}>{formatBytes(attachment.size)}</Text>
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${attachment.fileName}`}
+        hitSlop={6}
+        style={styles.remove}
+        onPress={onRemove}
+      >
+        <Icon name="X" size={14} color={colors.foregroundMuted} />
+      </Pressable>
     </View>
   );
 }

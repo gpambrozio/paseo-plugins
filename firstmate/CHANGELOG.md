@@ -9,6 +9,16 @@ read before you move.
 
 ## [Unreleased]
 
+### Added
+
+- **Images and files can go with a message to the first mate.** The chat has an attach button beside
+  the message box, and you can also paste a screenshot or drop files onto the chat. What you attach
+  shows above the box, where you can remove it before sending, and it stays there if Paseo loses its
+  connection while you are still writing. The first mate sees images as images, and gets other files
+  the same way it would from Paseo's own message box. This works in the Mac app and in a browser,
+  phone browsers included; in the iPhone and Android apps the button does not appear yet, because
+  Paseo does not let plugins open the photo library or the file picker there.
+
 ### Changed
 
 - **A worker that has finished waits in Idle, not Done.** When a worker reports it is done, its card now

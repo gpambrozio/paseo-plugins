@@ -116,7 +116,7 @@ export function relaunchText(agent: Pick<PaseoAgent, "id" | "title" | "labels">,
 
 export async function relaunchCrew(paseo: PaseoApi, agentId: string, note: string): Promise<string> {
   const agent = await requireCrew(paseo, agentId);
-  return askMate(paseo, await relaunchText(agent, note));
+  return askMate(paseo, { text: await relaunchText(agent, note) });
 }
 
 /** What the first mate is told when a turn the captain started from the board ends (`templates/messages/steer-relay.md`). */

@@ -85,9 +85,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(restartMateRpc, (_input, { paseo }) => restartMate(paseo));
   server.handle(compactMateRpc, async (_input, { paseo }) => ({ agentId: await compactMate(paseo) }));
   server.handle(listCandidatesRpc, (_input, { paseo }) => listCandidates(paseo));
-  server.handle(askMateRpc, async ({ text }, { paseo }) => ({ agentId: await askMate(paseo, text) }));
+  server.handle(askMateRpc, async (message, { paseo }) => ({ agentId: await askMate(paseo, message) }));
   server.handle(askMateCommandRpc, async ({ command, args }, { paseo }) => ({
-    agentId: await askMate(paseo, await commandText(command, args)),
+    agentId: await askMate(paseo, { text: await commandText(command, args) }),
   }));
   server.handle(markMateSeenRpc, (_input, { paseo }) => markMateSeen(paseo));
 

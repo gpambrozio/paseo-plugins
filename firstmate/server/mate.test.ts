@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CREW_LABELS } from "../shared/fleet";
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import type { PaseoApi } from "./host-types";
-import { adoptMate, commandText, compactMate, launchMate, releaseMate, restartMate, restartNote } from "./mate";
+import { adoptMate, askMate, commandText, compactMate, launchMate, releaseMate, restartMate, restartNote } from "./mate";
 import { TEMPLATES, readTemplate, withoutNotes } from "./templates";
 
 let paseoHome = "";
@@ -36,6 +36,7 @@ interface Snapshot {
 /** Just enough of Paseo for the first mate's lifecycle, recording what was asked of it in order. */
 function fakePaseo(agents: Record<string, Snapshot>) {
   const calls: string[] = [];
+  const sent: Array<{ agentId: string; text: string; options?: Record<string, unknown> | undefined }> = [];
   const created: Array<{ config: Record<string, unknown>; title?: string; labels?: Record<string, string>; prompt?: string }> = [];
   const paseo = {
     agents: {
@@ -51,8 +52,9 @@ function fakePaseo(agents: Record<string, Snapshot>) {
             const agent = agents[id];
             if (agent !== undefined) agent.archivedAt = "2026-09-23T12:00:00.000Z";
           },
-          async send(text: string) {
+          async send(text: string, options?: Record<string, unknown>) {
             calls.push(`send ${id} ${text}`);
+            sent.push({ agentId: id, text, options });
           },
         };
       },
@@ -78,7 +80,7 @@ function fakePaseo(agents: Record<string, Snapshot>) {
       },
     },
   } as unknown as PaseoApi;
-  return { paseo, calls, created };
+  return { paseo, calls, created, sent };
 }
 
 const oldMate: Snapshot = {
@@ -200,5 +202,41 @@ describe("compactMate", () => {
     const busy = fakePaseo({ "old-mate": { ...oldMate, status: "running" } });
     await expect(compactMate(busy.paseo)).rejects.toThrow("in the middle of a turn");
     expect(busy.calls).toEqual([]);
+  });
+});
+
+describe("askMate", () => {
+  it("sends the words alone, without interrupting, when nothing is attached", async () => {
+    await updateFirstmateConfig({ mateAgentId: "old-mate" });
+    const { paseo, sent } = fakePaseo({ "old-mate": { ...oldMate, status: "idle" } });
+    await expect(askMate(paseo, { text: "  fix the login  " })).resolves.toBe("old-mate");
+    expect(sent).toEqual([{ agentId: "old-mate", text: "fix the login", options: { activeTurnBehavior: "steer" } }]);
+  });
+
+  it("sends images as images and files as Paseo uploads, the way Paseo's composer does", async () => {
+    await updateFirstmateConfig({ mateAgentId: "old-mate" });
+    const { paseo, sent } = fakePaseo({ "old-mate": { ...oldMate, status: "idle" } });
+    const png = { data: Buffer.from("png bytes").toString("base64"), mimeType: "image/png" };
+    const notes = { fileName: "notes.txt", mimeType: "text/plain", data: Buffer.from("hello").toString("base64") };
+
+    await askMate(paseo, { text: "", images: [png], files: [notes] });
+
+    expect(sent).toHaveLength(1);
+    const options = sent[0]?.options ?? {};
+    expect(sent[0]?.text).toBe("");
+    expect(options.images).toEqual([png]);
+    expect(options.activeTurnBehavior).toBe("steer");
+    const [upload] = options.attachments as Array<Record<string, unknown>>;
+    expect(upload).toMatchObject({ type: "uploaded_file", fileName: "notes.txt", mimeType: "text/plain", size: 5 });
+    expect(String(upload?.path)).toBe(join(paseoHome, "uploads", String(upload?.id), "notes.txt"));
+    await expect(readFile(String(upload?.path), "utf8")).resolves.toBe("hello");
+  });
+
+  it("writes nothing when there is no first mate to send to", async () => {
+    const { paseo, sent } = fakePaseo({});
+    const notes = { fileName: "notes.txt", mimeType: "text/plain", data: "aGVsbG8=" };
+    await expect(askMate(paseo, { text: "hi", files: [notes] })).rejects.toThrow();
+    expect(sent).toEqual([]);
+    await expect(readdir(join(paseoHome, "uploads"))).rejects.toThrow("ENOENT");
   });
 });
