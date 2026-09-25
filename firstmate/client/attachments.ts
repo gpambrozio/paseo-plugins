@@ -6,7 +6,9 @@
  * between devices. Pure apart from that one slot.
  */
 import {
+  MAX_ATTACHMENTS,
   MAX_ATTACHMENT_BYTES,
+  MAX_MESSAGE_BYTES,
   fileType,
   rasterImageType,
   type CaptainMessage,
@@ -68,11 +70,75 @@ export function toAttachment(file: PickedFile, id: string = `attachment-${Date.n
     : { id, kind: "image", fileName: file.fileName, mimeType: image, size: file.size, data: file.data };
 }
 
-/** Why a file cannot be attached, or `null` when it can. Checked before its bytes are read. */
-export function attachmentProblem(file: { fileName: string; size: number }): string | null {
-  return file.size > MAX_ATTACHMENT_BYTES
-    ? `${file.fileName} is larger than ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB.`
-    : null;
+const MB = 1024 * 1024;
+
+/**
+ * Which of `candidates` fit beside what is already attached, in order, and why
+ * each of the rest does not: one attachment's size, the number per message,
+ * and all of them together — the limits the daemon holds the message to.
+ * Checked on sizes alone, before any bytes are read, and again when the bytes
+ * are in, since another pick may have landed meanwhile.
+ */
+export function admit<Candidate extends { fileName: string; size: number }>(
+  current: readonly { size: number }[],
+  candidates: readonly Candidate[],
+): { accepted: Candidate[]; problems: string[] } {
+  let count = current.length;
+  let total = current.reduce((sum, attachment) => sum + attachment.size, 0);
+  const accepted: Candidate[] = [];
+  const problems: string[] = [];
+  candidates.forEach((candidate) => {
+    if (candidate.size > MAX_ATTACHMENT_BYTES) {
+      problems.push(`${candidate.fileName} is larger than ${MAX_ATTACHMENT_BYTES / MB} MB.`);
+    } else if (count >= MAX_ATTACHMENTS) {
+      problems.push(`${candidate.fileName} was not attached: a message carries at most ${MAX_ATTACHMENTS}.`);
+    } else if (total + candidate.size > MAX_MESSAGE_BYTES) {
+      problems.push(`${candidate.fileName} was not attached: a message's attachments stay under ${MAX_MESSAGE_BYTES / MB} MB together.`);
+    } else {
+      count += 1;
+      total += candidate.size;
+      accepted.push(candidate);
+    }
+  });
+  return { accepted, problems };
+}
+
+/** A file whose bytes can be read, as `./web` offers one. */
+export interface ReadableFile {
+  fileName: string;
+  mimeType: string;
+  size: number;
+  read(): Promise<string>;
+}
+
+/**
+ * Reads each file on its own, so one that cannot be read costs only itself:
+ * the rest still become attachments, and each failure is reported by name.
+ */
+export function readEach(files: readonly ReadableFile[]): Promise<{ read: PendingAttachment[]; failures: string[] }> {
+  return Promise.all(
+    files.map(function readOne(file): Promise<PendingAttachment | string> {
+      return file.read().then(
+        (data) => toAttachment({ fileName: file.fileName, mimeType: file.mimeType, size: file.size, data }),
+        (caught: unknown) => `Could not attach ${file.fileName}: ${caught instanceof Error ? caught.message : String(caught)}`,
+      );
+    }),
+  ).then((results) => ({
+    read: results.filter((result): result is PendingAttachment => typeof result !== "string"),
+    failures: results.filter((result): result is string => typeof result === "string"),
+  }));
+}
+
+/**
+ * The attachments of a send that failed, put back ahead of whatever was
+ * attached while it was in flight, so neither the old nor the new is lost.
+ */
+export function restoreFailed(
+  current: readonly PendingAttachment[],
+  failed: readonly PendingAttachment[],
+): PendingAttachment[] {
+  const restored = new Set(failed.map((attachment) => attachment.id));
+  return [...failed, ...current.filter((attachment) => !restored.has(attachment.id))];
 }
 
 /** What the send carries: the words trimmed, images as images, the rest as files to upload. */

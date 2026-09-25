@@ -516,7 +516,11 @@ has its own, and sends what Paseo's composer sends (read in the 0.9.0 app and da
   `attachments` as `{ type: "uploaded_file", id, fileName, mimeType, size, path }`; the provider tells
   the agent the path. Paseo's app uploads over a binary channel a plugin cannot reach, so the bytes
   ride the `firstmate.mate.ask` RPC as base64 and `server/uploads.ts` writes them in Paseo's layout —
-  only once the first mate is known to exist. Both halves cap a file at Paseo's 50 MB.
+  only once the first mate is known to exist. Paseo caps one file at 50 MB and nothing else, since each
+  upload is its own stream; here one RPC carries the whole message in one WebSocket frame, and the
+  daemon's socket takes `ws`'s default 100 MiB. So the contract holds images and files alike to 50 MB
+  each, 20 per message and 64 MB together (about 85 MiB as base64), and the client checks the same
+  before it reads a byte.
 
 Picking, pasting and dropping are all `client/web.ts`, and **all of it is web-only**. Paseo's native
 app picks with Expo's image and document pickers and pastes through a third-party text input; none

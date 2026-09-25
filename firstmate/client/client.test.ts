@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest";
 
 import { activityRows, clipLines } from "./activity-rows";
-import { base64Bytes, rasterImageType } from "../shared/attachments";
-import { attachmentProblem, captainMessage, createAttachmentStore, formatBytes, hasContent, toAttachment } from "./attachments";
+import {
+  CaptainMessageSchema,
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BYTES,
+  MAX_MESSAGE_BYTES,
+  base64Bytes,
+  rasterImageType,
+} from "../shared/attachments";
+import {
+  admit,
+  captainMessage,
+  createAttachmentStore,
+  formatBytes,
+  hasContent,
+  readEach,
+  restoreFailed,
+  toAttachment,
+} from "./attachments";
 import { createDraftStore } from "./draft";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
@@ -381,9 +397,52 @@ describe("attachments", () => {
     expect(hasContent("", [toAttachment(png, "a")])).toBe(true);
   });
 
-  it("refuses a file past Paseo's 50 MB before reading it", () => {
-    expect(attachmentProblem({ fileName: "ok.bin", size: 50 * 1024 * 1024 })).toBeNull();
-    expect(attachmentProblem({ fileName: "big.bin", size: 50 * 1024 * 1024 + 1 })).toBe("big.bin is larger than 50 MB.");
+  it("admits files up to Paseo's 50 MB each, 20 a message and 64 MB together, and says why for the rest", () => {
+    const mb = 1024 * 1024;
+    expect(admit([], [{ fileName: "ok.bin", size: MAX_ATTACHMENT_BYTES }]).accepted).toHaveLength(1);
+    expect(admit([], [{ fileName: "big.bin", size: MAX_ATTACHMENT_BYTES + 1 }])).toEqual({
+      accepted: [],
+      problems: ["big.bin is larger than 50 MB."],
+    });
+
+    const nineteen = Array.from({ length: MAX_ATTACHMENTS - 1 }, () => ({ size: 1 }));
+    const counted = admit(nineteen, [
+      { fileName: "a", size: 1 },
+      { fileName: "b", size: 1 },
+    ]);
+    expect(counted.accepted.map((file) => file.fileName)).toEqual(["a"]);
+    expect(counted.problems).toEqual(["b was not attached: a message carries at most 20."]);
+
+    // 40 MB attached; a 30 MB file would pass 64 MB, but a smaller one after it still fits.
+    const totalled = admit([{ size: 40 * mb }], [
+      { fileName: "c", size: 30 * mb },
+      { fileName: "d", size: 20 * mb },
+    ]);
+    expect(totalled.accepted.map((file) => file.fileName)).toEqual(["d"]);
+    expect(totalled.problems).toEqual(["c was not attached: a message's attachments stay under 64 MB together."]);
+  });
+
+  it("keeps every file it could read when another in the same pick cannot be read", async () => {
+    const good = { fileName: "shot.png", mimeType: "image/png", size: 3, read: () => Promise.resolve("AAAA") };
+    const bad = { fileName: "gone.pdf", mimeType: "application/pdf", size: 3, read: () => Promise.reject(new Error("Could not read gone.pdf.")) };
+    const also = { fileName: "notes.txt", mimeType: "text/plain", size: 3, read: () => Promise.resolve("BBBB") };
+
+    const { read, failures } = await readEach([good, bad, also]);
+
+    expect(read.map((attachment) => [attachment.fileName, attachment.kind])).toEqual([
+      ["shot.png", "image"],
+      ["notes.txt", "file"],
+    ]);
+    expect(failures).toEqual(["Could not attach gone.pdf: Could not read gone.pdf."]);
+  });
+
+  it("puts a failed send's attachments back ahead of one attached while it was in flight", () => {
+    const sent = [toAttachment(png, "a"), toAttachment(pdf, "b")];
+    const addedMeanwhile = [toAttachment(png, "c")];
+    expect(restoreFailed(addedMeanwhile, sent).map((attachment) => attachment.id)).toEqual(["a", "b", "c"]);
+    expect(restoreFailed([], sent).map((attachment) => attachment.id)).toEqual(["a", "b"]);
+    // Never twice, should the same attachment somehow be in both.
+    expect(restoreFailed([sent[0]!], sent).map((attachment) => attachment.id)).toEqual(["a", "b"]);
   });
 
   it("keeps attachments for a store built later on the same root, apart per first mate", () => {
@@ -402,5 +461,35 @@ describe("attachments", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2 KB");
     expect(formatBytes(3 * 1024 * 1024)).toBe("3.0 MB");
+  });
+});
+
+describe("CaptainMessageSchema", () => {
+  /** Base64 that decodes to `bytes`, without building the bytes. */
+  function base64Of(bytes: number): string {
+    return "A".repeat(Math.ceil(bytes / 3) * 4);
+  }
+
+  it("holds images, not only files, to one attachment's limit", () => {
+    const image = { data: base64Of(MAX_ATTACHMENT_BYTES + 3), mimeType: "image/png" };
+    expect(base64Bytes(image.data)).toBeGreaterThan(MAX_ATTACHMENT_BYTES);
+    expect(CaptainMessageSchema.safeParse({ text: "", images: [image] }).success).toBe(false);
+    expect(CaptainMessageSchema.safeParse({ text: "", images: [{ data: "AAAA", mimeType: "image/png" }] }).success).toBe(true);
+  });
+
+  it("refuses more attachments than a message carries, counting images and files together", () => {
+    const image = { data: "AAAA", mimeType: "image/png" };
+    const file = { fileName: "a.txt", mimeType: "text/plain", data: "AAAA" };
+    const half = MAX_ATTACHMENTS / 2;
+    const ok = { text: "", images: Array(half).fill(image), files: Array(half).fill(file) };
+    expect(CaptainMessageSchema.safeParse(ok).success).toBe(true);
+    expect(CaptainMessageSchema.safeParse({ ...ok, files: Array(half + 1).fill(file) }).success).toBe(false);
+  });
+
+  it("refuses attachments that pass the total together though each is within its own limit", () => {
+    const each = Math.floor(MAX_MESSAGE_BYTES / 2);
+    const file = { fileName: "a.bin", mimeType: "application/octet-stream", data: base64Of(each) };
+    expect(CaptainMessageSchema.safeParse({ text: "", files: [file] }).success).toBe(true);
+    expect(CaptainMessageSchema.safeParse({ text: "", files: [file, file, file] }).success).toBe(false);
   });
 });

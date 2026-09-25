@@ -11,12 +11,13 @@ import { Image, Platform, Pressable, SafeAreaView, ScrollView, Text, View } from
 
 import { askMate, askMateCommand, type AgentSummary, type MateCommand } from "../shared/fleet";
 import {
-  attachmentProblem,
+  admit,
   captainMessage,
   formatBytes,
   hasContent,
   pendingAttachments,
-  toAttachment,
+  readEach,
+  restoreFailed,
   type PendingAttachment,
 } from "./attachments";
 import { drafts } from "./draft";
@@ -124,22 +125,23 @@ export function MateChat({
 
   /**
    * Reads what was picked, pasted or dropped and adds it to the draft's
-   * attachments. The list is re-read from the store once the bytes are in, so
-   * two quick drops, or a removal while one is reading, both hold.
+   * attachments. Nothing past the limits is read at all; a file that cannot be
+   * read is reported and the rest still attach. The list is re-read from the
+   * store once the bytes are in, and the limits checked again, so two quick
+   * drops, or a removal while one is reading, both hold.
    */
   function attach(files: readonly OfferedFile[]): void {
-    const accepted = files.filter((file) => {
-      const problem = attachmentProblem(file);
-      if (problem !== null) toast.error(problem);
-      return problem === null;
-    });
-    if (accepted.length === 0) return;
-    Promise.all(
-      accepted.map(function readFile(file) {
-        return file.read().then((data) => toAttachment({ fileName: file.fileName, mimeType: file.mimeType, size: file.size, data }));
-      }),
-    )
-      .then((read) => setAttachments([...pendingAttachments.get(mate.id), ...read]))
+    const first = admit(pendingAttachments.get(mate.id), files);
+    first.problems.forEach((problem) => toast.error(problem));
+    if (first.accepted.length === 0) return;
+    readEach(first.accepted)
+      .then(({ read, failures }) => {
+        failures.forEach((failure) => toast.error(failure));
+        const current = pendingAttachments.get(mate.id);
+        const second = admit(current, read);
+        second.problems.forEach((problem) => toast.error(problem));
+        if (second.accepted.length > 0) setAttachments([...current, ...second.accepted]);
+      })
       .catch((caught: unknown) => toast.error(errorText(caught)));
   }
 
@@ -234,7 +236,7 @@ export function MateChat({
    * the daemon answers: the box stays editable while it is in flight, and a
    * follow-up typed in that second must not be wiped by the reply. A failed
    * send puts the text back, unless something new has been typed since, and
-   * the attachments, unless something new has been attached.
+   * its attachments ahead of any attached since.
    */
   function sendDraft(): void {
     const text = draft;
@@ -248,7 +250,7 @@ export function MateChat({
       .catch((caught: unknown) => {
         toast.error(errorText(caught));
         if (drafts.get(mate.id).trim() === "") setDraft(text);
-        if (pendingAttachments.get(mate.id).length === 0) setAttachments(attached);
+        setAttachments(restoreFailed(pendingAttachments.get(mate.id), attached));
       })
       .finally(() => setSending(false));
   }

@@ -16,12 +16,33 @@
  */
 import { z } from "zod";
 
-/** Paseo's composer refuses a file past this; so does the chat. */
+/** Paseo's composer refuses a file past this; the chat holds images to it too. */
 export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+
+/**
+ * All of a message's attachments together. Paseo has no such limit because it
+ * uploads each file on its own stream; here the whole message is one RPC, one
+ * WebSocket frame, and the daemon's socket takes `ws`'s default of 100 MiB a
+ * frame. Base64 is 4/3 of the bytes, so 64 MB decoded is about 85 MiB on the
+ * wire, leaving room for the JSON around it.
+ */
+export const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
+
+/** How many attachments one message carries. Paseo sets no number; this only bounds the chip row. */
+export const MAX_ATTACHMENTS = 20;
+
+const MB = 1024 * 1024;
+
+/** Base64 whose decoded size is within one attachment's limit. */
+const AttachmentData = z
+  .string()
+  .refine((data) => base64Bytes(data) <= MAX_ATTACHMENT_BYTES, {
+    message: `An attachment is larger than ${MAX_ATTACHMENT_BYTES / MB} MB.`,
+  });
 
 export const ImagePartSchema = z.object({
   /** Base64, without a `data:` prefix. */
-  data: z.string().min(1),
+  data: AttachmentData.refine((data) => data.length > 0, { message: "An image is empty." }),
   mimeType: z.string().min(1),
 });
 export type ImagePart = z.infer<typeof ImagePartSchema>;
@@ -30,7 +51,7 @@ export const FilePartSchema = z.object({
   fileName: z.string().min(1),
   mimeType: z.string().min(1),
   /** Base64, without a `data:` prefix. */
-  data: z.string(),
+  data: AttachmentData,
 });
 export type FilePart = z.infer<typeof FilePartSchema>;
 
@@ -38,9 +59,18 @@ export type FilePart = z.infer<typeof FilePartSchema>;
 export const CaptainMessageSchema = z
   .object({
     text: z.string(),
-    images: z.array(ImagePartSchema).optional(),
-    files: z.array(FilePartSchema).optional(),
+    images: z.array(ImagePartSchema).max(MAX_ATTACHMENTS).optional(),
+    files: z.array(FilePartSchema).max(MAX_ATTACHMENTS).optional(),
   })
+  .refine((message) => (message.images?.length ?? 0) + (message.files?.length ?? 0) <= MAX_ATTACHMENTS, {
+    message: `A message carries at most ${MAX_ATTACHMENTS} attachments.`,
+  })
+  .refine(
+    (message) =>
+      [...(message.images ?? []), ...(message.files ?? [])].reduce((total, part) => total + base64Bytes(part.data), 0) <=
+      MAX_MESSAGE_BYTES,
+    { message: `A message's attachments come to more than ${MAX_MESSAGE_BYTES / MB} MB together.` },
+  )
   .refine(
     (message) => message.text.trim() !== "" || (message.images?.length ?? 0) > 0 || (message.files?.length ?? 0) > 0,
     { message: "Nothing to send: the message has no words and no attachments." },
