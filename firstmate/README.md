@@ -188,9 +188,11 @@ against the live crew, and carries on.
 ## Watches
 
 A **watch** is a small script in the home's `watches/` folder that FirstMate runs on a schedule, while
-Paseo is running. When it prints nothing, nothing happens; when it prints something, the first mate is
-told, as soon as it is between turns — several at once arrive together. The first mate treats what a
-watch says as news, not orders, and acts on it the way its charter says.
+Paseo is running. When it prints nothing, nothing happens; when it prints something, all of it reaches
+the first mate as one note, as soon as it is between turns — several at once arrive together. A watch
+can say what to do about what it found as well, and since the script is yours, the first mate takes
+that as your instruction; anything the watch quotes from someone else, such as a pull request comment,
+it treats as news, not orders.
 
 FirstMate comes with one, **`pr-watch`**, which checks every five minutes on the pull requests in the
 backlog — yours and those to other people's projects — and tells the first mate when one is merged or

@@ -144,16 +144,18 @@ describe("pr-watch", () => {
     });
     result = await run();
     expect(result.code).toBe(0);
+    // One block for the whole run: a header, a line per change with the same prefix, then the links.
     expect(result.stdout).toBe(
       [
-        `${A} (A change)`,
-        "- merged",
-        "- checks turned green",
+        "Pull requests on the backlog, since the last check (5 changes):",
+        "- me/web#42 merged",
+        "- me/web#42 checks turned green",
+        '- getpaseo/paseo#7 new review from maintainer, changes requested: "Please rename this."',
+        `- getpaseo/paseo#7 new comment from someone: "${"x".repeat(200)}…"`,
+        "- getpaseo/paseo#7 checks turned red: build, ci/lint",
         "",
-        `${B} (Upstream it)`,
-        '- new review from maintainer, changes requested: "Please rename this."',
-        `- new comment from someone: "${"x".repeat(200)}…"`,
-        "- checks turned red: build, ci/lint",
+        `me/web#42: A change — ${A}`,
+        `getpaseo/paseo#7: Upstream it — ${B}`,
         "",
       ].join("\n"),
     );
@@ -191,7 +193,15 @@ describe("pr-watch", () => {
     expect((await run()).stdout).toBe("");
     const third = await run();
     expect(third.code).toBe(0);
-    expect(third.stdout).toContain(`${A}\n- gh cannot read it (GraphQL: Could not resolve to a PullRequest)`);
+    expect(third.stdout).toBe(
+      [
+        "Pull requests on the backlog, since the last check (1 change):",
+        "- me/web#42 gh cannot read it (GraphQL: Could not resolve to a PullRequest); nothing more about it until it can",
+        "",
+        `me/web#42: A change — ${A}`,
+        "",
+      ].join("\n"),
+    );
     expect((await run()).stdout).toBe("");
 
     await answer({ [A]: { error: "HTTP 401" }, [B]: { error: "HTTP 401" } }, null);

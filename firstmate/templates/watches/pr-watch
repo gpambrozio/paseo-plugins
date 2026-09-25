@@ -9,6 +9,10 @@
 // checks turning red or green. A pull request seen for the first time is only recorded. Nothing
 // changed, nothing printed.
 //
+// Everything a run finds is printed together, and FirstMate hands it to the first mate as one note: a
+// header line, one `- <owner>/<repo>#<n> <what changed>` line per change, and then each pull request
+// mentioned with its title and URL.
+//
 // What it saw is kept in $FIRSTMATE_WATCH_STATE/prs.json. A pull request `gh` cannot read three runs
 // running is mentioned once, until it can be read again; when `gh` can read none of them — not
 // installed, not logged in — the run fails, and the plugin reports that once.
@@ -151,7 +155,7 @@ async function main() {
       errors.push(`${url}: ${error.message}`);
       const failures = (before?.failures || 0) + 1;
       const tell = failures >= FAILURES_BEFORE_REPORT && !before?.failureReported;
-      if (tell) reports.set(url, `${url}\n- gh cannot read it (${error.message}); nothing more about it until it can`);
+      if (tell) reports.set(url, [`gh cannot read it (${error.message}); nothing more about it until it can`]);
       next[url] = { ...(before || {}), checkedAt, failures, failureReported: Boolean(before?.failureReported) || tell };
       return;
     }
@@ -165,6 +169,7 @@ async function main() {
       reviews: ids(reviews),
       comments: ids(comments),
       checks: checks.state,
+      title: pull.title,
       checkedAt,
       failures: 0,
       failureReported: false,
@@ -193,7 +198,7 @@ async function main() {
         lines.push("checks turned green");
       }
     }
-    if (lines.length > 0) reports.set(url, `${url} (${pull.title})\n${lines.map((line) => `- ${line}`).join("\n")}`);
+    if (lines.length > 0) reports.set(url, lines);
   }
 
   // Least recently checked first; a few at a time; nothing new started once the budget is spent. One
@@ -211,12 +216,20 @@ async function main() {
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, urls.length) }, worker));
 
-  const report = urls.flatMap((url) => (reports.has(url) ? [reports.get(url)] : []));
+  // owner/repo#n, the way GitHub writes a reference.
+  const ref = (url) => url.replace(/^https:\/\/github\.com\//, "").replace(/\/pull\//, "#");
+  const mentioned = urls.filter((url) => reports.has(url));
+  const changes = mentioned.flatMap((url) => reports.get(url).map((line) => `- ${ref(url)} ${line}`));
+  const links = mentioned.map((url) => {
+    const title = next[url]?.title;
+    return `${ref(url)}${title ? `: ${title}` : ""} — ${url}`;
+  });
+  const header = `Pull requests on the backlog, since the last check (${changes.length} ${changes.length === 1 ? "change" : "changes"}):`;
   const temporary = `${statePath}.tmp`;
   await writeFile(temporary, `${JSON.stringify({ prs: next }, null, 2)}\n`);
   await rename(temporary, statePath);
 
-  if (report.length > 0) process.stdout.write(`${report.join("\n\n")}\n`);
+  if (changes.length > 0) process.stdout.write(`${header}\n${changes.join("\n")}\n\n${links.join("\n")}\n`);
   if (checked > 0 && errors.length === checked) {
     process.stderr.write(`gh could not read any of the backlog's pull requests:\n${errors.join("\n")}\n`);
     process.exitCode = 1;

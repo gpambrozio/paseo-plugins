@@ -6,9 +6,11 @@
  * plugin keeps its own clock: a timer on each minute's boundary that runs every enabled, valid watch
  * whose schedule (`watch-schedule.ts`) matches that minute. A run prints nothing — the usual case —
  * and nothing happens. A run that prints something is queued, and the queue goes to the first mate in
- * one message once it is idle (`<firstmate-watch>` blocks under a line saying they are information,
- * not orders); while it is mid-turn, or while there is no first mate at all, the queue waits, at most
- * `MAX_QUEUED` long, the oldest dropped first and the drop counted in the next message.
+ * one message once it is idle: a `<firstmate-watch>` block per run, holding everything that run
+ * printed, under a line saying a script's own words carry the captain's instructions and what it
+ * quotes from others is information. While it is mid-turn, or while there is no first mate at all,
+ * the queue waits, at most `MAX_QUEUED` long, the oldest dropped first and the drop counted in the
+ * next message.
  *
  * Guardrails: a run has `WATCH_TIMEOUT_MS`; its output is clipped to `MAX_OUTPUT_CHARS`, with a
  * marker; a watch still running when it is due again is not started twice; and a watch that fails —
@@ -40,7 +42,7 @@ import { isDue } from "./watch-schedule";
 
 export const WATCH_TIMEOUT_MS = 2 * 60 * 1000;
 /** The most of one run's output sent to the first mate. */
-export const MAX_OUTPUT_CHARS = 4000;
+export const MAX_OUTPUT_CHARS = 16000;
 /** The most of a failed run's stderr sent, from its end. */
 export const MAX_ERROR_CHARS = 1500;
 /** Outputs waiting for the first mate; past this the oldest go. */
