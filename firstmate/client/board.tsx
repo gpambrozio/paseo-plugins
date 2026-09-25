@@ -1,7 +1,9 @@
 /**
  * The crew board: seven columns in the order the captain arranged them, each
- * foldable to a narrow strip. On a wide screen they sit in two rows, three
- * over four; on a phone they stack, and a folded column is one line.
+ * foldable to a narrow strip. A column with nobody in it is not drawn at all,
+ * folded or not. On a wide screen the rest sit in one row when there are three
+ * or fewer and in two past that, the extra in the second; on a phone they
+ * stack, and a folded column is one line.
  *
  * Columns move with their header's arrows rather than by dragging: a drag
  * needs document-level pointer tracking on the web and fights every scroll
@@ -14,10 +16,9 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 
 import type { ColumnId, FleetCard } from "../shared/fleet";
 import { CrewCard } from "./card";
-import { COLUMNS, columnTone, groupCards, splitRows } from "./format";
+import { boardRows, COLUMNS, columnTone, groupCards, moveColumn } from "./format";
 
 const COLLAPSED_WIDTH = 40;
-const ROWS = 2;
 
 interface BoardProps {
   cards: readonly FleetCard[];
@@ -28,18 +29,21 @@ interface BoardProps {
   /** Shows one crewmate's card and transcript in place of the board. */
   onWatch: (agentId: string) => void;
   onToggleColumn: (id: ColumnId) => void;
-  onMoveColumn: (id: ColumnId, delta: number) => void;
+  /** Saves a new whole column order, hidden columns included. */
+  onReorder: (order: ColumnId[]) => void;
   onChanged: () => void;
 }
 
 export function Board(props: BoardProps) {
   const { cards, order, collapsed, theme, compact } = props;
   const groups = useMemo(() => groupCards(cards), [cards]);
+  const shown = useMemo(() => order.filter((id) => (groups.get(id)?.length ?? 0) > 0), [order, groups]);
   const styles = useMemo(() => {
     const { colors } = theme;
     return {
       board: { flex: 1, padding: compact ? 10 : 12, gap: 10 },
       stack: { gap: 10, padding: 10, paddingBottom: 24 },
+      nobody: { padding: compact ? 10 : 12, color: colors.foregroundMuted, fontSize: 12 },
       row: { flex: 1, minHeight: 0, flexDirection: "row" as const, gap: 10 },
       column: {
         flexGrow: 1,
@@ -68,7 +72,6 @@ export function Board(props: BoardProps) {
       count: { color: colors.foregroundMuted, fontSize: 11 },
       arrow: { padding: 3 },
       body: { gap: 8, paddingBottom: 4 },
-      empty: { color: colors.foregroundMuted, fontSize: 11, paddingVertical: 4 },
       foldedTitle: {
         color: colors.foregroundMuted,
         fontSize: 11,
@@ -83,7 +86,7 @@ export function Board(props: BoardProps) {
   function renderHeader(id: ColumnId, folded: boolean, count: number) {
     const meta = COLUMNS[id];
     const tone = columnTone(theme, id);
-    const index = order.indexOf(id);
+    const index = shown.indexOf(id);
     const toggle = (
       <Pressable
         accessibilityRole="button"
@@ -119,17 +122,17 @@ export function Board(props: BoardProps) {
               accessibilityState={{ disabled: index <= 0 }}
               disabled={index <= 0}
               style={styles.arrow}
-              onPress={() => props.onMoveColumn(id, -1)}
+              onPress={() => props.onReorder(moveColumn(order, id, -1, shown))}
             >
               <Icon name={compact ? "ChevronUp" : "ChevronLeft"} size={13} color={theme.colors.foregroundMuted} />
             </Pressable>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Move ${meta.title} ${compact ? "down" : "right"}`}
-              accessibilityState={{ disabled: index >= order.length - 1 }}
-              disabled={index >= order.length - 1}
+              accessibilityState={{ disabled: index >= shown.length - 1 }}
+              disabled={index >= shown.length - 1}
               style={styles.arrow}
-              onPress={() => props.onMoveColumn(id, 1)}
+              onPress={() => props.onReorder(moveColumn(order, id, 1, shown))}
             >
               <Icon name={compact ? "ChevronDown" : "ChevronRight"} size={13} color={theme.colors.foregroundMuted} />
             </Pressable>
@@ -139,8 +142,7 @@ export function Board(props: BoardProps) {
     );
   }
 
-  function renderCards(id: ColumnId, entries: readonly FleetCard[]) {
-    if (entries.length === 0) return <Text style={styles.empty}>{COLUMNS[id].empty}</Text>;
+  function renderCards(entries: readonly FleetCard[]) {
     return entries.map((card) => {
       const agentId = card.agent?.id ?? null;
       return (
@@ -156,18 +158,20 @@ export function Board(props: BoardProps) {
     });
   }
 
+  if (shown.length === 0) return <Text style={styles.nobody}>No crew on the board.</Text>;
+
   if (compact) {
     return (
       // The steer and relaunch boxes on a card are inside this list; on iOS the
       // system insets it for the keyboard and scrolls the focused box into view.
       <ScrollView contentContainerStyle={styles.stack} automaticallyAdjustKeyboardInsets>
-        {order.map((id) => {
+        {shown.map((id) => {
           const entries = groups.get(id) ?? [];
           const folded = collapsed.includes(id);
           return (
             <View key={id} style={styles.columnStacked}>
               {renderHeader(id, folded, entries.length)}
-              {folded ? null : <View style={styles.body}>{renderCards(id, entries)}</View>}
+              {folded ? null : <View style={styles.body}>{renderCards(entries)}</View>}
             </View>
           );
         })}
@@ -177,7 +181,7 @@ export function Board(props: BoardProps) {
 
   return (
     <View style={styles.board}>
-      {splitRows(order, ROWS).map((row) => (
+      {boardRows(shown).map((row) => (
         <View key={row.join(",")} style={styles.row}>
           {row.map((id) => {
             const entries = groups.get(id) ?? [];
@@ -190,7 +194,7 @@ export function Board(props: BoardProps) {
                     {COLUMNS[id].title}
                   </Text>
                 ) : (
-                  <ScrollView contentContainerStyle={styles.body}>{renderCards(id, entries)}</ScrollView>
+                  <ScrollView contentContainerStyle={styles.body}>{renderCards(entries)}</ScrollView>
                 )}
               </View>
             );

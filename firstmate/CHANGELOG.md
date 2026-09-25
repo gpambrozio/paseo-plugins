@@ -21,6 +21,11 @@ read before you move.
 
 ### Changed
 
+- **The board hides columns with nobody in them.** Only the columns that have workers show, and on a
+  wide screen they fill the space: up to three sit side by side, and more than three take two rows, with
+  the extra one in the second row. On a phone the list simply skips the empty ones. When there is no crew
+  at all, the board says so. The arrows that move a column skip over hidden ones, and a hidden column
+  comes back in the place you gave it.
 - **A worker that has finished waits in Idle, not Done.** When a worker reports it is done, its card now
   moves to the Idle column until the first mate lands the work and records it as done; only then does it
   reach Done. The card still shows what the worker said and anything waiting on your call. Before, a
