@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { activityRows, clipLines } from "./activity-rows";
+import { createDraftStore } from "./draft";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { isDirty, markSaved, type OpenFile } from "./open-file";
@@ -324,5 +325,26 @@ describe("markSaved", () => {
     const other: OpenFile = { kind: "text", path: "AGENTS.md", modifiedMs: 5, saved: "a", draft: "b" };
     expect(markSaved(other, sent)).toBe(other);
     expect(markSaved(null, sent)).toBeNull();
+  });
+});
+
+describe("createDraftStore", () => {
+  it("keeps a draft for a store built later on the same root, as a re-evaluated bundle does", () => {
+    const root = {};
+    createDraftStore(root).set("mate-1", "half a thought");
+    expect(createDraftStore(root).get("mate-1")).toBe("half a thought");
+  });
+
+  it("keeps each first mate's draft apart and forgets an emptied one", () => {
+    const store = createDraftStore({});
+    store.set("mate-1", "one");
+    store.set("mate-2", "two");
+    store.set("mate-1", "");
+    expect(store.get("mate-1")).toBe("");
+    expect(store.get("mate-2")).toBe("two");
+  });
+
+  it("starts empty on a root that has never held drafts", () => {
+    expect(createDraftStore({}).get("mate-1")).toBe("");
   });
 });

@@ -159,6 +159,12 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   in module-scope variables the component reads on mount: `cachedBoard` in `github-board`,
   `cachedPane` and `cachedDraft` in `launchd-jobs`. Anything that *is* worth persisting belongs in a
   settings document, which the host restores on its own.
+- **Module scope does not outlive the host's connection.** When the connection to a host drops — the
+  phone backgrounded, the Mac asleep, a network change — the app disposes that host's plugins, and it
+  evaluates the bundle afresh when the connection returns, so every module-scope variable starts over.
+  The bundle is evaluated with an indirect `eval` in the app's global scope, so a slot on `globalThis`
+  under a `Symbol.for` key is still there for the new evaluation: `firstmate/client/draft.ts` keeps the
+  chat's unsent message that way, for the life of the app.
 - **`paseo.agents.subscribe()` alone hears nothing.** Since 0.9 it is a local listener fed only by
   an observation the same API instance opened with `agents.list({ subscribe: {} })`, and every
   plugin runtime gets its own instance, so the app's own observations do not reach it. Open one and

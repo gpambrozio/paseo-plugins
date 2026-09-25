@@ -19,6 +19,10 @@ read before you move.
 
 ### Fixed
 
+- **A message you were typing to the first mate is still there when you come back.** Leaving Paseo for
+  another app, putting the phone down, or letting the Mac sleep could clear the box, so a half-written
+  message was gone by the time you returned. It now stays until you send it, for as long as Paseo is
+  open.
 - **Finished workers no longer pile up in Paseo's "Ready to review".** Every worker the first mate ran
   stayed in that part of Paseo's sidebar after it finished, as if you still had to look at it, even
   though the first mate had already read what it said. Once the first mate has read that a worker
