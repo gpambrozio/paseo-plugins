@@ -1,6 +1,6 @@
 {
   "name": "@gpambrozio/paseo-skills",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Paseo plugin: lists the skills an agent can use, shows where each comes from, renders its SKILL.md, and invokes it",
   "license": "MIT",
   "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/skills",

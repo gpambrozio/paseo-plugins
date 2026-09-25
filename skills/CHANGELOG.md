@@ -7,6 +7,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-skills` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.2.1] — 2026-09-23
+
+### Fixed
+
+- **The Skills pill reaches agents created after the plugin loaded.** Paseo 0.9 changed
+  `agents.subscribe()` to a local listener that no longer asks the daemon for agent data, so the
+  pill only covered agents that existed at load; a new session had none until the plugin was
+  reloaded. On 0.9 clients the pill now opens its own agent observation
+  (`agents.list({ subscribe: {} })`) and follows its snapshots and updates; an 0.8 client keeps the
+  previous listen-and-seed behaviour, because sending `subscribe` from there would replace the
+  app's own agent subscription.
+
 ## [0.2.0] — 2026-09-22
 
 ### Added

@@ -6,6 +6,7 @@ import {
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect } from "react";
 
+import { followAgents, type AgentList, type AgentUpdate } from "./agents";
 import { countEntries, useSkillsQuery } from "./skills-query";
 
 /** What the pill reads before the count is known, and the accessible name throughout. */
@@ -49,13 +50,18 @@ function createPillIcon(agentId: string, pill: { current?: PluginButtonRegistrat
  * stream for the rest, and removes every registration on teardown.
  */
 export function contributePills(client: PluginClientContext) {
-  const pills = new Map<string, PluginButtonRegistration>();
+  const pills = new Map<string, { workspaceId: string; registration: PluginButtonRegistration }>();
+  let stopped = false;
 
   function addPill(agentId: string, workspaceId: string) {
+    if (stopped) return;
     // Agent updates fire on every turn of every agent. Nothing in the pill
     // depends on the snapshot, so re-registering would only unmount the icon
-    // and refire its query — and Paseo rejects a duplicate id outright.
-    if (pills.has(agentId)) return;
+    // and refire its query — and Paseo rejects a duplicate id outright. Only a
+    // move to another workspace needs a new registration, since it is baked in.
+    const current = pills.get(agentId);
+    if (current?.workspaceId === workspaceId) return;
+    if (current) removePill(agentId);
 
     // The icon needs the registration that is about to be created from it, so
     // it reaches the registration through this box rather than through a prop.
@@ -76,41 +82,65 @@ export function contributePills(client: PluginClientContext) {
         },
       },
     });
-    pills.set(agentId, pill.current);
+    pills.set(agentId, { workspaceId, registration: pill.current });
   }
 
   function removePill(agentId: string) {
-    pills.get(agentId)?.remove();
+    pills.get(agentId)?.registration.remove();
     pills.delete(agentId);
   }
 
-  const unsubscribe = client.paseo.agents.subscribe((update) => {
+  function applyUpdate(update: AgentUpdate) {
     if (update.kind === "remove") {
       removePill(update.agentId);
       return;
     }
     const { id, workspaceId } = update.agent;
     if (workspaceId) addPill(id, workspaceId);
-  });
+  }
 
-  // `subscribe` only reports change. Without this seed, an agent that was
-  // already sitting idle when the app connected would have no pill until it
-  // next did something.
-  client.paseo.agents
-    .list()
-    .then((result) => {
-      // A `for…of` body would capture the loop binding, not the entry.
-      result.entries.forEach(({ agent }) => {
-        if (agent.workspaceId) addPill(agent.id, agent.workspaceId);
-      });
-    })
-    .catch((error: unknown) => {
-      console.error("skills: could not seed composer pills", error);
+  // A snapshot arrives first and again after every reconnect, and replaces the
+  // set: agents it no longer lists lose their pill, unchanged ones keep theirs.
+  function applySnapshot(list: AgentList) {
+    if (stopped) return;
+    const listed = new Map<string, string>();
+    list.entries.forEach(({ agent }) => {
+      if (agent.workspaceId) listed.set(agent.id, agent.workspaceId);
     });
+    [...pills.keys()].forEach((agentId) => {
+      if (!listed.has(agentId)) removePill(agentId);
+    });
+    listed.forEach((workspaceId, agentId) => addPill(agentId, workspaceId));
+  }
+
+  const unfollow = followAgents(
+    client.paseo,
+    { snapshot: applySnapshot, update: applyUpdate },
+    () => {
+      const unsubscribe = client.paseo.agents.subscribe(applyUpdate);
+
+      // `subscribe` only reports change. Without this seed, an agent that was
+      // already sitting idle when the app connected would have no pill until it
+      // next did something.
+      client.paseo.agents
+        .list()
+        .then((result) => {
+          // A `for…of` body would capture the loop binding, not the entry.
+          result.entries.forEach(({ agent }) => {
+            if (agent.workspaceId) addPill(agent.id, agent.workspaceId);
+          });
+        })
+        .catch((error: unknown) => {
+          console.error("skills: could not seed composer pills", error);
+        });
+      return unsubscribe;
+    },
+  );
 
   return () => {
-    unsubscribe();
-    pills.forEach((pill) => pill.remove());
+    stopped = true;
+    unfollow();
+    pills.forEach((pill) => pill.registration.remove());
     pills.clear();
   };
 }

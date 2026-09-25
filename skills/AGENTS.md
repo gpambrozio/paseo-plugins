@@ -78,3 +78,12 @@ entries there exist because a reviewer proved the code was wrong about the real 
 - **`button.id` must match `/^[a-z][a-z0-9-]*$/`**, which is stricter than the RPC name pattern —
   no dots. Registering the same id twice for one agent throws `Duplicate plugin button`, which is
   the other reason `addPill` returns early rather than re-registering.
+- **On Paseo 0.9, `agents.subscribe()` requests nothing.** It only adds a local listener to
+  observations this API instance opened with `agents.list({ subscribe: {} })`; a bare
+  `subscribe()` plus a one-shot `list()` seed misses every agent created afterwards. The pill
+  therefore opens its own observation through `client/agents.ts` and rebuilds from its snapshots,
+  which arrive on first connect and after every reconnect. A 0.8 client must not send `subscribe`
+  at all — the daemon keeps one agents subscription slot per legacy connection, last query wins,
+  so the plugin would evict the app's own subscription. `canObserveAgents()` picks the path before
+  any request by feature-detecting `observeEvents`, which shipped with observations in
+  `0.9.0-beta.1`.
