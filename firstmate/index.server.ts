@@ -45,15 +45,19 @@ import {
   releaseMate as releaseMateRpc,
   restartMate as restartMateRpc,
   steerCrew as steerCrewRpc,
+  toggleWatch,
   writeConfig,
 } from "./shared/fleet";
 import { listHomeFiles, readHomeFile, writeHomeFile } from "./shared/files";
+import { startWatches } from "./server/watch-service";
 import { displaySettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
   migrateLegacyFiles();
   const reports = new ReportCache();
   const steers = new CaptainSteers();
+  // The scripts in the home's watches/ folder, run on their schedules; see server/watches.ts.
+  const watches = startWatches(server, readFirstmateConfig);
 
   server.handle(readConfig, async () => {
     const config = await readFirstmateConfig();
@@ -69,7 +73,8 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.handle(loadFleetRpc, async (_input, { paseo }) => {
-    const fleet = await loadFleet(paseo, await readFirstmateConfig(), reports);
+    watches.remember(paseo);
+    const fleet = await loadFleet(paseo, await readFirstmateConfig(), reports, () => watches.runner.summaries());
     // A first mate launched before the plugin named its home gets its name the first time the board looks.
     const workspaceId = fleet.mate?.workspaceId ?? null;
     if (workspaceId !== null && fleet.mateInHome) nameHomeOnce(paseo, workspaceId, fleet.home);
@@ -91,6 +96,11 @@ export default function contribute(server: PluginServerContext) {
     agentId: await askMate(paseo, { text: await commandText(command, args) }),
   }));
   server.handle(markMateSeenRpc, (_input, { paseo }) => markMateSeen(paseo));
+  server.handle(toggleWatch, async ({ name, enabled }, { paseo }) => {
+    watches.remember(paseo);
+    await watches.toggle(name, enabled);
+    return {};
+  });
 
   server.handle(steerCrewRpc, async ({ agentId, text }, { paseo }) => {
     await steerCrew(paseo, steers, agentId, text);
@@ -150,6 +160,7 @@ export default function contribute(server: PluginServerContext) {
   return () => {
     unregisterRelay();
     unregisterCrewSeen();
+    watches.stop();
   };
 }
 

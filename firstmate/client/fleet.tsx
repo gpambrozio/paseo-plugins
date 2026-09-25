@@ -8,7 +8,9 @@
  *
  * The first mate's suggestions are buttons that send their words to it, as
  * the chat's Send would: a card beside the crew's columns on a wide layout, a
- * tab of their own on a phone, and nowhere at all while it has none.
+ * tab of their own on a phone, and nowhere at all while it has none. The home's
+ * watch scripts are a card after the columns, and on a phone the foot of the
+ * Crew tab: they are looked at now and then, not acted on, so they get no tab.
  *
  * A surface is unmounted whenever the captain opens a workspace, so the last
  * fleet, the compact tab and the crewmate being watched live in module scope
@@ -498,6 +500,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       suggestions={data.suggestions}
       suggesting={mateSender.sending}
       onSuggest={suggest}
+      watches={data.watches}
       onWatch={setWatching}
       onChanged={refresh}
       onToggleColumn={(id: ColumnId) =>

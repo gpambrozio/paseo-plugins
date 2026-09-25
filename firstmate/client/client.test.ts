@@ -37,7 +37,10 @@ import {
   orderedColumns,
   relativeTime,
   shortPath,
+  watchStatusText,
+  watchTone,
 } from "./format";
+import type { WatchSummary } from "../shared/fleet";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
@@ -235,6 +238,63 @@ describe("columns", () => {
     expect(boardRows(boardItems(["working", "blocked", "idle"], false))).toEqual([["working", "blocked", "idle"]]);
     expect(boardRows(boardItems([], true))).toEqual([["suggestions"]]);
     expect(boardRows(boardItems([], false))).toEqual([]);
+  });
+
+  it("counts the watches card too, last, and only when the home has watches", () => {
+    expect(boardRows(boardItems(["working"], true, true))).toEqual([["suggestions", "working", "watches"]]);
+    expect(boardRows(boardItems(["working", "idle"], true, true))).toEqual([
+      ["suggestions", "working"],
+      ["idle", "watches"],
+    ]);
+    expect(boardRows(boardItems([], false, true))).toEqual([["watches"]]);
+    expect(boardRows(boardItems(["working"], false, false))).toEqual([["working"]]);
+  });
+});
+
+describe("the Watches card", () => {
+  const now = Date.parse("2026-09-25T12:00:00.000Z");
+  const watch = (overrides: Partial<WatchSummary> = {}): WatchSummary => ({
+    name: "pr-watch",
+    schedule: "*/5 * * * *",
+    enabled: true,
+    invalid: null,
+    running: false,
+    lastRunAt: null,
+    lastResult: "never",
+    lastOutput: null,
+    lastOutputAt: null,
+    lastError: null,
+    builtIn: true,
+    outdated: false,
+    ...overrides,
+  });
+  const theme = {
+    colors: { foregroundMuted: "muted", statusWarning: "warning", statusDanger: "danger", accent: "accent" },
+  } as unknown as Parameters<typeof watchTone>[0];
+
+  it("says in one line whether a watch is on, when it last ran and what came of it", () => {
+    expect(watchStatusText(watch(), now)).toBe("not run yet");
+    expect(watchStatusText(watch({ lastRunAt: "2026-09-25T11:55:00.000Z", lastResult: "silent" }), now)).toBe(
+      "ran 5m ago · nothing new",
+    );
+    expect(
+      watchStatusText(watch({ enabled: false, lastRunAt: "2026-09-25T09:00:00.000Z", lastResult: "delivered" }), now),
+    ).toBe("off · ran 3h ago · sent to the first mate");
+    expect(watchStatusText(watch({ running: true, lastRunAt: "2026-09-25T11:59:50.000Z", lastResult: "queued" }), now)).toBe(
+      "running now · ran just now · waiting for the first mate",
+    );
+    expect(watchStatusText(watch({ invalid: "no schedule", lastRunAt: "2026-09-25T11:00:00.000Z", lastResult: "invalid" }), now)).toBe(
+      "cannot run",
+    );
+  });
+
+  it("colours a watch by its last result, and a switched-off one as muted", () => {
+    expect(watchTone(theme, watch({ lastResult: "failed" }))).toBe("danger");
+    expect(watchTone(theme, watch({ lastResult: "invalid" }))).toBe("danger");
+    expect(watchTone(theme, watch({ lastResult: "queued" }))).toBe("warning");
+    expect(watchTone(theme, watch({ lastResult: "delivered" }))).toBe("accent");
+    expect(watchTone(theme, watch({ lastResult: "silent" }))).toBe("muted");
+    expect(watchTone(theme, watch({ lastResult: "failed", enabled: false }))).toBe("muted");
   });
 });
 

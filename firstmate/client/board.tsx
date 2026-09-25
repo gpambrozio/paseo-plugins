@@ -8,6 +8,8 @@
  * On a wide screen the first mate's suggestions sit first among the columns,
  * as a card that counts toward the rows but never folds or moves. A phone
  * shows them in a tab of their own instead, so the board is given none there.
+ * The home's watches are a card after the columns, the same way, and on a
+ * phone the last section of the list.
  *
  * Columns move with their header's arrows rather than by dragging: a drag
  * needs document-level pointer tracking on the web and fights every scroll
@@ -18,10 +20,20 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
-import type { ColumnId, FleetCard, Suggestion } from "../shared/fleet";
+import type { ColumnId, FleetCard, Suggestion, WatchSummary } from "../shared/fleet";
 import { CrewCard } from "./card";
-import { boardItems, boardRows, COLUMNS, columnTone, groupCards, moveColumn, SUGGESTIONS_CARD } from "./format";
+import {
+  boardItems,
+  boardRows,
+  COLUMNS,
+  columnTone,
+  groupCards,
+  moveColumn,
+  SUGGESTIONS_CARD,
+  WATCHES_CARD,
+} from "./format";
 import { SUGGESTIONS_ICON, SUGGESTIONS_TITLE, SuggestionList } from "./suggestions";
+import { WATCHES_ICON, WATCHES_TITLE, WatchList } from "./watches";
 
 const COLLAPSED_WIDTH = 40;
 
@@ -37,6 +49,8 @@ interface BoardProps {
   suggesting: boolean;
   /** Sends a suggestion's prompt to the first mate. */
   onSuggest: (prompt: string) => void;
+  /** The home's watch scripts: a card after the columns, or the list's last section; empty draws neither. */
+  watches: readonly WatchSummary[];
   /** Shows one crewmate's card and transcript in place of the board. */
   onWatch: (agentId: string) => void;
   onToggleColumn: (id: ColumnId) => void;
@@ -46,7 +60,7 @@ interface BoardProps {
 }
 
 export function Board(props: BoardProps) {
-  const { cards, order, collapsed, theme, compact, suggestions } = props;
+  const { cards, order, collapsed, theme, compact, suggestions, watches } = props;
   const groups = useMemo(() => groupCards(cards), [cards]);
   const shown = useMemo(() => order.filter((id) => (groups.get(id)?.length ?? 0) > 0), [order, groups]);
   const styles = useMemo(() => {
@@ -169,14 +183,29 @@ export function Board(props: BoardProps) {
     });
   }
 
+  function renderWatchesHeader() {
+    return (
+      <View style={styles.header}>
+        <Icon name={WATCHES_ICON} size={14} color={theme.colors.accent} />
+        <Text style={styles.title} numberOfLines={1}>
+          {WATCHES_TITLE}
+        </Text>
+        <Text style={styles.count}>{watches.length}</Text>
+      </View>
+    );
+  }
+
   const withSuggestions = !compact && suggestions.length > 0;
-  if (shown.length === 0 && !withSuggestions) return <Text style={styles.nobody}>No crew on the board.</Text>;
+  const withWatches = watches.length > 0;
+  const nobody = <Text style={styles.nobody}>No crew on the board.</Text>;
+  if (shown.length === 0 && !withSuggestions && !withWatches) return nobody;
 
   if (compact) {
     return (
       // The steer and relaunch boxes on a card are inside this list; on iOS the
       // system insets it for the keyboard and scrolls the focused box into view.
       <ScrollView contentContainerStyle={styles.stack} automaticallyAdjustKeyboardInsets>
+        {shown.length === 0 ? nobody : null}
         {shown.map((id) => {
           const entries = groups.get(id) ?? [];
           const folded = collapsed.includes(id);
@@ -187,13 +216,19 @@ export function Board(props: BoardProps) {
             </View>
           );
         })}
+        {withWatches ? (
+          <View style={styles.columnStacked}>
+            {renderWatchesHeader()}
+            <WatchList watches={watches} theme={theme} onChanged={props.onChanged} />
+          </View>
+        ) : null}
       </ScrollView>
     );
   }
 
   return (
     <View style={styles.board}>
-      {boardRows(boardItems(shown, withSuggestions)).map((row) => (
+      {boardRows(boardItems(shown, withSuggestions, withWatches)).map((row) => (
         <View key={row.join(",")} style={styles.row}>
           {row.map((id) => {
             if (id === SUGGESTIONS_CARD) {
@@ -213,6 +248,16 @@ export function Board(props: BoardProps) {
                       disabled={props.suggesting}
                       onPick={props.onSuggest}
                     />
+                  </ScrollView>
+                </View>
+              );
+            }
+            if (id === WATCHES_CARD) {
+              return (
+                <View key={id} style={styles.column}>
+                  {renderWatchesHeader()}
+                  <ScrollView contentContainerStyle={styles.body}>
+                    <WatchList watches={watches} theme={theme} onChanged={props.onChanged} />
                   </ScrollView>
                 </View>
               );

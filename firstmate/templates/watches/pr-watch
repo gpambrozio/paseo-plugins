@@ -1,0 +1,197 @@
+#!/usr/bin/env node
+// schedule: */5 * * * *
+// firstmate-watch {{fingerprint}} (the FirstMate version this copy started from; leave it as it is)
+//
+// FirstMate's pull request watch. Every pull request the backlog links to outside `## Done` — full
+// https://github.com/<owner>/<repo>/pull/<n> URLs, in anyone's repository — is read with `gh pr view`,
+// and what changed since the last run is printed: merged, closed, reopened, a new review or comment
+// (by anyone but the account `gh` is logged in as, which is the crew's and the captain's own), and
+// checks turning red or green. A pull request seen for the first time is only recorded. Nothing
+// changed, nothing printed.
+//
+// What it saw is kept in $FIRSTMATE_WATCH_STATE/prs.json. A pull request `gh` cannot read three runs
+// running is mentioned once, until it can be read again; when `gh` can read none of them — not
+// installed, not logged in — the run fails, and the plugin reports that once.
+//
+// Edit it freely: once you have, the plugin keeps your copy (see README.md).
+
+const EXCERPT_CHARS = 200;
+const FAILURES_BEFORE_REPORT = 3;
+const KEPT_IDS = 300;
+const GH_TIMEOUT_MS = 30 * 1000;
+const FIELDS = "state,title,url,reviews,comments,statusCheckRollup";
+const PR_URL = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)/g;
+
+async function main() {
+  const { readFile, writeFile, rename } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const { execFile } = await import("node:child_process");
+
+  const backlogPath = process.env.FIRSTMATE_BACKLOG;
+  const stateDir = process.env.FIRSTMATE_WATCH_STATE;
+  if (!backlogPath || !stateDir) throw new Error("run me from FirstMate: FIRSTMATE_BACKLOG and FIRSTMATE_WATCH_STATE are not set");
+  const statePath = join(stateDir, "prs.json");
+
+  function gh(args) {
+    return new Promise((resolve, reject) => {
+      execFile("gh", args, { timeout: GH_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+        if (error) {
+          const detail = String(stderr || "").trim().split("\n").pop() || error.message;
+          reject(Object.assign(new Error(detail), { code: error.code }));
+        } else resolve(String(stdout));
+      });
+    });
+  }
+
+  async function readOptional(path) {
+    try {
+      return await readFile(path, "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  }
+
+  // The pull requests the backlog links to, outside its Done section, each once.
+  function backlogPulls(markdown) {
+    const urls = [];
+    let done = false;
+    for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
+      const heading = /^#{1,6}\s+(.*)$/.exec(line);
+      if (heading) {
+        done = /^done\b/i.test(heading[1].trim());
+        continue;
+      }
+      if (done) continue;
+      for (const match of line.matchAll(PR_URL)) {
+        const url = `https://github.com/${match[1]}/${match[2]}/pull/${match[3]}`;
+        if (!urls.includes(url)) urls.push(url);
+      }
+    }
+    return urls;
+  }
+
+  function excerpt(body) {
+    const flat = String(body || "").replace(/\s+/g, " ").trim();
+    return flat.length <= EXCERPT_CHARS ? flat : `${flat.slice(0, EXCERPT_CHARS).trimEnd()}…`;
+  }
+
+  const FAILED = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"]);
+  const WAITING = new Set(["PENDING", "EXPECTED", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED"]);
+
+  // The checks as one word — failing, pending, passing, none — and the names of the failing ones.
+  function checkState(rollup) {
+    const failing = [];
+    let pending = false;
+    for (const check of Array.isArray(rollup) ? rollup : []) {
+      const name = check.name || check.context || "a check";
+      if (check.__typename === "StatusContext" || (check.state && !check.status)) {
+        if (FAILED.has(check.state)) failing.push(name);
+        else if (WAITING.has(check.state)) pending = true;
+      } else if (check.status && check.status !== "COMPLETED") {
+        pending = true;
+      } else if (FAILED.has(check.conclusion)) {
+        failing.push(name);
+      }
+    }
+    const state = failing.length > 0 ? "failing" : pending ? "pending" : (rollup || []).length > 0 ? "passing" : "none";
+    return { state, failing };
+  }
+
+  function ids(list) {
+    return (Array.isArray(list) ? list : []).map((item) => String(item.id)).slice(-KEPT_IDS);
+  }
+
+  function describeReview(review) {
+    const state = { APPROVED: "approved", CHANGES_REQUESTED: "changes requested", COMMENTED: "commented", DISMISSED: "dismissed" }[review.state] || String(review.state || "").toLowerCase();
+    const text = excerpt(review.body);
+    return `new review from ${review.author?.login || "someone"}, ${state}${text ? `: "${text}"` : ""}`;
+  }
+
+  const saved = JSON.parse((await readOptional(statePath)) || "{}");
+  const previous = saved.prs && typeof saved.prs === "object" ? saved.prs : {};
+  const urls = backlogPulls((await readOptional(backlogPath)) || "");
+  if (urls.length === 0) {
+    if (Object.keys(previous).length > 0) await writeFile(statePath, `${JSON.stringify({ prs: {} }, null, 2)}\n`);
+    return;
+  }
+
+  let viewer = null;
+  try {
+    viewer = (await gh(["api", "user", "--jq", ".login"])).trim() || null;
+  } catch {
+    // Without it, the crew's own comments are reported too; better than nothing.
+  }
+
+  const next = {};
+  const report = [];
+  const errors = [];
+  for (const url of urls) {
+    const before = previous[url];
+    let pull;
+    try {
+      pull = JSON.parse(await gh(["pr", "view", url, "--json", FIELDS]));
+    } catch (error) {
+      if (error.code === "ENOENT") throw new Error("gh is not installed, or not on the PATH Paseo runs with");
+      errors.push(`${url}: ${error.message}`);
+      const failures = (before?.failures || 0) + 1;
+      const tell = failures >= FAILURES_BEFORE_REPORT && !before?.failureReported;
+      if (tell) report.push(`${url}\n- gh cannot read it (${error.message}); nothing more about it until it can`);
+      next[url] = { ...(before || {}), failures, failureReported: Boolean(before?.failureReported) || tell };
+      continue;
+    }
+
+    const checks = checkState(pull.statusCheckRollup);
+    const reviews = (pull.reviews || []).filter((review) => review.state !== "PENDING");
+    const comments = pull.comments || [];
+    const now = {
+      seen: true,
+      state: pull.state,
+      reviews: ids(reviews),
+      comments: ids(comments),
+      checks: checks.state,
+      failures: 0,
+      failureReported: false,
+    };
+    next[url] = now;
+    if (!before?.seen) continue;
+
+    const lines = [];
+    if (now.state !== before.state) {
+      if (now.state === "MERGED") lines.push("merged");
+      else if (now.state === "CLOSED") lines.push("closed without merging");
+      else if (now.state === "OPEN") lines.push("reopened");
+    }
+    const others = (item) => !viewer || item.author?.login !== viewer;
+    for (const review of reviews) {
+      if (!before.reviews?.includes(String(review.id)) && others(review)) lines.push(describeReview(review));
+    }
+    for (const comment of comments) {
+      if (!before.comments?.includes(String(comment.id)) && others(comment)) {
+        lines.push(`new comment from ${comment.author?.login || "someone"}: "${excerpt(comment.body)}"`);
+      }
+    }
+    if (now.checks !== before.checks) {
+      if (now.checks === "failing") lines.push(`checks turned red: ${checks.failing.join(", ")}`);
+      else if (now.checks === "passing" && (before.checks === "failing" || before.checks === "pending")) {
+        lines.push("checks turned green");
+      }
+    }
+    if (lines.length > 0) report.push(`${url} (${pull.title})\n${lines.map((line) => `- ${line}`).join("\n")}`);
+  }
+
+  const temporary = `${statePath}.tmp`;
+  await writeFile(temporary, `${JSON.stringify({ prs: next }, null, 2)}\n`);
+  await rename(temporary, statePath);
+
+  if (report.length > 0) process.stdout.write(`${report.join("\n\n")}\n`);
+  if (errors.length === urls.length) {
+    process.stderr.write(`gh could not read any of the backlog's pull requests:\n${errors.join("\n")}\n`);
+    process.exitCode = 1;
+  }
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error && error.message ? error.message : error}\n`);
+  process.exitCode = 1;
+});

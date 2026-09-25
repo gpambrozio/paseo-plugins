@@ -126,6 +126,42 @@ export const SuggestionSchema = z.object({
 });
 export type Suggestion = z.infer<typeof SuggestionSchema>;
 
+/**
+ * What a watch's last run came to: `silent` printed nothing; `queued` printed something that waits for
+ * the first mate to be idle; `delivered` printed something the first mate has been sent; `failed` exited
+ * non-zero or ran out of time; `invalid` cannot run at all; `never` has not run since it appeared.
+ */
+export const WatchResultSchema = z.enum(["never", "silent", "queued", "delivered", "failed", "invalid"]);
+export type WatchResult = z.infer<typeof WatchResultSchema>;
+
+/**
+ * One script in the home's `watches/` folder, as the board's Watches card shows it. The runner
+ * (`server/watches.ts`) runs it on its schedule and sends the first mate whatever it prints.
+ */
+export const WatchSummarySchema = z.object({
+  /** Its file name in `watches/`. */
+  name: z.string(),
+  /** The schedule as its header writes it, or null when it has none. */
+  schedule: z.string().nullable(),
+  /** False once the captain has switched it off on the card. */
+  enabled: z.boolean(),
+  /** Why it cannot run — no schedule, a bad one, not executable — or null when it can. */
+  invalid: z.string().nullable(),
+  running: z.boolean(),
+  lastRunAt: z.string().nullable(),
+  lastResult: WatchResultSchema,
+  /** What it last printed, clipped, and when; kept while later runs are silent. */
+  lastOutput: z.string().nullable(),
+  lastOutputAt: z.string().nullable(),
+  /** Why its last run failed, with the end of what it wrote to stderr. */
+  lastError: z.string().nullable(),
+  /** One of the plugin's own watches. */
+  builtIn: z.boolean(),
+  /** A built-in the captain has edited, whose plugin version has changed since. */
+  outdated: z.boolean(),
+});
+export type WatchSummary = z.infer<typeof WatchSummarySchema>;
+
 export const FleetSchema = z.object({
   home: z.string(),
   /** False until the first launch has written the charter and records. */
@@ -143,6 +179,8 @@ export const FleetSchema = z.object({
   projects: z.array(ProjectSchema),
   /** What the captain might do next, most likely first; empty hides the card and the tab. */
   suggestions: z.array(SuggestionSchema),
+  /** The home's watch scripts, by name; empty hides the card. */
+  watches: z.array(WatchSummarySchema),
   /**
    * Whether the daemon gives agents Paseo's own tools (`mcp.injectIntoAgents`),
    * which is how the first mate starts and hears from its crew. Off by default
@@ -174,6 +212,8 @@ export const FirstmateConfigSchema = z.object({
   /** `provider/model` the charter tells the first mate to give crewmates; empty leaves it to the first mate. */
   crewProvider: z.string().default(""),
   crewModeId: z.string().default(""),
+  /** Watch scripts the captain has switched off on the board, by file name. */
+  disabledWatches: z.array(z.string()).default([]),
 });
 export type FirstmateConfig = z.infer<typeof FirstmateConfigSchema>;
 
@@ -213,6 +253,13 @@ export const compareCharter = defineRpc({
 export const acknowledgeCharter = defineRpc({
   name: "firstmate.charter.acknowledge",
   input: z.object({}),
+  output: z.object({}),
+});
+
+/** Switches a watch script on or off, without touching the script: the daemon's config lists the ones that are off. */
+export const toggleWatch = defineRpc({
+  name: "firstmate.watch.toggle",
+  input: z.object({ name: z.string().min(1), enabled: z.boolean() }),
   output: z.object({}),
 });
 

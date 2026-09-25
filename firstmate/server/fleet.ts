@@ -19,6 +19,7 @@ import {
   type FirstmateConfig,
   type Fleet,
   type FleetCard,
+  type WatchSummary,
 } from "../shared/fleet";
 import { resolveHome } from "./config";
 import { parseCrewReport, reportUrl } from "./crew-report";
@@ -271,11 +272,16 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export async function loadFleet(paseo: PaseoApi, config: FirstmateConfig, reports: ReportCache): Promise<Fleet> {
+export async function loadFleet(
+  paseo: PaseoApi,
+  config: FirstmateConfig,
+  reports: ReportCache,
+  watchSummaries: () => Promise<WatchSummary[]> = async () => [],
+): Promise<Fleet> {
   const home = resolveHome(config);
   const warnings: string[] = [];
 
-  const [homeReady, backlog, projects, suggestions, mate, crewAgents, agentTools, charter] = await Promise.all([
+  const [homeReady, backlog, projects, suggestions, mate, crewAgents, agentTools, charter, watches] = await Promise.all([
     isHomeReady(home),
     readBacklog(home).catch((error: unknown) => {
       warnings.push(`The backlog could not be read: ${describe(error)}`);
@@ -299,6 +305,10 @@ export async function loadFleet(paseo: PaseoApi, config: FirstmateConfig, report
       warnings.push(`The charter could not be read: ${describe(error)}`);
       return null;
     }),
+    watchSummaries().catch((error: unknown) => {
+      warnings.push(`The watches could not be read: ${describe(error)}`);
+      return [];
+    }),
   ]);
 
   reports.retain(new Set(crewAgents.map((agent) => agent.id)));
@@ -321,6 +331,7 @@ export async function loadFleet(paseo: PaseoApi, config: FirstmateConfig, report
     cards: buildCards(backlog, crew),
     projects,
     suggestions,
+    watches,
     agentTools,
     // A home nobody has launched in has no charter of the captain's to be out of date.
     charterOutdated: homeReady && charter !== null && charter.outdated,
