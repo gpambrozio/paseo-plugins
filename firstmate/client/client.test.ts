@@ -22,9 +22,11 @@ import {
 import { createDraftStore } from "./draft";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
+import { createSendGate } from "./mate-send";
 import { isDirty, markSaved, type OpenFile } from "./open-file";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import {
+  boardItems,
   boardRows,
   contextPercent,
   contextTone,
@@ -223,6 +225,17 @@ describe("columns", () => {
       [3, 4, 5],
     ]);
   });
+
+  it("counts the suggestions card as one of the row's cards, first, and only when there are suggestions", () => {
+    expect(boardRows(boardItems(["working", "idle"], true))).toEqual([["suggestions", "working", "idle"]]);
+    expect(boardRows(boardItems(["working", "blocked", "idle"], true))).toEqual([
+      ["suggestions", "working"],
+      ["blocked", "idle"],
+    ]);
+    expect(boardRows(boardItems(["working", "blocked", "idle"], false))).toEqual([["working", "blocked", "idle"]]);
+    expect(boardRows(boardItems([], true))).toEqual([["suggestions"]]);
+    expect(boardRows(boardItems([], false))).toEqual([]);
+  });
 });
 
 describe("formatting", () => {
@@ -357,6 +370,94 @@ describe("markSaved", () => {
     const other: OpenFile = { kind: "text", path: "AGENTS.md", modifiedMs: 5, saved: "a", draft: "b" };
     expect(markSaved(other, sent)).toBe(other);
     expect(markSaved(null, sent)).toBeNull();
+  });
+});
+
+describe("sending a suggestion", () => {
+  it("sends the prompt as the chat's Send would, with nothing attached", () => {
+    expect(captainMessage("  Merge https://github.com/you/web/pull/42\n", [])).toEqual({
+      text: "Merge https://github.com/you/web/pull/42",
+    });
+  });
+
+  it("sends once for a double press, and again once the first has settled", async () => {
+    const gate = createSendGate();
+    const sent: string[] = [];
+    let finish = (): void => {};
+    function press(prompt: string): Promise<void> | null {
+      return gate.run(function () {
+        sent.push(prompt);
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      });
+    }
+    const first = press("Land web#42");
+    expect(press("Land web#42")).toBeNull();
+    expect(gate.busy()).toBe(true);
+    finish();
+    await first;
+    expect(gate.busy()).toBe(false);
+    const second = press("Review loop on web#42");
+    expect(second).not.toBeNull();
+    finish();
+    await second;
+    expect(sent).toEqual(["Land web#42", "Review loop on web#42"]);
+  });
+
+  it("opens again after a failed send, and tells its listeners each time", async () => {
+    const gate = createSendGate();
+    const seen: boolean[] = [];
+    const stop = gate.subscribe(() => seen.push(gate.busy()));
+    await expect(gate.run(() => Promise.reject(new Error("daemon away")))).rejects.toThrow("daemon away");
+    expect(gate.busy()).toBe(false);
+    await expect(
+      gate.run(() => {
+        throw new Error("thrown before a promise");
+      }),
+    ).rejects.toThrow("thrown before a promise");
+    expect(gate.busy()).toBe(false);
+    stop();
+    expect(seen).toEqual([true, false, true, false]);
+  });
+});
+
+describe("a send that fails after the chat was remounted", () => {
+  it("puts the draft and attachments back in the chat on screen, not only the one that sent", async () => {
+    const root = {};
+    const drafts = createDraftStore(root);
+    const attachments = createAttachmentStore(root);
+    const gate = createSendGate();
+    const shot = toAttachment({ fileName: "shot.png", mimeType: "image/png", size: 3, data: "AAAA" }, "a");
+
+    // The chat that sends: it clears the stores as the message goes, as sendDraft does.
+    let fail = (_error: Error): void => {};
+    const sending = gate.run(function () {
+      return new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      });
+    });
+    drafts.set("mate-1", "");
+    attachments.set("mate-1", []);
+
+    // The captain switches tabs and back: that chat is unmounted, and a new one follows the stores.
+    const shown = { draft: drafts.get("mate-1"), attachments: attachments.get("mate-1") };
+    function reread(): void {
+      shown.draft = drafts.get("mate-1");
+      shown.attachments = attachments.get("mate-1");
+    }
+    const stops = [drafts.subscribe(reread), attachments.subscribe(reread)];
+
+    // The send fails; the old chat's failure callback writes to the stores only.
+    fail(new Error("daemon away"));
+    await expect(sending).rejects.toThrow("daemon away");
+    if (drafts.get("mate-1").trim() === "") drafts.set("mate-1", "land web#42");
+    attachments.set("mate-1", restoreFailed(attachments.get("mate-1"), [shot]));
+
+    expect(shown).toEqual({ draft: "land web#42", attachments: [shot] });
+    stops.forEach((stop) => stop());
+    drafts.set("mate-1", "later");
+    expect(shown.draft).toBe("land web#42");
   });
 });
 

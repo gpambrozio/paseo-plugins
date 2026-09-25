@@ -14,6 +14,12 @@ export interface DraftStore {
   get(key: string): string;
   /** An empty draft is forgotten rather than kept. */
   set(key: string, text: string): void;
+  /**
+   * Called after every `set`, so the chat on screen hears a change made by
+   * another — a failed send putting its text back after the chat that sent it
+   * was unmounted. Returns the unsubscribe.
+   */
+  subscribe(listener: () => void): () => void;
 }
 
 /** A registered symbol, so each evaluation of the bundle names the same slot. */
@@ -27,11 +33,17 @@ export function createDraftStore(root: object): DraftStore {
     Reflect.set(root, SLOT, drafts);
   }
   const store = drafts;
+  const listeners = new Set<() => void>();
   return {
     get: (key) => store.get(key) ?? "",
     set: (key, text) => {
       if (text === "") store.delete(key);
       else store.set(key, text);
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
   };
 }

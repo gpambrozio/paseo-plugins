@@ -36,6 +36,8 @@ export interface AttachmentStore {
   get(key: string): readonly PendingAttachment[];
   /** An empty list is forgotten rather than kept. */
   set(key: string, attachments: readonly PendingAttachment[]): void;
+  /** Called after every `set`, like the draft store's — see `./draft`. Returns the unsubscribe. */
+  subscribe(listener: () => void): () => void;
 }
 
 /** A registered symbol, so each evaluation of the bundle names the same slot. */
@@ -49,11 +51,17 @@ export function createAttachmentStore(root: object): AttachmentStore {
     Reflect.set(root, SLOT, lists);
   }
   const store = lists;
+  const listeners = new Set<() => void>();
   return {
     get: (key) => store.get(key) ?? [],
     set: (key, attachments) => {
       if (attachments.length === 0) store.delete(key);
       else store.set(key, attachments);
+      listeners.forEach((listener) => listener());
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
   };
 }

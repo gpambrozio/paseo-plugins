@@ -116,6 +116,16 @@ export const ProjectSchema = z.object({
 });
 export type Project = z.infer<typeof ProjectSchema>;
 
+/**
+ * A next step the first mate suggests, from `data/suggestions.md`: a button's
+ * label and what pressing it puts in the composer.
+ */
+export const SuggestionSchema = z.object({
+  label: z.string(),
+  prompt: z.string(),
+});
+export type Suggestion = z.infer<typeof SuggestionSchema>;
+
 export const FleetSchema = z.object({
   home: z.string(),
   /** False until the first launch has written the charter and records. */
@@ -131,6 +141,8 @@ export const FleetSchema = z.object({
   mateInHome: z.boolean(),
   cards: z.array(FleetCardSchema),
   projects: z.array(ProjectSchema),
+  /** What the captain might do next, most likely first; empty hides the card and the tab. */
+  suggestions: z.array(SuggestionSchema),
   /**
    * Whether the daemon gives agents Paseo's own tools (`mcp.injectIntoAgents`),
    * which is how the first mate starts and hears from its crew. Off by default

@@ -4,15 +4,16 @@
  * that turn a general-purpose agent into a first mate — and it is the same
  * here, minus the scripts.
  *
- *     <home>/AGENTS.md          the charter, rendered from data/charter.md on every launch
- *     <home>/data/charter.md    the charter's source; follows the plugin until the captain edits it
- *     <home>/data/captain.md    standing orders; the captain's, never overwritten
- *     <home>/data/projects.md   the project registry
- *     <home>/data/backlog.md    every work item; the board reads it
+ *     <home>/AGENTS.md           the charter, rendered from data/charter.md on every launch
+ *     <home>/data/charter.md     the charter's source; follows the plugin until the captain edits it
+ *     <home>/data/captain.md     standing orders; the captain's, never overwritten
+ *     <home>/data/projects.md    the project registry
+ *     <home>/data/backlog.md     every work item; the board reads it
+ *     <home>/data/suggestions.md what the captain might do next; the board's buttons
  *     <home>/data/learnings.md
- *     <home>/data/opening.md    a new first mate's first message; the captain's, never overwritten
- *     <home>/projects/          clones for projects with no local checkout
- *     <home>/icon.svg           the icon Paseo's sidebar shows for the home
+ *     <home>/data/opening.md     a new first mate's first message; the captain's, never overwritten
+ *     <home>/projects/           clones for projects with no local checkout
+ *     <home>/icon.svg            the icon Paseo's sidebar shows for the home
  *
  * Every file starts as its namesake in the plugin's `templates/` folder, which
  * is laid out the same way (`templates.ts`). Everything but the charter is
@@ -34,10 +35,11 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { BacklogItem, FirstmateConfig, Project } from "../shared/fleet";
+import type { BacklogItem, FirstmateConfig, Project, Suggestion } from "../shared/fleet";
 import { parseBacklog } from "./backlog";
 import { renderCharter } from "./charter";
 import { syncCharter } from "./charter-file";
+import { parseSuggestions } from "./suggestions";
 import { TEMPLATES, readTemplate, withoutNotes, type TemplatePath } from "./templates";
 
 /** The home's records: written from their templates when missing, and the captain's or the first mate's after. */
@@ -46,6 +48,7 @@ const RECORDS: readonly TemplatePath[] = [
   TEMPLATES.projects,
   TEMPLATES.learnings,
   TEMPLATES.backlog,
+  TEMPLATES.suggestions,
   TEMPLATES.opening,
   TEMPLATES.icon,
 ];
@@ -111,6 +114,11 @@ export async function readOpening(home: string): Promise<string> {
 export async function readBacklog(home: string): Promise<BacklogItem[]> {
   const markdown = await readOptional(join(home, "data", "backlog.md"));
   return markdown === null ? [] : parseBacklog(markdown);
+}
+
+export async function readSuggestions(home: string): Promise<Suggestion[]> {
+  const markdown = await readOptional(join(home, TEMPLATES.suggestions));
+  return markdown === null ? [] : parseSuggestions(markdown);
 }
 
 /**

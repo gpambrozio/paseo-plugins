@@ -139,8 +139,9 @@ describe("prepareHome and the charter", () => {
     expect(agents).toContain(`Your home is \`${home}\``);
     expect(agents).not.toContain("firstmate-charter");
     expect(fingerprint(await read(home, CHARTER_FILE))).toBe(fingerprint(await readTemplate(TEMPLATES.charter)));
-    // The charter moved into templates/ word for word: a copy taken before the move is still untouched.
-    expect(fingerprint(await readTemplate(TEMPLATES.charter))).toBe("e0b749cb695c5df6");
+    // Pinned so a charter change is deliberate: every untouched home follows it, and every edited one is
+    // offered it as charter.new.md. e0b749cb695c5df6 was the charter as it moved into templates/.
+    expect(fingerprint(await readTemplate(TEMPLATES.charter))).toBe("419bd26f1cafc076");
 
     await editCopy(home, "# My first mate\n\n<!-- a note to myself -->\nYour home is {{home}}; keep it tidy.");
     await prepareHome(home, FirstmateConfigSchema.parse({}));

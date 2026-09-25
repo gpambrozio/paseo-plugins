@@ -5,6 +5,10 @@
  * or fewer and in two past that, the extra in the second; on a phone they
  * stack, and a folded column is one line.
  *
+ * On a wide screen the first mate's suggestions sit first among the columns,
+ * as a card that counts toward the rows but never folds or moves. A phone
+ * shows them in a tab of their own instead, so the board is given none there.
+ *
  * Columns move with their header's arrows rather than by dragging: a drag
  * needs document-level pointer tracking on the web and fights every scroll
  * view it crosses, and two arrows work the same everywhere.
@@ -14,9 +18,10 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
-import type { ColumnId, FleetCard } from "../shared/fleet";
+import type { ColumnId, FleetCard, Suggestion } from "../shared/fleet";
 import { CrewCard } from "./card";
-import { boardRows, COLUMNS, columnTone, groupCards, moveColumn } from "./format";
+import { boardItems, boardRows, COLUMNS, columnTone, groupCards, moveColumn, SUGGESTIONS_CARD } from "./format";
+import { SUGGESTIONS_ICON, SUGGESTIONS_TITLE, SuggestionList } from "./suggestions";
 
 const COLLAPSED_WIDTH = 40;
 
@@ -26,6 +31,12 @@ interface BoardProps {
   collapsed: readonly string[];
   theme: PluginTheme;
   compact: boolean;
+  /** Drawn as the first card of a wide board; empty draws no card. */
+  suggestions: readonly Suggestion[];
+  /** A message to the first mate is on its way, so the suggestions wait. */
+  suggesting: boolean;
+  /** Sends a suggestion's prompt to the first mate. */
+  onSuggest: (prompt: string) => void;
   /** Shows one crewmate's card and transcript in place of the board. */
   onWatch: (agentId: string) => void;
   onToggleColumn: (id: ColumnId) => void;
@@ -35,7 +46,7 @@ interface BoardProps {
 }
 
 export function Board(props: BoardProps) {
-  const { cards, order, collapsed, theme, compact } = props;
+  const { cards, order, collapsed, theme, compact, suggestions } = props;
   const groups = useMemo(() => groupCards(cards), [cards]);
   const shown = useMemo(() => order.filter((id) => (groups.get(id)?.length ?? 0) > 0), [order, groups]);
   const styles = useMemo(() => {
@@ -158,7 +169,8 @@ export function Board(props: BoardProps) {
     });
   }
 
-  if (shown.length === 0) return <Text style={styles.nobody}>No crew on the board.</Text>;
+  const withSuggestions = !compact && suggestions.length > 0;
+  if (shown.length === 0 && !withSuggestions) return <Text style={styles.nobody}>No crew on the board.</Text>;
 
   if (compact) {
     return (
@@ -181,9 +193,30 @@ export function Board(props: BoardProps) {
 
   return (
     <View style={styles.board}>
-      {boardRows(shown).map((row) => (
+      {boardRows(boardItems(shown, withSuggestions)).map((row) => (
         <View key={row.join(",")} style={styles.row}>
           {row.map((id) => {
+            if (id === SUGGESTIONS_CARD) {
+              return (
+                <View key={id} style={styles.column}>
+                  <View style={styles.header}>
+                    <Icon name={SUGGESTIONS_ICON} size={14} color={theme.colors.accent} />
+                    <Text style={styles.title} numberOfLines={1}>
+                      {SUGGESTIONS_TITLE}
+                    </Text>
+                    <Text style={styles.count}>{suggestions.length}</Text>
+                  </View>
+                  <ScrollView contentContainerStyle={styles.body}>
+                    <SuggestionList
+                      suggestions={suggestions}
+                      theme={theme}
+                      disabled={props.suggesting}
+                      onPick={props.onSuggest}
+                    />
+                  </ScrollView>
+                </View>
+              );
+            }
             const entries = groups.get(id) ?? [];
             const folded = collapsed.includes(id);
             return (

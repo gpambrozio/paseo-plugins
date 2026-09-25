@@ -4,12 +4,12 @@
  * one press away in Paseo itself, which is what the Open button is for.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
+import { openExternalUrl } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, Platform, Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 
-import { askMate, askMateCommand, type AgentSummary, type MateCommand } from "../shared/fleet";
+import type { AgentSummary, MateCommand } from "../shared/fleet";
 import {
   admit,
   captainMessage,
@@ -24,6 +24,7 @@ import { drafts } from "./draft";
 import { useFollowEnd } from "./follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { MateControls } from "./mate-controls";
+import { useMateSender } from "./mate-send";
 import { Markdown } from "./markdown";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { transcriptRows, type TranscriptRow } from "./transcript-rows";
@@ -78,9 +79,9 @@ export function MateChat({
   /** After a compact or a restart, so the board catches up without waiting for its poll. */
   onChanged: () => void;
 }) {
-  const ask = useRpc(askMate);
-  const askCommand = useRpc(askMateCommand);
   const toast = useToast();
+  /** Shared with the surface's suggestion buttons: one message on its way at a time — see `./mate-send`. */
+  const { sending, send, command: sendMateCommand } = useMateSender(mate.id);
   const timeline = useAgentTimeline(mate.id, `${mate.updatedAt}:${mate.pendingPermissions}`);
   const rows = useMemo(() => transcriptRows(timeline.entries), [timeline.entries]);
   const groups = useMemo(() => groupRows(rows), [rows]);
@@ -96,9 +97,26 @@ export function MateChat({
   const [draft, setDraftState] = useState(() => drafts.get(mate.id));
   /** What is attached to the draft, kept beside it for the same reasons — see `./attachments`. */
   const [attachments, setAttachmentsState] = useState(() => pendingAttachments.get(mate.id));
+  /**
+   * The stores are the truth and this chat follows them, so a send that fails
+   * after the chat that made it was unmounted — a tab switch mid-send on a
+   * phone — puts its text and attachments back in the chat on screen now.
+   */
+  useEffect(() => {
+    function reread(): void {
+      setDraftState(drafts.get(mate.id));
+      setAttachmentsState(pendingAttachments.get(mate.id));
+    }
+    const stopDrafts = drafts.subscribe(reread);
+    const stopAttachments = pendingAttachments.subscribe(reread);
+    reread();
+    return () => {
+      stopDrafts();
+      stopAttachments();
+    };
+  }, [mate.id]);
   /** A drag carrying files is over the chat. */
   const [dragging, setDragging] = useState(false);
-  const [sending, setSending] = useState(false);
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
   const pane = useRef<View>(null);
   /** The keyboard's cover over this pane; padding it away lifts the composer above the keyboard. */
@@ -108,6 +126,10 @@ export function MateChat({
     // Not a dependency: `follow` is new every render, and the keyboard opening is the event.
     if (keyboard > 0) follow.keepAtEnd();
   }, [keyboard]);
+  // A message going out from anywhere — a suggestion's button too — brings the end, where it will appear, into view.
+  useEffect(() => {
+    if (sending) follow.pin();
+  }, [sending]);
   const submitOnEnter = Platform.OS === "web" && !compact;
   /** The timeline's snapshot is re-read with every stream event; the board's poll is the fallback. */
   const status = timeline.agent?.status ?? mate.status;
@@ -242,27 +264,20 @@ export function MateChat({
     const text = draft;
     const attached = attachments;
     if (!hasContent(text, attached) || sending) return;
-    setSending(true);
+    // Through the stores only: this chat may be gone by the time the send fails, and the one on screen follows them.
+    const sent = send(captainMessage(text, attached), () => {
+      if (drafts.get(mate.id).trim() === "") drafts.set(mate.id, text);
+      pendingAttachments.set(mate.id, restoreFailed(pendingAttachments.get(mate.id), attached));
+    });
+    if (!sent) return;
     follow.pin();
     setDraft("");
     setAttachments([]);
-    ask(captainMessage(text, attached))
-      .catch((caught: unknown) => {
-        toast.error(errorText(caught));
-        if (drafts.get(mate.id).trim() === "") setDraft(text);
-        setAttachments(restoreFailed(pendingAttachments.get(mate.id), attached));
-      })
-      .finally(() => setSending(false));
   }
 
   /** Bearings or Ahoy: the words are the daemon's, from its templates. */
   function sendCommand(command: MateCommand): void {
-    if (sending) return;
-    setSending(true);
-    follow.pin();
-    askCommand({ command, args: "" })
-      .catch((caught: unknown) => toast.error(errorText(caught)))
-      .finally(() => setSending(false));
+    if (sendMateCommand(command)) follow.pin();
   }
 
   function openLink(url: string): void {
