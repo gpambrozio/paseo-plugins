@@ -17,6 +17,15 @@ read before you move.
   finished worker's card sat in Done beside work that had really landed, even while it was still waiting
   on a review or on you.
 
+### Fixed
+
+- **Finished workers no longer pile up in Paseo's "Ready to review".** Every worker the first mate ran
+  stayed in that part of Paseo's sidebar after it finished, as if you still had to look at it, even
+  though the first mate had already read what it said. Once the first mate has read that a worker
+  finished, the worker now moves to the Done section of Paseo's sidebar, as it would if you had opened
+  it yourself. A worker that needs your permission or has failed still shows up for you as before, and
+  your own agents are never touched.
+
 ## [0.1.1] — 2026-09-23
 
 ### Added

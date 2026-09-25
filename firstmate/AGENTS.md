@@ -28,10 +28,11 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
+| `server/crew-seen.ts`         | Clears a crewmate's "finished" flag once the first mate has read its finish note.          |
 | `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
 | `server/cli.ts`               | `paseo stop` and `paseo project rename`, for what the SDK does not have.                   |
 | `server/home-name.ts`         | Names the home's project and workspace "FirstMate" instead of the folder's "home".         |
-| `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing the first mate's attention.    |
+| `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing an agent's attention.          |
 | `server/config.ts`            | `$PASEO_HOME/plugins/firstmate/config.json`, read on every call.                           |
 | `server/serialize.ts`         | Runs the config update and each home file's save one at a time, per file.                  |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
@@ -441,6 +442,36 @@ uses — and waits for the response carrying its own `requestId`. That is the pr
 interface: a daemon that changes the message answers with a timeout, which is logged and costs
 nothing. Only complete, valid session messages go this way; a malformed frame is a protocol
 violation, and the daemon closes the socket every other call from the plugin rides on.
+
+## A crewmate the first mate has read about leaves "Ready to review"
+
+Paseo's sidebar puts a workspace in "Ready to review" while one of its agents has `requiresAttention`
+set, which the daemon does on every running → idle transition (`attentionReason: "finished"`), and
+leaves it there until someone looks at the agent. Nobody looks at a crewmate in Paseo — the first mate
+reads about it in the `<paseo-system>` finish note — so without help every crewmate the first mate
+ever ran piled up there.
+
+`server/crew-seen.ts` hooks `agent.turn_ended` for **the first mate**, not the crewmate: when one of
+its turns *completes*, the crewmates named in the `Agent <id> (<title>) finished.` lines of the notes
+that turn read are cleared, the same way `markMateSeen` clears the first mate. Three reasons for that
+trigger over the crewmate's own `turn_ended`: that hook fires from the crewmate's stream and can run
+before the daemon sets the flag; a hook's agent carries no labels, so it cannot tell crew from the
+captain's own agents without a fetch anyway; and a note in the first mate's timeline is the evidence
+it was actually delivered. A cancelled or failed first-mate turn leaves its notes for the next
+completed one. An in-memory cursor per first mate keeps a note from being acted on by every later
+turn — the hook's timeline is the agent's whole in-memory timeline, not the turn's — and after a
+plugin reload the whole timeline is read once more.
+
+Only an agent labelled `firstmate.role=crew`, whose flag is still `"finished"`, with no pending
+permission, not running and not in error, is cleared. A permission or an error still reaches the
+captain, and Paseo ranks both above the flag regardless. The first mate itself does nothing: the note
+arriving is the whole signal, so the charter is unchanged.
+
+**This relies on Paseo's internal message format, like `markMateSeen`**: `clear_agent_attention` over
+`server/daemon-session.ts`, because neither `PaseoApi`, the MCP tools nor the CLI can clear attention
+in 0.9. A daemon that changes the message answers with a timeout, which is logged, and crewmates go
+back to waiting in "Ready to review". The follow-up is an upstream API — an `agents.clearAttention`
+(or `workspaces.clearAttention`) on `PaseoApi` — and moving both callers onto it.
 
 ## Phones: the home indicator and the keyboard
 

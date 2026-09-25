@@ -10,6 +10,7 @@ import {
   relaunchCrew,
   steerCrew,
 } from "./server/crew";
+import { registerCrewSeen } from "./server/crew-seen";
 import { ReportCache, loadFleet, readAgentTools } from "./server/fleet";
 import { listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
 import { CHARTER_FILE, NEW_CHARTER_FILE, acknowledgeCharter, writeNewCharter } from "./server/charter-file";
@@ -135,6 +136,8 @@ export default function contribute(server: PluginServerContext) {
   server.registerSettings(displaySettings);
 
   const unregisterRelay = registerSteerRelay(server, steers, readFirstmateConfig);
+  // A crewmate whose finish the first mate has read leaves Paseo's "Ready to review"; see server/crew-seen.ts.
+  const unregisterCrewSeen = registerCrewSeen(server, readFirstmateConfig);
 
   // A charter change reaches a home already in use on the next reload, rather
   // than waiting for the next launch. Only a home a launch has prepared: this
@@ -145,6 +148,7 @@ export default function contribute(server: PluginServerContext) {
 
   return () => {
     unregisterRelay();
+    unregisterCrewSeen();
   };
 }
 
