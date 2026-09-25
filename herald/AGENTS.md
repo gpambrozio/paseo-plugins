@@ -30,6 +30,7 @@ compile time. This file covers only what is specific to `herald`.
 | `server/say.ts`              | `say` on the daemon Mac, driven for its voices: text in on stdin, a WAV out, bytes back. |
 | `client/announcer.ts`        | The poll-and-speak loop that runs while the app is open, panel or no panel.            |
 | `client/herald.tsx`          | The surface: Paseo's attention list joined with Herald's entries.                      |
+| `client/agents.ts`           | Keeps an agents observation open so Paseo's agent stream reaches the two above.         |
 | `client/settings-screen.tsx` | Settings › Plugins › Herald: speech (host document) and summaries (daemon RPCs).       |
 | `client/option-picker.tsx`   | A settings row opening a searchable, scrolling list, for choices too long for a select. |
 | `client/prompt-editor.tsx`   | A settings row opening the summary prompt in a modal, with its placeholder legend.      |
@@ -409,6 +410,21 @@ The header's gear is the other half of that gap: a surface is given no `openSett
 `index.client.tsx` lends it one through `bindSettingsOpener`, and the button is hidden while nothing
 is bound. Keep the binding cleared in the contribution's cleanup — the module outlives a
 disconnected client's context.
+
+## Paseo's agent stream has to be asked for
+
+Both the announcer and the surface poll, and use Paseo's agent stream only to poll *sooner*. Since
+Paseo 0.9 that stream is silent unless the plugin opens an observation: `paseo.agents.subscribe()`
+is a local listener fed only by an `agents.list({ subscribe: {} })` the same API instance made, and
+each plugin runtime has its own instance. Herald's bare `subscribe()` calls predate that change, so
+on 0.9 every nudge was lost and everything waited for the ten-second tick — slower, never wrong.
+
+`client/agents.ts` opens the observation. The snapshot is ignored and asked for one agent long: the
+polls read the full lists, and the daemon filters an observation's updates by `filter`, not by page,
+so a one-agent page still hears every agent. Paseo re-requests the observation after a reconnect but
+releases one whose request fails without telling the listeners, so `watchAgents` catches that
+through `error` and reopens it with backoff. The surface opens it in an effect of its own, so the
+poll's pace changing does not close and reopen it.
 
 ## Checking it
 

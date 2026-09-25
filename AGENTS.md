@@ -159,6 +159,11 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   in module-scope variables the component reads on mount: `cachedBoard` in `github-board`,
   `cachedPane` and `cachedDraft` in `launchd-jobs`. Anything that *is* worth persisting belongs in a
   settings document, which the host restores on its own.
+- **`paseo.agents.subscribe()` alone hears nothing.** Since 0.9 it is a local listener fed only by
+  an observation the same API instance opened with `agents.list({ subscribe: {} })`, and every
+  plugin runtime gets its own instance, so the app's own observations do not reach it. Open one and
+  release it on teardown; a snapshot is one page (`pageInfo.hasMore`), not the whole list. See
+  `skills/client/agents.ts` and `herald/client/agents.ts`.
 - **`useWorkspace` and `useAgent` work only inside workspace panels.** Called from a sidebar surface
   they throw "Plugin state hooks must run inside a workspace panel" on mount, and the surface renders
   that error instead of itself. A surface reads workspaces and agents through `usePaseo()` — see
