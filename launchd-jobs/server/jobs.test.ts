@@ -38,6 +38,9 @@ afterEach(async () => {
   await rm(paseoHome, { recursive: true, force: true });
 });
 
+/** No job is running; the tests never ask the real launchd. */
+const idle = (): boolean => false;
+
 function newDir(): string {
   return join(paseoHome, "plugin-data", "launchd-jobs");
 }
@@ -118,7 +121,7 @@ describe("moveLegacyFiles", () => {
   it("forwards the old runner to the new directory before anything moves, then moves the files", async () => {
     await legacyInstall();
 
-    moveLegacyFiles();
+    moveLegacyFiles(idle);
 
     const forwarder = await readFile(join(legacyPluginDir(), "runner.sh"), "utf8");
     expect(forwarder).toContain(`export PASEO_LAUNCHD_JOBS_DIR=${newDir()}`);
@@ -134,7 +137,7 @@ describe("moveLegacyFiles", () => {
     await legacyInstall();
     await put(join(newDir(), "logs", "other.log"), "written through the forwarder");
 
-    moveLegacyFiles();
+    moveLegacyFiles(idle);
 
     expect(await readFile(join(newDir(), "logs", "backup.log"), "utf8")).toBe("old log");
     expect(await readFile(join(newDir(), "logs", "other.log"), "utf8")).toBe("written through the forwarder");
@@ -153,7 +156,7 @@ describe("moveLegacyFiles", () => {
         actual?.(from, to);
       });
 
-      moveLegacyFiles();
+      moveLegacyFiles(idle);
 
       const log = await readFile(join(newDir(), "logs", "backup.log"), "utf8");
       expect(log.startsWith("old log")).toBe(true);
@@ -188,7 +191,7 @@ describe("moveLegacyFiles", () => {
         actual?.(from, to);
       });
 
-      moveLegacyFiles();
+      moveLegacyFiles(idle);
 
       const log = await readFile(join(newDir(), "logs", "backup.log"), "utf8");
       expect(log.startsWith("old log")).toBe(true);
@@ -210,7 +213,7 @@ describe("moveLegacyFiles", () => {
       throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
     });
 
-    expect(moveLegacyFiles()).toBe(false);
+    expect(moveLegacyFiles(idle)).toBe(false);
 
     expect(await readFile(join(legacyPluginDir(), "runner.sh"), "utf8")).toBe("#!/bin/zsh\n# the old runner\n");
     expect((await readdir(legacyPluginDir())).filter((name) => name.endsWith(".tmp"))).toEqual([]);
@@ -224,14 +227,46 @@ describe("moveLegacyFiles", () => {
       throw Object.assign(new Error("permission denied"), { code: "EACCES" });
     });
 
-    expect(moveLegacyFiles()).toBe(true);
+    expect(moveLegacyFiles(idle)).toBe(true);
 
     expect(dataPath("jobs.json")).toBe(join(legacyPluginDir(), "jobs.json"));
     expect(await readFile(join(newDir(), "logs", "backup.log"), "utf8")).toBe("old log");
   });
 
+  it("never moves a running job's log and history, and moves them on a later start once it is idle", async () => {
+    await legacyInstall();
+    await put(join(legacyPluginDir(), "logs", "backup.log.1"), "older log");
+    await put(join(legacyPluginDir(), "logs", "nightly.log"), "nightly log");
+    await put(join(legacyPluginDir(), "runs", "nightly.jsonl"), "nightly runs");
+    const asked: string[] = [];
+    const running = (slug: string): boolean => {
+      asked.push(slug);
+      return slug === "backup";
+    };
+
+    expect(moveLegacyFiles(running)).toBe(true);
+
+    expect(asked.sort()).toEqual(["backup", "nightly"]);
+    for (const file of ["logs/backup.log", "logs/backup.log.1", "runs/backup.jsonl"]) {
+      expect(fs.existsSync(join(legacyPluginDir(), file))).toBe(true);
+      expect(fs.existsSync(join(newDir(), file))).toBe(false);
+    }
+    // The running job's history is read where it is meanwhile; everything else moved.
+    expect(dataPath("runs/backup.jsonl")).toBe(join(legacyPluginDir(), "runs", "backup.jsonl"));
+    expect(await readFile(join(newDir(), "logs", "nightly.log"), "utf8")).toBe("nightly log");
+    expect(await readFile(join(newDir(), "runs", "nightly.jsonl"), "utf8")).toBe("nightly runs");
+    expect(await readFile(join(newDir(), "jobs.json"), "utf8")).toContain("Backup");
+
+    moveLegacyFiles(idle);
+
+    expect(await readFile(join(newDir(), "logs", "backup.log"), "utf8")).toBe("old log");
+    expect(await readFile(join(newDir(), "logs", "backup.log.1"), "utf8")).toBe("older log");
+    expect(await readFile(join(newDir(), "runs", "backup.jsonl"), "utf8")).toBe("old runs");
+    expect(fs.existsSync(join(legacyPluginDir(), "runs", "backup.jsonl"))).toBe(false);
+  });
+
   it("does nothing for an install that never had the old directory", async () => {
-    moveLegacyFiles();
+    moveLegacyFiles(idle);
 
     expect(fs.existsSync(newDir())).toBe(false);
     expect(fs.existsSync(legacyPluginDir())).toBe(false);
@@ -288,7 +323,7 @@ describe.skipIf(process.platform !== "darwin")("the runner, choosing each file's
     expect(dataPath("runs/backup.jsonl")).toBe(legacy("runs/backup.jsonl"));
 
     // The next start moves the history, with the run in it.
-    moveLegacyFiles();
+    moveLegacyFiles(idle);
     expect(await readFile(current("runs/backup.jsonl"), "utf8")).toMatch(/^old runs\n\{"startedAt"/);
     expect(fs.existsSync(legacy("runs/backup.jsonl"))).toBe(false);
   });

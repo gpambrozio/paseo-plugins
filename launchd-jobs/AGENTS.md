@@ -121,6 +121,12 @@ launchd never runs two instances of one job, so the runner is the only writer of
 decides; a daemon move of the same file links the same inode, so the two cannot collide.
 `StandardErrorPath`, which only the runner's own failures reach, always names the new directory.
 
+**The daemon never moves a running job's log or history.** A running runner has already chosen its
+paths, and a move — across filesystems a copy and unlink — would leave its later writes in a file
+nobody reads. `moveLegacyFiles` asks `launchctl print` for each job with files still in the old
+directory (synchronously, being before any handler) and leaves a running one's files for a later start
+or for its own next run; a job it cannot ask about counts as running.
+
 **`relocateLegacyJobs`, asynchronously, after it.** `plistRepairs` compares each of the three paths on
 its own, so a rewrite cut short after the first `plutil` is finished on the next start rather than
 skipped because the runner already looks new; `ProgramArguments` is replaced whole, because

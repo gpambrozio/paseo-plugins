@@ -1,9 +1,9 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { lstat, mkdir, open, readdir, readFile, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
   describeCron,
@@ -772,6 +772,35 @@ function legacyEntriesIn(directory: string): string[] {
   }
 }
 
+/** The job a `logs/` or `runs/` entry belongs to: `<slug>.log`, `<slug>.log.1`, `<slug>.jsonl`. */
+function slugOfEntry(entry: string): string {
+  return basename(entry).replace(/\.(log|log\.1|jsonl)$/, "");
+}
+
+/**
+ * Whether launchd reports the job running right now, asked synchronously
+ * because the move runs before any handler is bound. A job it cannot ask about
+ * counts as running: the cost is only that its files wait for a later start.
+ * Not a Mac, no launchd: nothing runs.
+ */
+export function launchdReportsRunning(slug: string): boolean {
+  if (process.platform !== "darwin") return false;
+  let output: string;
+  try {
+    output = execFileSync("launchctl", ["print", `${domain()}/${labelFor(slug)}`], {
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const failure = error as CommandFailure & { status?: number };
+    if (failure.status === 113 || /Could not find service/.test(failureText(error))) return false;
+    console.error(`[launchd-jobs] could not ask launchd whether ${labelFor(slug)} is running, so its files wait:`, error);
+    return true;
+  }
+  return statusOf(output).running;
+}
+
 /**
  * Moves the plugin's files, called by the server entry before any handler is
  * bound, and says whether the jobs may follow (`relocateLegacyJobs`).
@@ -780,14 +809,19 @@ function legacyEntriesIn(directory: string): string[] {
  * runner and the forwarder go in *before* anything moves: from then on a fire
  * runs the new runner, which moves its own files first and appends wherever
  * each one then is (`place`), so it never starts a file beside one it could
- * not move. Logs
- * and history move file by file, so a fire that has created `logs/` in the new
- * directory cannot make the old directory look superseded. `runner.sh` itself
+ * not move. Logs and history move file by file, so a fire that has created
+ * `logs/` in the new directory cannot make the old directory look superseded.
+ *
+ * **A running job's log and history are not moved.** Its runner has already
+ * chosen the paths it writes to, and a move — a copy and unlink, across
+ * filesystems — would leave its later writes in a file nobody reads. They wait
+ * for a start that finds the job idle, or for the job's own next run, whose
+ * runner moves them itself. `runner.sh` itself
  * is not moved: the new one is written fresh, and the old path is the
  * forwarder's. When the forwarder cannot be installed nothing moves — fires
  * would still write the old files — and the next start tries again.
  */
-export function moveLegacyFiles(): boolean {
+export function moveLegacyFiles(isRunning: (slug: string) => boolean = launchdReportsRunning): boolean {
   const legacyRunner = legacyRunnerPath();
   if (existsSync(legacyRunner)) {
     try {
@@ -800,7 +834,12 @@ export function moveLegacyFiles(): boolean {
       return false;
     }
   }
-  migrateLegacyData(["jobs.json", "acknowledged.json", ...legacyEntriesIn("logs"), ...legacyEntriesIn("runs")]);
+  const history = [...legacyEntriesIn("logs"), ...legacyEntriesIn("runs")];
+  const running = new Set([...new Set(history.map(slugOfEntry))].filter((slug) => isRunning(slug)));
+  for (const slug of running) {
+    console.warn(`[launchd-jobs] ${labelFor(slug)} is running, so its log and history move on a later start`);
+  }
+  migrateLegacyData(["jobs.json", "acknowledged.json", ...history.filter((entry) => !running.has(slugOfEntry(entry)))]);
   return true;
 }
 

@@ -16,8 +16,8 @@ to read before you move.
   plugin into, which Paseo deletes when you remove the plugin — and with the script gone, every job
   failed. They now live in `~/.paseo/plugin-data/launchd-jobs/`, and the plugin moves them and points
   your existing jobs at the new place the first time it starts. A job that happens to be running at
-  that moment is left to finish and keeps working; it is switched over on a later start, and the one
-  run under way during the move may be missing from its history.
+  that moment is left to finish, with its log and history where they are, and is switched over on a
+  later start.
 
 ## [0.5.0] — 2026-09-22
 
