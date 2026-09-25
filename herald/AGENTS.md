@@ -89,7 +89,10 @@ Three things about the sweep are load-bearing:
 - **`paseo ls` pages** — twenty agents at a time — so one pass is not the backlog. `sweepHelpers`
   asks again until a page holds nothing it may delete, and gives up after `MAX_SWEEP_PASSES` rather
   than trusting the daemon to run out. A pass that deleted *nothing* also ends it, or a page of ids
-  that all refuse to delete would be re-read to the limit.
+  that all refuse to delete would be re-read to the limit. Listing is the half that could leave the
+  CLI — `paseo.agents.list` takes a `labels` filter and `includeArchived`, two hundred to a page —
+  but the sweep runs from the server entry, whose `PluginServerContext` carries no `paseo`, and
+  the delete needs the CLI whatever lists the ids.
 - **`keep` is the hooks' helper set**, handed in from `index.server.ts` as `liveHelpers`, so the
   sweep cannot delete a helper mid-sentence. That is the one thing the equivalent shell loop
   (`paseo ls --label herald.role=summarizer -q | xargs -n1 paseo delete`) gets wrong.

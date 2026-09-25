@@ -896,18 +896,19 @@ stays a banner for the same reason, being a state rather than an event.
 
 ## Settings and caching
 
-**Two stores, split on which side has to read the value.** The rule and its rationale are in the
+**Two stores, split on which side has to write the value.** The rule and its rationale are in the
 root `AGENTS.md`; this is where the line falls here.
 
 | Where | What | Why there |
 | --- | --- | --- |
 | Host settings store, `shared/settings.ts` | `hiddenRepositories`, `detailWidthFraction` (`display`); the prompt templates (`prompts`) | Read only to draw the board. `useSettings` puts them on the client with no round trip, and the host pushes an edit to every connected client. |
-| `$PASEO_HOME/plugins/github-board/settings.json` | `login`, the `launch` defaults | Handlers act on them: `gh` runs every query as that login, and `board.send-options` answers with those defaults. A settings document is readable from the client only. |
+| `$PASEO_HOME/plugins/github-board/settings.json` | `login`, the `launch` defaults | Handlers act on them: `gh` runs every query as that login, and `board.send-options` answers with those defaults — and handlers write them: the login when it is resolved, the defaults after a send. The server can read a settings document but not write one. |
 
 The launch defaults are one set, whichever host a card was sent to. They could have moved into a
 settings document when sends to other hosts started saving them from the client, but the daemon's
-own send still has to read them, so they stay here and the client reaches them through
-`board.launch-defaults` and `board.save-launch-defaults`.
+own send still saves them after it launches, and the server cannot write a settings document, so
+they stay here and the client reaches them through `board.launch-defaults` and
+`board.save-launch-defaults`.
 
 Several handlers write that one file, so every one goes through `updateSettings`, which
 read-modify-writes — a whole-file write from any of them would drop the others' keys. Each reader

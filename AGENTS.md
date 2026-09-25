@@ -104,28 +104,32 @@ resolves an `agentId` to its provider and cwd.
 
 ### Which side owns a persisted value
 
-Two stores, and the rule is which side has to *read* it:
+Two stores, and the rule is which side has to *write* it:
 
 - **A settings document** (`defineSettings` in `shared/`, `server.registerSettings` in the server
-  entry, `useSettings` in a component) is host-scoped storage the **client** reads and writes. There
-  is no server-side read API, so a handler cannot act on it.
+  entry, `useSettings` in a component) is host-scoped storage the **client** reads and writes. The
+  server can read one — `registerSettings` returns a handle with `read()` and `subscribe()` — but
+  it cannot write one, so a value the daemon has to change stays out of it.
 - **The plugin's own file** under `$PASEO_HOME/plugins/<id>/` is whatever the **daemon** needs. It
-  costs an RPC per read and write, which is the price of the handler being able to use the value.
+  costs an RPC per read and write, which is the price of the handler being able to write the value.
 
 `github-board` splits exactly on that line: the repository filter, the prompt templates and the
 detail panel's width are drawn and nothing else, so they are settings documents; the `gh` login and
-the launch defaults are what handlers run on, so they stay in the daemon's file.
+the launch defaults are what handlers run on and save, so they stay in the daemon's file. The
+server-side `read()` arrived with the 0.9 SDK, after that split was made; nothing here uses it yet.
 
 ### Constraints nothing catches at compile time
 
-- **No async arrows in client-bundle code** (`client/`, `shared/`). The app `eval`s the client
-  bundle, and on iOS/Android Hermes's eval compiler evaluates an async **arrow** to `undefined`
-  instead of a function — no compile error, no load error; the surface renders until something
-  calls the value and dies with "Plugin failed: undefined is not a function". Async `function`
-  expressions work. For the same reason, a closure created inside a `for (let|const … of …)` body
-  captures the loop binding's **final** value — reach for `.map` when a callback must capture the
-  element. Desktop runs the web export on V8 and shows neither, so a working desktop surface proves
-  nothing about mobile.
+- **A closure inside a `for (let|const … of …)` body captures the loop's final value on
+  iOS/Android** (`client/`, `shared/`). The app `eval`s the client bundle, and Hermes's eval
+  compiler does not give each iteration its own binding — reach for `.map` when a callback must
+  capture the element. Desktop runs the web export on V8 and does not show it, so a working desktop
+  surface proves nothing about mobile. Async **arrows** used to fail the same way — Hermes evaluated
+  one to `undefined`, and the surface died with "Plugin failed: undefined is not a function" — but
+  since Paseo 0.7.0 the daemon compiles client bundles with esbuild's `async-await` support off,
+  so every async function is lowered before the app sees it, and nothing here loads on an older
+  daemon. The loop is not lowered — the client target is `es2020`, which has block scoping — so
+  that rule stands.
 - **RPC wire names must match `/^[a-z][a-z0-9._-]*$/`.** camelCase names load-fail with "Invalid
   plugin RPC method" and the plugin never starts. Use Paseo's dotted namespacing: `board.load`,
   `skills.list`. The exported identifier is unrelated to the wire name.
@@ -145,14 +149,18 @@ the launch defaults are what handlers run on, so they stay in the daemon's file.
   `@getpaseo/plugin/client` reaches the same platform opener Paseo's own links go through, on every
   platform. It used to be hand-rolled in two copies of `client/web.ts`, because `Linking.openURL` is
   `window.open` on the desktop renderer and lands in a bare child window; both are gone. It answers
-  with a promise, so a press handler `void`s it rather than awaiting — never an async arrow. The
+  with a promise, so a press handler `void`s it rather than awaiting it. The
   in-app alternative is `navigation.openBrowser`, which opens a tab *inside* a workspace and is
   **Electron-only**: the host leaves it `undefined` on web, iOS and Android and does not fall back,
   so anything drawn for it has to disappear there. It takes a `workspaceId` and is the one piece of
   navigation a timeline item cannot reach — `PluginTimelineItemProps` carries no `navigation` at
   all, unlike surfaces and panels.
-- **Plugin Command Center items are pinned below file results.** The host hardcodes their group
-  rank, so single-word keywords get buried by filename matches.
+- **Plugin Command Center items rank below Paseo's own actions, and a keyword-only match ranks
+  below a visible one.** The host hardcodes their group rank to 5, after its own action groups, and
+  that is all that orders them with an empty query. With a query, action sections — plugin ones
+  included — reorder by match score, and a row that matched only a hidden keyword scores below any
+  row whose title matched. Workspaces, agents and files sit in a band pinned *below* every action
+  section, so a filename never outranks a plugin item.
 - **A surface is unmounted when the user navigates away** — to a workspace, an agent, anywhere —
   and mounted fresh on the way back, so component state is gone. Anything that should survive the
   round trip and is *not* worth persisting (a loaded board, the open pane, a half-typed form) lives
