@@ -422,6 +422,45 @@ describe("sending a suggestion", () => {
   });
 });
 
+describe("a send that fails after the chat was remounted", () => {
+  it("puts the draft and attachments back in the chat on screen, not only the one that sent", async () => {
+    const root = {};
+    const drafts = createDraftStore(root);
+    const attachments = createAttachmentStore(root);
+    const gate = createSendGate();
+    const shot = toAttachment({ fileName: "shot.png", mimeType: "image/png", size: 3, data: "AAAA" }, "a");
+
+    // The chat that sends: it clears the stores as the message goes, as sendDraft does.
+    let fail = (_error: Error): void => {};
+    const sending = gate.run(function () {
+      return new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      });
+    });
+    drafts.set("mate-1", "");
+    attachments.set("mate-1", []);
+
+    // The captain switches tabs and back: that chat is unmounted, and a new one follows the stores.
+    const shown = { draft: drafts.get("mate-1"), attachments: attachments.get("mate-1") };
+    function reread(): void {
+      shown.draft = drafts.get("mate-1");
+      shown.attachments = attachments.get("mate-1");
+    }
+    const stops = [drafts.subscribe(reread), attachments.subscribe(reread)];
+
+    // The send fails; the old chat's failure callback writes to the stores only.
+    fail(new Error("daemon away"));
+    await expect(sending).rejects.toThrow("daemon away");
+    if (drafts.get("mate-1").trim() === "") drafts.set("mate-1", "land web#42");
+    attachments.set("mate-1", restoreFailed(attachments.get("mate-1"), [shot]));
+
+    expect(shown).toEqual({ draft: "land web#42", attachments: [shot] });
+    stops.forEach((stop) => stop());
+    drafts.set("mate-1", "later");
+    expect(shown.draft).toBe("land web#42");
+  });
+});
+
 describe("createDraftStore", () => {
   it("keeps a draft for a store built later on the same root, as a re-evaluated bundle does", () => {
     const root = {};

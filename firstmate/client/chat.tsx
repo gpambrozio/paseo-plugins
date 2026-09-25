@@ -97,6 +97,24 @@ export function MateChat({
   const [draft, setDraftState] = useState(() => drafts.get(mate.id));
   /** What is attached to the draft, kept beside it for the same reasons — see `./attachments`. */
   const [attachments, setAttachmentsState] = useState(() => pendingAttachments.get(mate.id));
+  /**
+   * The stores are the truth and this chat follows them, so a send that fails
+   * after the chat that made it was unmounted — a tab switch mid-send on a
+   * phone — puts its text and attachments back in the chat on screen now.
+   */
+  useEffect(() => {
+    function reread(): void {
+      setDraftState(drafts.get(mate.id));
+      setAttachmentsState(pendingAttachments.get(mate.id));
+    }
+    const stopDrafts = drafts.subscribe(reread);
+    const stopAttachments = pendingAttachments.subscribe(reread);
+    reread();
+    return () => {
+      stopDrafts();
+      stopAttachments();
+    };
+  }, [mate.id]);
   /** A drag carrying files is over the chat. */
   const [dragging, setDragging] = useState(false);
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
@@ -246,9 +264,10 @@ export function MateChat({
     const text = draft;
     const attached = attachments;
     if (!hasContent(text, attached) || sending) return;
+    // Through the stores only: this chat may be gone by the time the send fails, and the one on screen follows them.
     const sent = send(captainMessage(text, attached), () => {
-      if (drafts.get(mate.id).trim() === "") setDraft(text);
-      setAttachments(restoreFailed(pendingAttachments.get(mate.id), attached));
+      if (drafts.get(mate.id).trim() === "") drafts.set(mate.id, text);
+      pendingAttachments.set(mate.id, restoreFailed(pendingAttachments.get(mate.id), attached));
     });
     if (!sent) return;
     follow.pin();
