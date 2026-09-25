@@ -196,7 +196,7 @@ FirstMate comes with one, **`pr-watch`**, which checks every five minutes on the
 backlog — yours and those to other people's projects — and tells the first mate when one is merged or
 closed, gets a review or a comment from someone else, or its checks go red or green. So a pull request
 you merge on GitHub is cleaned up within minutes, and a maintainer's review reaches the worker without
-you passing it on. It needs the `gh` command, logged in, on the machine Paseo runs on.
+you passing it on. It needs the `gh` command, logged in, and Node, on the machine Paseo runs on.
 
 A **Watches** card after the board's columns — at the bottom of the Crew tab on a phone — lists each
 watch with its schedule, when it last ran and what came of it, and what it last said (press it to read

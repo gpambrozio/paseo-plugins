@@ -86,8 +86,10 @@ async function readWatch(directory: string, name: string): Promise<WatchFile> {
   });
   if (!NAME.test(name)) return invalid("its name may have only letters, digits, dots, dashes and underscores");
   let head: string;
+  let mode: number;
   try {
     head = await readHead(path);
+    ({ mode } = await stat(path));
   } catch (error) {
     return invalid(`it could not be read: ${describe(error)}`);
   }
@@ -101,7 +103,6 @@ async function readWatch(directory: string, name: string): Promise<WatchFile> {
   } catch (error) {
     return invalid(`its schedule cannot be read: ${describe(error)}`, scheduleText);
   }
-  const { mode } = await stat(path);
   if ((mode & 0o111) === 0) return invalid("it is not executable (chmod +x)", scheduleText);
   if (!head.startsWith("#!")) return invalid("it has no #! line saying what runs it", scheduleText);
   return { name, path, scheduleText, schedule, invalid: null };
