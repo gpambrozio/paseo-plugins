@@ -25,6 +25,7 @@ import { isSendKey } from "./keys";
 import { isDirty, markSaved, type OpenFile } from "./open-file";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import {
+  boardRows,
   contextPercent,
   contextTone,
   errorText,
@@ -34,7 +35,6 @@ import {
   orderedColumns,
   relativeTime,
   shortPath,
-  splitRows,
 } from "./format";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
@@ -198,16 +198,30 @@ describe("columns", () => {
     expect(opensAsLeft({ column: "working", inProgress: true }, "done")).toBe(true);
   });
 
-  it("splits the board three over four, the extra in the later row", () => {
-    const rows = splitRows(orderedColumns([]), 2);
-    expect(rows.map((row) => row.length)).toEqual([3, 4]);
-    expect(rows.flat()).toEqual(orderedColumns([]));
-    expect(splitRows([1, 2, 3, 4], 2)).toEqual([
+  it("moves a column past the hidden ones, keeping them in the saved order", () => {
+    const order = orderedColumns([]);
+    // done, blocked and parked hidden: working's right neighbour on screen is failed.
+    const shown = order.filter((id) => !["done", "blocked", "parked"].includes(id));
+    const right = moveColumn(order, "working", 1, shown);
+    expect(right.filter((id) => shown.includes(id))).toEqual(["queued", "failed", "working", "idle"]);
+    expect(right.filter((id) => !shown.includes(id))).toEqual(["blocked", "parked", "done"]);
+    const left = moveColumn(order, "failed", -1, shown);
+    expect(left.filter((id) => shown.includes(id))).toEqual(["queued", "failed", "working", "idle"]);
+    expect(moveColumn(order, "idle", 1, shown)).toEqual(order);
+    expect(moveColumn(order, "done", 1, shown)).toEqual(order);
+  });
+
+  it("lays out up to three columns in one row, more in two with the extra in the second", () => {
+    const sizes = [0, 1, 2, 3, 4, 5, 6, 7].map((count) =>
+      boardRows(Array.from({ length: count }, (_, i) => i)).map((row) => row.length),
+    );
+    expect(sizes).toEqual([[], [1], [2], [3], [2, 2], [2, 3], [3, 3], [3, 4]]);
+    const order = orderedColumns([]);
+    expect(boardRows(order).flat()).toEqual(order);
+    expect(boardRows([1, 2, 3, 4, 5])).toEqual([
       [1, 2],
-      [3, 4],
+      [3, 4, 5],
     ]);
-    expect(splitRows([1], 2)).toEqual([[1]]);
-    expect(splitRows([], 2)).toEqual([]);
   });
 });
 

@@ -31,7 +31,7 @@ import { Board } from "./board";
 import { FilesView, type FilesRequest } from "./files";
 import { MateChat } from "./chat";
 import { CrewmateView } from "./crewmate";
-import { agentStatusLabel, agentStatusTone, groupCards, moveColumn, orderedColumns, shortPath } from "./format";
+import { agentStatusLabel, agentStatusTone, groupCards, orderedColumns, shortPath } from "./format";
 import { LaunchPanel } from "./launch";
 import { ResizeHandle, clampShare } from "./resize-handle";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
@@ -470,7 +470,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
             : [...values.collapsedColumns, id],
         })
       }
-      onMoveColumn={(id: ColumnId, delta: number) => save({ columnOrder: moveColumn(order, id, delta) })}
+      onReorder={(next: ColumnId[]) => save({ columnOrder: next })}
     />
   );
   const chat = (

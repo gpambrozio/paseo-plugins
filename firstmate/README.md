@@ -117,8 +117,11 @@ card with its actions beside its live transcript — the brief it was given, the
 rows for each step (npm test among them), its notes between them, and a spinner on the step under
 way.](docs/watch.png)
 
-Columns fold to a strip and move with the arrows in their headers, and the split between chat and board
-drags. The layout is remembered.
+A column with nobody in it is hidden, so the board shows only what has workers in it. On a wide
+screen up to three columns sit side by side; past three they take two rows, with the extra one in the
+second row. Columns fold to a strip and move with the arrows in their headers, and the split between
+chat and board drags. The layout is remembered, including where a hidden column goes when it fills
+again.
 
 Opening the panel counts as looking at the first mate: when it has finished a turn, its workspace in
 Paseo's sidebar turns to done, as it would if you had opened the first mate itself. One waiting on

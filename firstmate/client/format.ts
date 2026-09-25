@@ -7,18 +7,16 @@ export interface ColumnMeta {
   title: string;
   /** Lucide icon name. */
   icon: string;
-  /** What an empty column says, in the captain's terms. */
-  empty: string;
 }
 
 export const COLUMNS: Readonly<Record<ColumnId, ColumnMeta>> = {
-  queued: { id: "queued", title: "Queued", icon: "Inbox", empty: "Nothing is queued." },
-  working: { id: "working", title: "Working", icon: "Hammer", empty: "Nobody is working." },
-  blocked: { id: "blocked", title: "Blocked", icon: "Ban", empty: "Nothing is waiting on a call." },
-  parked: { id: "parked", title: "Parked", icon: "Clock", empty: "Nothing is parked." },
-  done: { id: "done", title: "Done", icon: "Check", empty: "Nothing has landed yet." },
-  failed: { id: "failed", title: "Failed", icon: "AlertTriangle", empty: "Nothing has failed." },
-  idle: { id: "idle", title: "Idle", icon: "CircleDot", empty: "No stopped workers." },
+  queued: { id: "queued", title: "Queued", icon: "Inbox" },
+  working: { id: "working", title: "Working", icon: "Hammer" },
+  blocked: { id: "blocked", title: "Blocked", icon: "Ban" },
+  parked: { id: "parked", title: "Parked", icon: "Clock" },
+  done: { id: "done", title: "Done", icon: "Check" },
+  failed: { id: "failed", title: "Failed", icon: "AlertTriangle" },
+  idle: { id: "idle", title: "Idle", icon: "CircleDot" },
 };
 
 /** The saved order, known ids only, followed by any column it does not mention. */
@@ -29,22 +27,44 @@ export function orderedColumns(saved: readonly string[]): ColumnId[] {
   return [...new Set([...kept, ...COLUMN_IDS.filter((id) => !seen.has(id))])];
 }
 
-/** Moves one entry by `delta`, clamped to the ends. */
-export function moveColumn(order: readonly ColumnId[], id: ColumnId, delta: number): ColumnId[] {
-  const from = order.indexOf(id);
-  if (from === -1) return [...order];
-  const to = Math.max(0, Math.min(order.length - 1, from + delta));
-  const next = [...order];
-  next.splice(from, 1);
-  next.splice(to, 0, id);
+/**
+ * Moves one column by `delta` places among the `shown` ones, clamped to the
+ * ends, and returns the whole order. A column that is not shown keeps its place
+ * relative to its neighbours, so hiding a column never loses where it goes; the
+ * moved one lands just past the shown column it swaps with, so every press of an
+ * arrow moves it on screen.
+ */
+export function moveColumn(
+  order: readonly ColumnId[],
+  id: ColumnId,
+  delta: number,
+  shown: readonly ColumnId[] = order,
+): ColumnId[] {
+  const visible = order.filter((column) => shown.includes(column));
+  const from = visible.indexOf(id);
+  const to = Math.max(0, Math.min(visible.length - 1, from + delta));
+  const neighbour = visible[to];
+  if (from === -1 || to === from || neighbour === undefined) return [...order];
+  const next = order.filter((column) => column !== id);
+  const past = next.indexOf(neighbour);
+  next.splice(to < from ? past : past + 1, 0, id);
   return next;
 }
 
+/** At most this many columns sit in one row; past it the board takes two. */
+const ONE_ROW_MAX = 3;
+
 /**
- * At most `rows` rows, as even as they go, with any extra in the later rows:
- * seven columns are three over four.
+ * The wide board's rows: one for up to three columns, two past that, as even
+ * as they go with the extra in the second — five are two over three, seven
+ * three over four. Order runs across the first row and on into the second.
  */
-export function splitRows<T>(items: readonly T[], rows: number): T[][] {
+export function boardRows<T>(items: readonly T[]): T[][] {
+  return splitRows(items, items.length > ONE_ROW_MAX ? 2 : 1);
+}
+
+/** At most `rows` rows, as even as they go, with any extra in the later rows. */
+function splitRows<T>(items: readonly T[], rows: number): T[][] {
   if (items.length === 0) return [];
   const count = Math.min(Math.max(1, rows), items.length);
   const base = Math.floor(items.length / count);

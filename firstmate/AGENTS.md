@@ -146,6 +146,13 @@ turn has ended the status line decides; an ended turn with no status line is **I
 reported done is still alive and In flight until the first mate lands it and moves the item. Its card
 keeps the status line and the item's hold, so "Done: PR …" still reads on it from the Idle column.
 
+The board draws only columns with a card in them, folded or not (`board.tsx`); the wide layout puts
+the shown ones in `boardRows` — one row up to three, two past that, the extra in the second. The saved
+`columnOrder` still holds all seven. A header's arrows reorder the *shown* columns (`moveColumn` with
+`shown`): the moved column hops past any hidden neighbour to land beside the next shown one, and the
+hidden ones keep their place relative to each other, so a press always moves something on screen and
+no column's slot is lost while it is empty.
+
 ## The first mate is told it lives in Paseo
 
 Charter §0 says what the first mate cannot work out for itself: that it runs inside Paseo, and that
