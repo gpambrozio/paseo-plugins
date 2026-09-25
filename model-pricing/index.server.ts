@@ -7,12 +7,15 @@
  */
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 
-import { PricingCache, pluginDir } from "./server/cache";
+import { PricingCache } from "./server/cache";
+import { migrateLegacyData, pluginDir } from "./server/data-dir";
 import { createPricingHandler } from "./server/pricing";
 import { loadPricing } from "./shared/pricing";
+import { SOURCE_IDS } from "./shared/providers";
 import { displaySettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
+  migrateLegacyData(SOURCE_IDS.map((source) => `${source}.json`));
   const cache = new PricingCache(pluginDir());
 
   server.handle(loadPricing, createPricingHandler(cache));

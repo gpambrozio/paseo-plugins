@@ -26,7 +26,8 @@ compile time. This file covers only what is specific to `herald`.
 | `server/liveness.ts`         | Asks the daemon whether each entry's agent is still open before the list goes out.     |
 | `server/workspaces.ts`       | The workspace title an entry is named by, cached; agents are usually untitled.         |
 | `server/timeline.ts`         | Pure text: what an agent said, what a permission asks, the no-model fallback sentence. |
-| `server/config.ts`           | `$PASEO_HOME/plugins/herald/config.json`, read on every event.                          |
+| `server/config.ts`           | `$PASEO_HOME/plugin-data/herald/config.json`, read on every event.                     |
+| `server/data-dir.ts`         | `$PASEO_HOME/plugin-data/herald/`, and moving the plugin's files out of `plugins/`.     |
 | `server/say.ts`              | `say` on the daemon Mac, driven for its voices: text in on stdin, a WAV out, bytes back. |
 | `client/announcer.ts`        | The poll-and-speak loop that runs while the app is open, panel or no panel.            |
 | `client/herald.tsx`          | The surface: Paseo's attention list joined with Herald's entries.                      |

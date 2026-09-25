@@ -14,11 +14,12 @@ compile time. This file covers only what is specific to `launchd-jobs`.
 | `index.client.tsx` / `index.server.ts`        | Wiring only — binds the nine RPC contracts and registers the surface.           |
 | `shared/jobs.ts`  | The zod contracts, and the `Job` shape both halves agree on.                     |
 | `server/jobs.ts`  | Every `launchctl` and `plutil` call, the plist writer, the runner, logs, history. |
+| `server/data-dir.ts` | `$PASEO_HOME/plugin-data/launchd-jobs/`, and moving the files out of `plugins/`. |
 | `client/jobs.tsx` | The surface: the list, the detail pane, and the create/edit form.                |
 | `client/log-follow.ts` | Follow mode: the `tail -f` terminal behind the log pane's live view.        |
 | `client/failure-alert.ts` | The sidebar item, and the failing count in its title and icon.           |
 | `shared/cron.ts`         | Unsuffixed, in both bundles: cron ⇄ `StartCalendarInterval`, and the sentences.  |
-| `shared/cron.test.ts`    | The only tests. `npm test`.                                                      |
+| `shared/cron.test.ts`    | With `server/data-dir.test.ts`, the only tests. `npm test`.                      |
 | `README.md`       | What a job is to a user, and what launchd does and does not promise.             |
 
 ## launchd is the scheduler and the store
@@ -94,6 +95,27 @@ with no TTY can misbehave.
 `managed` is whether the plist's `ProgramArguments` is exactly the four-element runner shape. A
 hand-written plist under the prefix lists as unmanaged with its spawn line shown shell-quoted, and
 the detail pane says so.
+
+## Moving out of `plugins/launchd-jobs`
+
+The files used to live in `$PASEO_HOME/plugins/launchd-jobs/`, which is also Paseo's install root for
+an npm or Git install and is deleted whole by `paseo plugin remove`. They now live in
+`$PASEO_HOME/plugin-data/launchd-jobs/`, and the server entry moves them on start — `jobs.json`,
+`acknowledged.json`, `logs/`, `runs/`, by name, never the directory. That alone would break every
+existing job: each plist names the runner, `PASEO_LAUNCHD_JOBS_DIR` and `StandardErrorPath` by
+absolute path, and launchd runs the definition it *loaded*, not the file.
+
+So `relocateLegacyJobs` follows it. It rewrites those three values in each plist whose runner is the
+old one, with `plutil -replace` — `ProgramArguments` whole, because `-replace` on an array index
+*inserts* — and boots out and back in every loaded job whose `launchctl print` still names the old
+runner. **A job that is running is not reloaded**, because bootout kills it. Until it can be, the old
+runner path holds a forwarding script that execs the new runner against the new directory, so its
+next fire still works and logs where the surface reads; a later start reloads it and removes the
+forwarder, plus the empty stderr file launchd created beside it. The one run in flight at the moment
+of the move loses its history line (the runner already resolved the old `runs/` path).
+
+Checked on a scratch `PASEO_HOME` with two throwaway jobs made by the previous `server/jobs.ts`, one of
+them mid-run, and a fake version directory beside the data.
 
 ## cron ⇄ calendar entries
 
@@ -187,12 +209,13 @@ most.
 ## Checking the server half against reality
 
 Everything `server/jobs.ts` imports from `shared/jobs.ts` is `import type`, so it transpiles to a
-module depending only on Node built-ins and `shared/cron.ts`:
+module depending only on Node built-ins, `server/data-dir.ts` and `shared/cron.ts`:
 
 ```bash
-npx tsc server/jobs.ts shared/cron.ts --module esnext --target es2022 --moduleResolution bundler \
-  --outDir /tmp/ljcheck --skipLibCheck --strict --types node --ignoreConfig
-sed -i '' 's#from "../shared/cron"#from "../shared/cron.js"#' /tmp/ljcheck/server/jobs.js
+npx tsc server/jobs.ts server/data-dir.ts shared/cron.ts --module esnext --target es2022 \
+  --moduleResolution bundler --outDir /tmp/ljcheck --skipLibCheck --strict --types node --ignoreConfig
+sed -i '' 's#from "../shared/cron"#from "../shared/cron.js"#; s#from "./data-dir"#from "./data-dir.js"#' \
+  /tmp/ljcheck/server/jobs.js
 ```
 
 `--strict` matters: without it the `!parsed.ok` narrowing fails and `tsc` reports errors the

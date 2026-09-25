@@ -14,7 +14,7 @@ import { access, constants } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
-import { paseoHome } from "./config";
+import { paseoHome } from "./data-dir";
 
 /** Where an install puts the binary, for a daemon started with a bare PATH. */
 const EXTRA_CLI_DIRS = ["/usr/local/bin", "/opt/homebrew/bin"];

@@ -2,7 +2,7 @@
  * The first mate's home as Paseo's sidebar names it.
  *
  * Paseo names a project and its workspace after their directory, and the
- * home is `…/plugins/firstmate/home`, so the sidebar said "home" twice.
+ * home is `…/plugin-data/firstmate/home`, so the sidebar said "home" twice.
  * `nameHome` calls both "FirstMate": the workspace by its title, through the
  * SDK, and the project through the CLI, the only way to rename one. A name
  * the captain gave either is kept, and a project is renamed only when it is

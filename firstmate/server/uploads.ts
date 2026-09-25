@@ -15,7 +15,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { MAX_ATTACHMENT_BYTES, base64Bytes, fileType, type FilePart } from "../shared/attachments";
-import { paseoHome } from "./config";
+import { paseoHome } from "./data-dir";
 
 /** Paseo's `UploadedFileAttachmentSchema`, the one attachment shape the chat sends. */
 export interface UploadedFile {

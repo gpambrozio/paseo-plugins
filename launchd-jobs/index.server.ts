@@ -9,8 +9,10 @@ import {
   readJobLogHandler,
   runJobHandler,
   setJobEnabledHandler,
+  relocateLegacyJobs,
   updateJobHandler,
 } from "./server/jobs";
+import { migrateLegacyData } from "./server/data-dir";
 import {
   acknowledgeJob,
   createJob,
@@ -24,6 +26,13 @@ import {
 } from "./shared/jobs";
 
 export default function contribute(server: PluginServerContext) {
+  // `runner.sh` is not among them: `relocateLegacyJobs` rewrites it in place,
+  // because launchd may still hold jobs that run it from there.
+  migrateLegacyData(["jobs.json", "acknowledged.json", "logs", "runs"]);
+  void relocateLegacyJobs().catch((error: unknown) => {
+    console.error("[launchd-jobs] could not move jobs to the new data directory:", error);
+  });
+
   server.handle(listJobs, listJobsHandler);
   server.handle(createJob, createJobHandler);
   server.handle(updateJob, updateJobHandler);

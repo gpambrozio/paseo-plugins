@@ -7,6 +7,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-launchd-jobs` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [Unreleased]
+
+### Changed
+
+- **Removing the plugin no longer breaks your jobs or deletes their history.** The logs, the run
+  history and the script every job runs through used to sit inside the folder Paseo installs the
+  plugin into, which Paseo deletes when you remove the plugin — and with the script gone, every job
+  failed. They now live in `~/.paseo/plugin-data/launchd-jobs/`, and the plugin moves them and points
+  your existing jobs at the new place the first time it starts. A job that happens to be running at
+  that moment is left to finish and keeps working; it is switched over on a later start, and the one
+  run under way during the move may be missing from its history.
+
 ## [0.5.0] — 2026-09-22
 
 ### Added

@@ -20,6 +20,7 @@ compile time. This file covers only what is specific to `github-board`.
 | `shared/timeline.ts`       | The `kind`/`version` keying the timeline row; a *runtime* import on both sides. |
 | `shared/launch.ts`         | A card's repository id and its workspace title, for both launch paths; a *runtime* import on both sides. |
 | `server/board.ts`          | Every `gh` subprocess, the daemon's own settings file, and the server-side board cache. |
+| `server/data-dir.ts`       | `$PASEO_HOME/plugin-data/github-board/`, and moving the settings file out of `plugins/`. |
 | `client/board.tsx`         | The surface: columns, cards, the detail panel, the repository filter, the send dialog, and the client cache. |
 | `client/settings-screen.tsx` | The Settings → Plugins frame around the same editor the gear button opens. |
 | `client/markdown.tsx`      | The renderer for an item's Markdown body; only the detail panel uses it.    |
@@ -38,15 +39,15 @@ The server half is checkable on its own, though: everything it imports from `sha
 `import type`, so it transpiles to a module with no runtime dependency beyond Node built-ins.
 
 ```bash
-npx tsc server/board.ts shared/image-host.ts shared/timeline.ts shared/launch.ts --module esnext \
+npx tsc server/board.ts server/data-dir.ts shared/image-host.ts shared/timeline.ts shared/launch.ts --module esnext \
   --target es2022 --moduleResolution bundler --outDir /tmp/gbcheck --skipLibCheck --types node \
   --ignoreConfig
 # then call loadBoardHandler from a throwaway .mjs in that directory, and delete it after
 ```
 
-`server/board.ts` imports `../shared/image-host`, `../shared/timeline` and `../shared/launch` at
-runtime, which is why those files are passed to `tsc` too; add the `.js` extension to those three
-imports in the emitted `server/board.js` before running it — the bundler resolves extensionless
+`server/board.ts` imports `./data-dir`, `../shared/image-host`, `../shared/timeline` and
+`../shared/launch` at runtime, which is why those files are passed to `tsc` too; add the `.js`
+extension to those four imports in the emitted `server/board.js` before running it — the bundler resolves extensionless
 imports, plain Node does not.
 
 Run it with `PASEO_HOME` pointed at a scratch directory so a throwaway never writes the real
@@ -902,7 +903,7 @@ root `AGENTS.md`; this is where the line falls here.
 | Where | What | Why there |
 | --- | --- | --- |
 | Host settings store, `shared/settings.ts` | `hiddenRepositories`, `detailWidthFraction` (`display`); the prompt templates (`prompts`) | Read only to draw the board. `useSettings` puts them on the client with no round trip, and the host pushes an edit to every connected client. |
-| `$PASEO_HOME/plugins/github-board/settings.json` | `login`, the `launch` defaults | Handlers act on them: `gh` runs every query as that login, and `board.send-options` answers with those defaults — and handlers write them: the login when it is resolved, the defaults after a send. The server can read a settings document but not write one. |
+| `$PASEO_HOME/plugin-data/github-board/settings.json` | `login`, the `launch` defaults | Handlers act on them: `gh` runs every query as that login, and `board.send-options` answers with those defaults — and handlers write them: the login when it is resolved, the defaults after a send. The server can read a settings document but not write one. |
 
 The launch defaults are one set, whichever host a card was sent to. They could have moved into a
 settings document when sends to other hosts started saving them from the client, but the daemon's

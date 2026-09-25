@@ -339,7 +339,7 @@ paseo plugin logs github-board     # load errors and stderr
 The login resolves in this order:
 
 1. the login typed into the header field (persisted on **Set**),
-2. the saved login at `$PASEO_HOME/plugins/github-board/settings.json`,
+2. the saved login at `$PASEO_HOME/plugin-data/github-board/settings.json`,
 3. the account `gh` is authenticated as.
 
 The settings file holds `login`, `hiddenRepositories`, the `prompts`, and the

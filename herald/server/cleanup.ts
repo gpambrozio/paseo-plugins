@@ -20,7 +20,7 @@ import { access, constants } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 
-import { paseoHome } from "./config";
+import { paseoHome } from "./data-dir";
 
 /** Stamped on every helper at creation, and the only thing a sweep goes by. */
 export const HELPER_LABEL_KEY = "herald.role";
