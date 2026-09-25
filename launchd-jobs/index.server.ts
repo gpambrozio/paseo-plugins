@@ -5,10 +5,12 @@ import {
   createJobHandler,
   deleteJobHandler,
   listJobsHandler,
+  moveLegacyFiles,
   readJobHealthHandler,
   readJobLogHandler,
   runJobHandler,
   setJobEnabledHandler,
+  relocateLegacyJobs,
   updateJobHandler,
 } from "./server/jobs";
 import {
@@ -24,6 +26,12 @@ import {
 } from "./shared/jobs";
 
 export default function contribute(server: PluginServerContext) {
+  if (moveLegacyFiles()) {
+    void relocateLegacyJobs().catch((error: unknown) => {
+      console.error("[launchd-jobs] could not move jobs to the new data directory:", error);
+    });
+  }
+
   server.handle(listJobs, listJobsHandler);
   server.handle(createJob, createJobHandler);
   server.handle(updateJob, updateJobHandler);

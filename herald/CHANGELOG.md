@@ -9,6 +9,12 @@ read before you move.
 
 ## [Unreleased]
 
+### Changed
+
+- **Removing Herald no longer deletes its settings and its list.** They used to sit inside the folder
+  Paseo installs the plugin into, which Paseo deletes when you remove the plugin. They now live in
+  `~/.paseo/plugin-data/herald/`, and Herald moves them there the first time it starts.
+
 ### Fixed
 
 - **Herald notices an agent waiting for you within a moment again.** Since Paseo 0.9, Herald had

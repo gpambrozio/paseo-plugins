@@ -1,5 +1,5 @@
 /**
- * One file per upstream under `$PASEO_HOME/plugins/model-pricing/`, holding
+ * One file per upstream under `$PASEO_HOME/plugin-data/model-pricing/`, holding
  * that source's rows, when they were fetched, and its ETag.
  *
  * This is the daemon's own store rather than a settings document because the
@@ -15,21 +15,11 @@
  * same shape as herald's `AttentionStore`.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { PriceRowSchema, type PriceRow } from "../shared/pricing";
 import type { SourceId } from "../shared/providers";
-
-export const PLUGIN_ID = "model-pricing";
-
-export function paseoHome(): string {
-  return process.env["PASEO_HOME"] ?? join(homedir(), ".paseo");
-}
-
-export function pluginDir(): string {
-  return join(paseoHome(), "plugins", PLUGIN_ID);
-}
+import { PLUGIN_ID } from "./data-dir";
 
 export interface CacheEntry {
   rows: PriceRow[];

@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { z } from "zod";
@@ -38,18 +37,15 @@ import { repositoryIdFor, workspaceTitle } from "../shared/launch";
 // module writes has to carry the same key the client renderer registers, and
 // `shared/timeline` imports nothing, so the standalone transpile still runs.
 import { BOARD_ITEM_TIMELINE_KIND, BOARD_ITEM_TIMELINE_VERSION } from "../shared/timeline";
+import { dataPath } from "./data-dir";
 
 const execFileAsync = promisify(execFile);
 
 /** gh search caps out well under this; the ceiling only guards a runaway page. */
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
-function paseoHome(): string {
-  return process.env.PASEO_HOME ?? join(homedir(), ".paseo");
-}
-
 function settingsPath(): string {
-  return join(paseoHome(), "plugins", "github-board", "settings.json");
+  return dataPath("settings.json");
 }
 
 /**

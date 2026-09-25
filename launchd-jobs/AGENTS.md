@@ -14,11 +14,12 @@ compile time. This file covers only what is specific to `launchd-jobs`.
 | `index.client.tsx` / `index.server.ts`        | Wiring only — binds the nine RPC contracts and registers the surface.           |
 | `shared/jobs.ts`  | The zod contracts, and the `Job` shape both halves agree on.                     |
 | `server/jobs.ts`  | Every `launchctl` and `plutil` call, the plist writer, the runner, logs, history. |
+| `server/data-dir.ts` | `$PASEO_HOME/plugin-data/launchd-jobs/`, and moving the files out of `plugins/`. |
 | `client/jobs.tsx` | The surface: the list, the detail pane, and the create/edit form.                |
 | `client/log-follow.ts` | Follow mode: the `tail -f` terminal behind the log pane's live view.        |
 | `client/failure-alert.ts` | The sidebar item, and the failing count in its title and icon.           |
 | `shared/cron.ts`         | Unsuffixed, in both bundles: cron ⇄ `StartCalendarInterval`, and the sentences.  |
-| `shared/cron.test.ts`    | The only tests. `npm test`.                                                      |
+| `shared/cron.test.ts`    | With `server/data-dir.test.ts` and `server/jobs.test.ts`, the tests. `npm test`. |
 | `README.md`       | What a job is to a user, and what launchd does and does not promise.             |
 
 ## launchd is the scheduler and the store
@@ -94,6 +95,50 @@ with no TTY can misbehave.
 `managed` is whether the plist's `ProgramArguments` is exactly the four-element runner shape. A
 hand-written plist under the prefix lists as unmanaged with its spawn line shown shell-quoted, and
 the detail pane says so.
+
+## Moving out of `plugins/launchd-jobs`
+
+The files used to live in `$PASEO_HOME/plugins/launchd-jobs/`, which is also Paseo's install root for
+an npm or Git install and is deleted whole by `paseo plugin remove`. They now live in
+`$PASEO_HOME/plugin-data/launchd-jobs/`. Each plist names the runner, `PASEO_LAUNCHD_JOBS_DIR` and
+`StandardErrorPath` by absolute path, and launchd runs the definition it *loaded*, not the file, so
+moving the files is two steps.
+
+**`moveLegacyFiles`, synchronously, before any handler is bound.** A loaded job can fire at any
+moment, so the new runner and a *forwarder* at the old runner path — a script that execs the new
+runner against the new directory — go in before anything moves. Both are written to a temporary file
+and renamed into place, as is every runner write: launchd must never find an empty or half-written
+script, and when the forwarder cannot be written nothing moves that start. `jobs.json`,
+`acknowledged.json` and each file of `logs/` and `runs/` then move **one by one**, by no-clobber hard
+link. **The runner then applies the same rule to its own log and history on every fire** (`place` in
+`RUNNER_SCRIPT`): it moves each file out of the legacy directory — derived from its own, `…/plugins/`
+beside `…/plugin-data/` — if only that has it, then appends to the new copy when there is one or
+neither exists, and to the legacy copy only when that file's move failed. That is `dataPath`, file by
+file, and the daemon reads logs and history through `dataPath`, so the surface always reads the copy
+the run wrote and the next start keeps: moved, split (one file moved, one could not), both present, or
+neither. Doing it in the runner rather than the forwarder covers fires after relocation as well, and
+launchd never runs two instances of one job, so the runner is the only writer of those files while it
+decides; a daemon move of the same file links the same inode, so the two cannot collide.
+`StandardErrorPath`, which only the runner's own failures reach, always names the new directory.
+
+**The daemon never moves a running job's log or history.** A running runner has already chosen its
+paths, and a move — across filesystems a copy and unlink — would leave its later writes in a file
+nobody reads. `moveLegacyFiles` asks `launchctl print` for each job with files still in the old
+directory (synchronously, being before any handler) and leaves a running one's files for a later start
+or for its own next run; a job it cannot ask about counts as running.
+
+**`relocateLegacyJobs`, asynchronously, after it.** `plistRepairs` compares each of the three paths on
+its own, so a rewrite cut short after the first `plutil` is finished on the next start rather than
+skipped because the runner already looks new; `ProgramArguments` is replaced whole, because
+`plutil -replace` on an array index *inserts*. Every loaded job whose `launchctl print` still names
+the old directory anywhere is booted out and back in — **except one that is running**, since bootout
+kills it. The forwarder stays until a later start has reloaded it, then goes, with the empty stderr
+file launchd created beside it. The one run in flight at the moment of the move loses its history line
+(the runner resolved the old `runs/` path before the forwarder existed).
+
+The file moves and `plistRepairs` are covered by `server/jobs.test.ts`, which calls no `launchctl`. The
+whole sequence was checked once on a scratch `PASEO_HOME` with two throwaway jobs made by the previous
+`server/jobs.ts`, one of them mid-run.
 
 ## cron ⇄ calendar entries
 
@@ -187,12 +232,13 @@ most.
 ## Checking the server half against reality
 
 Everything `server/jobs.ts` imports from `shared/jobs.ts` is `import type`, so it transpiles to a
-module depending only on Node built-ins and `shared/cron.ts`:
+module depending only on Node built-ins, `server/data-dir.ts` and `shared/cron.ts`:
 
 ```bash
-npx tsc server/jobs.ts shared/cron.ts --module esnext --target es2022 --moduleResolution bundler \
-  --outDir /tmp/ljcheck --skipLibCheck --strict --types node --ignoreConfig
-sed -i '' 's#from "../shared/cron"#from "../shared/cron.js"#' /tmp/ljcheck/server/jobs.js
+npx tsc server/jobs.ts server/data-dir.ts shared/cron.ts --module esnext --target es2022 \
+  --moduleResolution bundler --outDir /tmp/ljcheck --skipLibCheck --strict --types node --ignoreConfig
+sed -i '' 's#from "../shared/cron"#from "../shared/cron.js"#; s#from "./data-dir"#from "./data-dir.js"#' \
+  /tmp/ljcheck/server/jobs.js
 ```
 
 `--strict` matters: without it the `!parsed.ok` narrowing fails and `tsc` reports errors the

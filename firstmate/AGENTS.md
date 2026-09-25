@@ -36,7 +36,8 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/cli.ts`               | `paseo stop` and `paseo project rename`, for what the SDK does not have.                   |
 | `server/home-name.ts`         | Names the home's project and workspace "FirstMate" instead of the folder's "home".         |
 | `server/daemon-session.ts`    | One raw session request over the plugin's channel: clearing an agent's attention.          |
-| `server/config.ts`            | `$PASEO_HOME/plugins/firstmate/config.json`, read on every call.                           |
+| `server/config.ts`            | `$PASEO_HOME/plugin-data/firstmate/config.json`, read on every call; the default home.     |
+| `server/data-dir.ts`          | `$PASEO_HOME/plugin-data/firstmate/`, and moving the plugin's files out of `plugins/`.     |
 | `server/serialize.ts`         | Runs the config update and each home file's save one at a time, per file.                  |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
 | `client/fleet.tsx`            | The surface: header, banners, chat/board split, compact tabs, the shared fleet query.      |
@@ -228,6 +229,18 @@ has to be asked to re-read it) and creates `data/captain.md`, `projects.md`, `ba
 captain's to edit and outranks the charter below its hard rules; that is where customisation that
 should survive an upgrade goes.
 
+**The default home is `$PASEO_HOME/plugin-data/firstmate/home`**, and it used to be
+`$PASEO_HOME/plugins/firstmate/home` — Paseo's install root, deleted by `paseo plugin remove` (see the root
+AGENTS.md). `migrateLegacyFiles` (`server/config.ts`) moves the config on start, and the old default home
+only when nothing knows it by path: not while a first mate is aboard in it, since the agent keeps working
+in the directory it was launched in, and not while `projects/` holds clones, which are Paseo projects and
+registry entries by absolute path (and the roots of their crewmates' worktrees). Nor when the settings
+name that very directory as the home. A home that has to stay is used where it is — `defaultHome()`
+prefers it while `plugin-data/` has none — and the reason is logged on every start. A home the config
+names elsewhere is never touched. The config and the home are each used from wherever `dataPath` finds
+them, so one that failed to move keeps working where it is and moves on a later start. Once the old home has moved, the Paseo project
+still registered at its old path is left for the captain to remove.
+
 There is **no `CLAUDE.md`**. Claude Code and Codex both read `AGENTS.md`, and a `CLAUDE.md` importing
 it risks the charter twice in every turn. The opening asks the agent to read the file if it is not
 already in its instructions, for a harness that reads neither.
@@ -297,7 +310,7 @@ and then switches to, First mate.
 ## The home is called FirstMate in the sidebar, with a ship for its icon
 
 Paseo names a project and its workspace after their directory, and the default home is
-`…/plugins/firstmate/home`, so the sidebar said "home" twice under a generic folder icon. `nameHome`
+`…/plugin-data/firstmate/home`, so the sidebar said "home" twice under a generic folder icon. `nameHome`
 (`server/home-name.ts`) calls both "FirstMate" — the workspace through the SDK's `setTitle`, the project
 through `paseo project rename`, since the SDK has no call for it. It runs on every launch and restart,
 and — for a first mate launched before this existed — once per plugin process from the board's first

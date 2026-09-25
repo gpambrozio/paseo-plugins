@@ -1,7 +1,9 @@
-import { execFile } from "node:child_process";
-import { chmod, mkdir, open, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
+import { execFile, execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { lstat, mkdir, open, readdir, readFile, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
   describeCron,
@@ -14,6 +16,7 @@ import {
   type CalendarEntry,
 } from "../shared/cron";
 import type { Job, JobSpec, RunRecord, Schedule } from "../shared/jobs";
+import { dataPath, legacyPluginDir, migrateLegacyData, pluginDir } from "./data-dir";
 
 /**
  * The daemon half: every `launchctl` and `plutil` call, the plist files, the
@@ -69,14 +72,6 @@ async function launchctl(args: string[]): Promise<string> {
 // ---------------------------------------------------------------------------
 // Paths
 
-function paseoHome(): string {
-  return process.env.PASEO_HOME ?? join(homedir(), ".paseo");
-}
-
-function dataDir(): string {
-  return join(paseoHome(), "plugins", "launchd-jobs");
-}
-
 function launchAgentsDir(): string {
   return join(homedir(), "Library", "LaunchAgents");
 }
@@ -95,24 +90,34 @@ function plistPath(slug: string): string {
   return join(launchAgentsDir(), `${labelFor(slug)}.plist`);
 }
 
+/**
+ * The log and history a job's runs append to, chosen per file by the same rule
+ * as the runner's `place` (`dataPath`): the new directory unless only the
+ * legacy one has the file.
+ */
 function logPath(slug: string): string {
-  return join(dataDir(), "logs", `${slug}.log`);
+  return dataPath(join("logs", `${slug}.log`));
 }
 
 function runsPath(slug: string): string {
-  return join(dataDir(), "runs", `${slug}.jsonl`);
+  return dataPath(join("runs", `${slug}.jsonl`));
+}
+
+/** Where launchd sends the runner's own failures; always the new directory. */
+function stderrPath(slug: string): string {
+  return join(pluginDir(), "logs", `${slug}.log`);
 }
 
 function runnerPath(): string {
-  return join(dataDir(), RUNNER_NAME);
+  return join(pluginDir(), RUNNER_NAME);
 }
 
 function namesPath(): string {
-  return join(dataDir(), "jobs.json");
+  return dataPath("jobs.json");
 }
 
 function acksPath(): string {
-  return join(dataDir(), "acknowledged.json");
+  return dataPath("acknowledged.json");
 }
 
 function isMissing(error: unknown): boolean {
@@ -133,7 +138,7 @@ function isMissing(error: unknown): boolean {
  * moved out from under it would go on receiving output. Only the runner's own
  * stderr goes through launchd, for the case where the runner itself fails.
  */
-const RUNNER_SCRIPT = [
+export const RUNNER_SCRIPT = [
   "#!/bin/zsh",
   "# Written by the launchd-jobs Paseo plugin; rewritten whenever a job is saved.",
   "# launchd runs it as: runner.sh <slug> <command>, with PASEO_LAUNCHD_JOBS_DIR set.",
@@ -142,9 +147,22 @@ const RUNNER_SCRIPT = [
   'slug="$1"',
   'command="$2"',
   'dir="$PASEO_LAUNCHD_JOBS_DIR"',
-  'log="$dir/logs/$slug.log"',
-  'runs="$dir/runs/$slug.jsonl"',
-  'mkdir -p "$dir/logs" "$dir/runs"',
+  "# Where the plugin kept its files before plugin-data; see `place`.",
+  'legacy="${dir:h:h}/plugins/${dir:t}"',
+  "# Prints the path this run uses for one of its files, after moving the file out of the legacy",
+  "# directory if only that has it — the daemon's dataPath rule, file by file: the new directory",
+  "# when it has the file or neither does, the legacy one only when the move failed. launchd never",
+  "# runs two instances of one job, so nothing else writes these files meanwhile.",
+  "place() {",
+  '  if [[ "${dir:h:t}" == plugin-data && -f "$legacy/$1" && ! -e "$dir/$1" ]]; then',
+  '    mkdir -p "$dir/${1:h}"',
+  '    ln "$legacy/$1" "$dir/$1" 2>/dev/null && rm -f "$legacy/$1"',
+  "  fi",
+  '  if [[ -e "$dir/$1" || ! -e "$legacy/$1" ]]; then print -r -- "$dir/$1"; else print -r -- "$legacy/$1"; fi',
+  "}",
+  'log=$(place "logs/$slug.log")',
+  'runs=$(place "runs/$slug.jsonl")',
+  'mkdir -p "${log:h}" "${runs:h}"',
   'if [[ -f "$log" && $(stat -f %z "$log") -gt 1048576 ]]; then',
   '  mv -f "$log" "$log.1"',
   "fi",
@@ -168,16 +186,16 @@ const RUNNER_SCRIPT = [
 
 async function ensureRunner(): Promise<string> {
   const path = runnerPath();
-  await mkdir(join(dataDir(), "logs"), { recursive: true });
-  await mkdir(join(dataDir(), "runs"), { recursive: true });
+  await mkdir(join(pluginDir(), "logs"), { recursive: true });
+  await mkdir(join(pluginDir(), "runs"), { recursive: true });
   let current: string | null = null;
   try {
     current = await readFile(path, "utf8");
   } catch (error) {
     if (!isMissing(error)) throw error;
   }
-  if (current !== RUNNER_SCRIPT) await writeFile(path, RUNNER_SCRIPT, "utf8");
-  await chmod(path, 0o755);
+  // Replaced, never rewritten in place: launchd may start it at any moment.
+  if (current !== RUNNER_SCRIPT) writeScriptSync(path, RUNNER_SCRIPT);
   return path;
 }
 
@@ -240,7 +258,7 @@ async function readNames(): Promise<NameFile> {
 }
 
 async function writeNames(file: NameFile): Promise<void> {
-  await mkdir(dataDir(), { recursive: true });
+  await mkdir(dirname(namesPath()), { recursive: true });
   await writeFile(namesPath(), `${JSON.stringify(file, null, 2)}\n`, "utf8");
 }
 
@@ -277,16 +295,18 @@ async function readAcks(): Promise<AckFile> {
 }
 
 async function writeAcks(file: AckFile): Promise<void> {
-  await mkdir(dataDir(), { recursive: true });
+  await mkdir(dirname(acksPath()), { recursive: true });
   await writeFile(acksPath(), `${JSON.stringify(file, null, 2)}\n`, "utf8");
 }
 
 // ---------------------------------------------------------------------------
 // Reading a job back
 
-interface PlistFile {
+export interface PlistFile {
   Label?: unknown;
   ProgramArguments?: unknown;
+  EnvironmentVariables?: unknown;
+  StandardErrorPath?: unknown;
   WorkingDirectory?: unknown;
   StartCalendarInterval?: unknown;
   StartInterval?: unknown;
@@ -379,17 +399,11 @@ function matchInt(text: string, pattern: RegExp): number | null {
  * service" is the one failure that means something: the label is not loaded.
  */
 async function readStatus(label: string): Promise<LaunchdStatus> {
-  let output: string;
-  try {
-    ({ stdout: output } = await exec("launchctl", ["print", `${domain()}/${label}`], {
-      encoding: "utf8",
-      maxBuffer: 4 * 1024 * 1024,
-    }));
-  } catch (error) {
-    const failure = error as CommandFailure;
-    if (failure.code === 113 || /Could not find service/.test(failureText(error))) return UNLOADED;
-    throw new Error(`launchctl print ${label} failed: ${failureText(error)}`);
-  }
+  const output = await printService(label);
+  return output === null ? UNLOADED : statusOf(output);
+}
+
+function statusOf(output: string): LaunchdStatus {
   const state = /^\s*state = (.+?)\s*$/m.exec(output)?.[1] ?? "";
   return {
     loaded: true,
@@ -398,6 +412,21 @@ async function readStatus(label: string): Promise<LaunchdStatus> {
     runs: matchInt(output, /^\s*runs = (\d+)\s*$/m),
     lastExitCode: matchInt(output, /^\s*last exit code = (-?\d+)\s*$/m),
   };
+}
+
+/** `launchctl print` for one label, or null when it is not loaded. */
+async function printService(label: string): Promise<string | null> {
+  try {
+    const { stdout } = await exec("launchctl", ["print", `${domain()}/${label}`], {
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return stdout;
+  } catch (error) {
+    const failure = error as CommandFailure;
+    if (failure.code === 113 || /Could not find service/.test(failureText(error))) return null;
+    throw new Error(`launchctl print ${label} failed: ${failureText(error)}`);
+  }
 }
 
 /** Labels `launchctl disable` has been applied to, read once per list. */
@@ -582,7 +611,7 @@ function plistXml(input: {
   const { slug, spec } = input;
   const env = [
     ["PATH", input.path],
-    ["PASEO_LAUNCHD_JOBS_DIR", dataDir()],
+    ["PASEO_LAUNCHD_JOBS_DIR", pluginDir()],
   ]
     .map(([key, value]) => `    <key>${key}</key>\n    <string>${escapeXml(value ?? "")}</string>\n`)
     .join("");
@@ -603,7 +632,7 @@ function plistXml(input: {
     scheduleXml(spec.schedule).trimEnd(),
     // Only the runner's own failures reach this file; the command's output is
     // appended by the runner, which is what lets the runner rotate it.
-    `  <key>StandardErrorPath</key>\n  <string>${escapeXml(logPath(slug))}</string>`,
+    `  <key>StandardErrorPath</key>\n  <string>${escapeXml(stderrPath(slug))}</string>`,
     "</dict>",
     "</plist>",
     "",
@@ -682,6 +711,271 @@ function assertSupported(): void {
   if (process.platform !== "darwin") {
     throw new Error("launchd jobs are only available when the daemon runs on macOS");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Moving out of `plugins/launchd-jobs`
+//
+// The runner, logs and history used to live in `$PASEO_HOME/plugins/launchd-jobs/`,
+// which `paseo plugin remove` deletes on an npm or Git install. Every plist names
+// the runner, the directory and the stderr log by absolute path, and launchd keeps
+// the definition it loaded until the job is booted out and back in — so the files
+// move first (`moveLegacyFiles`, synchronously, from the server entry) and the jobs
+// follow (`relocateLegacyJobs`, after it).
+
+function legacyRunnerPath(): string {
+  return join(legacyPluginDir(), RUNNER_NAME);
+}
+
+/**
+ * What stands at the old runner path while launchd still holds a job loaded
+ * from there: it runs the new runner against the new directory, so the next
+ * fire works. The runner itself carries the job's log and history over, file
+ * by file (`place` in `RUNNER_SCRIPT`).
+ */
+function forwardingRunner(): string {
+  return [
+    "#!/bin/zsh",
+    "# Written by the launchd-jobs Paseo plugin, whose files moved to plugin-data. It forwards jobs",
+    "# launchd loaded before the move, and is removed once every one of them has been reloaded.",
+    `export PASEO_LAUNCHD_JOBS_DIR=${shellQuote(pluginDir())}`,
+    `exec /bin/zsh ${shellQuote(runnerPath())} "$@"`,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Writes a script launchd may start at any moment: to a temporary file beside
+ * it, made executable, then renamed over it, so a fire sees the old script or
+ * the new one and never an empty or half-written one. A failure leaves the old
+ * script as it was.
+ */
+function writeScriptSync(path: string, content: string): void {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, content, "utf8");
+    chmodSync(temporary, 0o755);
+    renameSync(temporary, path);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
+}
+
+/** What `logs/` or `runs/` holds in the legacy directory, as entries to move one by one. */
+function legacyEntriesIn(directory: string): string[] {
+  try {
+    return readdirSync(join(legacyPluginDir(), directory)).map((name) => join(directory, name));
+  } catch (error) {
+    if (isMissing(error)) return [];
+    throw error;
+  }
+}
+
+/** The job a `logs/` or `runs/` entry belongs to: `<slug>.log`, `<slug>.log.1`, `<slug>.jsonl`. */
+function slugOfEntry(entry: string): string {
+  return basename(entry).replace(/\.(log|log\.1|jsonl)$/, "");
+}
+
+/**
+ * Whether launchd reports the job running right now, asked synchronously
+ * because the move runs before any handler is bound. A job it cannot ask about
+ * counts as running: the cost is only that its files wait for a later start.
+ * Not a Mac, no launchd: nothing runs.
+ */
+export function launchdReportsRunning(slug: string): boolean {
+  if (process.platform !== "darwin") return false;
+  let output: string;
+  try {
+    output = execFileSync("launchctl", ["print", `${domain()}/${labelFor(slug)}`], {
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const failure = error as CommandFailure & { status?: number };
+    if (failure.status === 113 || /Could not find service/.test(failureText(error))) return false;
+    console.error(`[launchd-jobs] could not ask launchd whether ${labelFor(slug)} is running, so its files wait:`, error);
+    return true;
+  }
+  return statusOf(output).running;
+}
+
+/**
+ * Moves the plugin's files, called by the server entry before any handler is
+ * bound, and says whether the jobs may follow (`relocateLegacyJobs`).
+ *
+ * Jobs launchd loaded from the old runner can fire at any moment, so the new
+ * runner and the forwarder go in *before* anything moves: from then on a fire
+ * runs the new runner, which moves its own files first and appends wherever
+ * each one then is (`place`), so it never starts a file beside one it could
+ * not move. Logs and history move file by file, so a fire that has created
+ * `logs/` in the new directory cannot make the old directory look superseded.
+ *
+ * **A running job's log and history are not moved.** Its runner has already
+ * chosen the paths it writes to, and a move — a copy and unlink, across
+ * filesystems — would leave its later writes in a file nobody reads. They wait
+ * for a start that finds the job idle, or for the job's own next run, whose
+ * runner moves them itself. `runner.sh` itself
+ * is not moved: the new one is written fresh, and the old path is the
+ * forwarder's. When the forwarder cannot be installed nothing moves — fires
+ * would still write the old files — and the next start tries again.
+ */
+export function moveLegacyFiles(isRunning: (slug: string) => boolean = launchdReportsRunning): boolean {
+  const legacyRunner = legacyRunnerPath();
+  if (existsSync(legacyRunner)) {
+    try {
+      mkdirSync(join(pluginDir(), "logs"), { recursive: true });
+      mkdirSync(join(pluginDir(), "runs"), { recursive: true });
+      writeScriptSync(runnerPath(), RUNNER_SCRIPT);
+      writeScriptSync(legacyRunner, forwardingRunner());
+    } catch (error) {
+      console.error(`[launchd-jobs] could not put a forwarder at ${legacyRunner}, so nothing moves this start:`, error);
+      return false;
+    }
+  }
+  const history = [...legacyEntriesIn("logs"), ...legacyEntriesIn("runs")];
+  const running = new Set([...new Set(history.map(slugOfEntry))].filter((slug) => isRunning(slug)));
+  for (const slug of running) {
+    console.warn(`[launchd-jobs] ${labelFor(slug)} is running, so its log and history move on a later start`);
+  }
+  migrateLegacyData(["jobs.json", "acknowledged.json", ...history.filter((entry) => !running.has(slugOfEntry(entry)))]);
+  return true;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw error;
+  }
+}
+
+async function writeForwardingRunner(): Promise<void> {
+  // launchd opens the loaded job's `StandardErrorPath`, which is still under here.
+  await mkdir(join(legacyPluginDir(), "logs"), { recursive: true });
+  writeScriptSync(legacyRunnerPath(), forwardingRunner());
+}
+
+async function removeForwardingRunner(): Promise<void> {
+  await unlink(legacyRunnerPath());
+  // launchd creates the loaded job's stderr file there, empty, since the
+  // forwarded runner writes the real log. Only empty files go, and then each
+  // directory only if nothing else is left in it.
+  for (const directory of ["logs", "runs"]) {
+    const path = join(legacyPluginDir(), directory);
+    let names: string[];
+    try {
+      names = await readdir(path);
+    } catch (error) {
+      if (isMissing(error)) continue;
+      throw error;
+    }
+    await Promise.all(
+      names.map(async (name) => {
+        const file = join(path, name);
+        const info = await lstat(file);
+        if (info.isFile() && info.size === 0) await unlink(file);
+      }),
+    );
+    try {
+      await rmdir(path);
+    } catch (error) {
+      if ((error as { code?: string }).code !== "ENOTEMPTY") throw error;
+    }
+  }
+}
+
+/**
+ * The `plutil -replace` arguments that bring one of this plugin's plists onto
+ * the new directory: each of the three paths compared on its own, so a rewrite
+ * cut short after the first — a failed `plutil`, a stopped daemon — is finished
+ * on the next start rather than skipped because the runner already looks new.
+ * `ProgramArguments` is replaced whole: `-replace` on an array index inserts.
+ * Empty for a plist that is not in the runner shape, or already right.
+ */
+export function plistRepairs(plist: PlistFile, slug: string): [keyPath: string, type: string, value: string][] {
+  const args = Array.isArray(plist.ProgramArguments) ? (plist.ProgramArguments as unknown[]) : [];
+  const ours = args.length === 4 && args[0] === "/bin/zsh" && (args[1] === legacyRunnerPath() || args[1] === runnerPath());
+  if (!ours) return [];
+  const repairs: [string, string, string][] = [];
+  if (args[1] !== runnerPath()) {
+    repairs.push(["ProgramArguments", "-json", JSON.stringify(args.map((arg, index) => (index === 1 ? runnerPath() : arg)))]);
+  }
+  const env = plist.EnvironmentVariables;
+  const dir = typeof env === "object" && env !== null ? (env as Record<string, unknown>)["PASEO_LAUNCHD_JOBS_DIR"] : undefined;
+  if (dir !== pluginDir()) repairs.push(["EnvironmentVariables.PASEO_LAUNCHD_JOBS_DIR", "-string", pluginDir()]);
+  if (plist.StandardErrorPath !== stderrPath(slug)) repairs.push(["StandardErrorPath", "-string", stderrPath(slug)]);
+  return repairs;
+}
+
+/** Whether launchd's loaded definition (`launchctl print`) still names anything under the legacy directory. */
+export function loadedFromLegacy(printed: string): boolean {
+  const legacy = legacyPluginDir();
+  return printed.split("\n").some((line) => {
+    const text = line.trim();
+    return text.includes(`${legacy}/`) || text.endsWith(legacy);
+  });
+}
+
+async function repointPlist(slug: string, repairs: readonly [string, string, string][]): Promise<void> {
+  const path = plistPath(slug);
+  for (const [keyPath, type, value] of repairs) {
+    try {
+      await exec("plutil", ["-replace", keyPath, type, value, path], { encoding: "utf8" });
+    } catch (error) {
+      throw new Error(`plutil -replace ${keyPath} in ${path} failed: ${failureText(error)}`);
+    }
+  }
+}
+
+/**
+ * Returns true when the job is done with the legacy directory, false when it
+ * still needs the forwarding runner: launchd holds it from there and it is
+ * running now, so a bootout would kill it. The next start tries it again.
+ */
+async function relocateJob(slug: string): Promise<boolean> {
+  const repairs = plistRepairs(await readPlist(plistPath(slug)), slug);
+  if (repairs.length > 0) {
+    await repointPlist(slug, repairs);
+    console.log(`[launchd-jobs] pointed ${plistPath(slug)} at ${pluginDir()}`);
+  }
+  const label = labelFor(slug);
+  const loaded = await printService(label);
+  if (loaded === null || !loadedFromLegacy(loaded)) return true;
+  if (statusOf(loaded).running) {
+    console.warn(`[launchd-jobs] ${label} is running, so it is reloaded from its new plist on a later start`);
+    return false;
+  }
+  await bootoutIfLoaded(label);
+  await bootstrap(slug);
+  return true;
+}
+
+/**
+ * Called once from the server entry, after `moveLegacyFiles`. A job it cannot
+ * move keeps the forwarding runner, so no job stops firing because of the move;
+ * every failure is logged with the paths involved.
+ */
+export async function relocateLegacyJobs(): Promise<void> {
+  if (process.platform !== "darwin") return;
+  const legacyRunner = legacyRunnerPath();
+  await ensureRunner();
+
+  let forwardingNeeded = false;
+  for (const slug of await listSlugs()) {
+    try {
+      if (!(await relocateJob(slug))) forwardingNeeded = true;
+    } catch (error) {
+      forwardingNeeded = true;
+      console.error(`[launchd-jobs] could not move ${plistPath(slug)} off ${legacyPluginDir()}: ${errorMessage(error)}`);
+    }
+  }
+
+  if (forwardingNeeded) await writeForwardingRunner();
+  else if (await pathExists(legacyRunner)) await removeForwardingRunner();
 }
 
 // ---------------------------------------------------------------------------

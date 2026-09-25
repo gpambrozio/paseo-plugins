@@ -92,7 +92,7 @@ out to be read rather than scanned across.
 
 ## Where prices are kept
 
-Fetched prices are cached on the daemon under `$PASEO_HOME/plugins/model-pricing/`, one small file
+Fetched prices are cached on the daemon under `$PASEO_HOME/plugin-data/model-pricing/`, one small file
 per upstream, and reused for twelve hours. **Refresh** ignores that and asks again. The refresh is
 cheap: models.dev supports conditional requests, so an unchanged catalog costs a single round trip
 rather than a 4.7 MB download.

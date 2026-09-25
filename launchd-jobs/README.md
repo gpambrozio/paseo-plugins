@@ -87,7 +87,7 @@ surprise.
 Every run appends a line to the log with a timestamp, the command's combined output, and the exit
 code, and one record to a history file — when it started, how long it took, and how it ended. The
 surface shows the last twenty runs and the last 64 KB of the log. Both files live under
-`$PASEO_HOME/plugins/launchd-jobs/` (`~/.paseo/plugins/launchd-jobs/` by default). A log is rotated
+`$PASEO_HOME/plugin-data/launchd-jobs/` (`~/.paseo/plugin-data/launchd-jobs/` by default). A log is rotated
 once it passes 1 MB, and the history keeps its last two hundred runs.
 
 **Follow** shows the log as the job writes it, instead of only when you press **Refresh log** —

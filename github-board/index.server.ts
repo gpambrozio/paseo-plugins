@@ -32,9 +32,11 @@ import {
   toggleLabel,
   updateBranch,
 } from "./shared/board";
+import { migrateLegacyData } from "./server/data-dir";
 import { displaySettings, promptSettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
+  migrateLegacyData(["settings.json"]);
   server.handle(loadBoard, loadBoardHandler);
   server.handle(loadItem, loadItemHandler);
   server.handle(loadComments, loadCommentsHandler);

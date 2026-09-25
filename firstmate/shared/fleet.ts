@@ -164,7 +164,7 @@ export type Fleet = z.infer<typeof FleetSchema>;
 // ---------------------------------------------------------------------------
 
 export const FirstmateConfigSchema = z.object({
-  /** The first mate's home; empty means `$PASEO_HOME/plugins/firstmate/home`. */
+  /** The first mate's home; empty means `$PASEO_HOME/plugin-data/firstmate/home`. */
   home: z.string().default(""),
   /** The Paseo agent that is the first mate; empty until one is launched or adopted. */
   mateAgentId: z.string().default(""),

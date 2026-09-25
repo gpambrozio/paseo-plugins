@@ -1,6 +1,6 @@
 /**
  * The two settings documents the *app* owns, as opposed to the ones the daemon
- * keeps in `$PASEO_HOME/plugins/github-board/settings.json`.
+ * keeps in `$PASEO_HOME/plugin-data/github-board/settings.json`.
  *
  * The split is which side has to read the value. `login` and the launch
  * defaults stay in the daemon's file because handlers act on them — `gh` runs

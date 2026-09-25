@@ -5,7 +5,7 @@
  * weight the relative-cost column, whether to hide models that cannot call
  * tools. The daemon reads none of them, which by the rule in the root AGENTS.md
  * is exactly what makes a settings document the right store rather than a file
- * under `$PASEO_HOME/plugins/model-pricing/`.
+ * under `$PASEO_HOME/plugin-data/model-pricing/`.
  *
  * "Which providers to refresh" is the same switch as "which providers to show",
  * because the surface passes the enabled ids into `pricing.load` and the daemon

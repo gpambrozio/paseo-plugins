@@ -19,7 +19,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { pluginDirectory } from "./cli";
-import { PLUGIN_ID } from "./config";
+import { PLUGIN_ID } from "./data-dir";
 
 /** Every template, by the path it has under `templates/` — for a home file, the path it has in the home. */
 export const TEMPLATES = {

@@ -110,8 +110,20 @@ Two stores, and the rule is which side has to *write* it:
   entry, `useSettings` in a component) is host-scoped storage the **client** reads and writes. The
   server can read one — `registerSettings` returns a handle with `read()` and `subscribe()` — but
   it cannot write one, so a value the daemon has to change stays out of it.
-- **The plugin's own file** under `$PASEO_HOME/plugins/<id>/` is whatever the **daemon** needs. It
-  costs an RPC per read and write, which is the price of the handler being able to write the value.
+- **The plugin's own file** under `$PASEO_HOME/plugin-data/<id>/` is whatever the **daemon** needs.
+  It costs an RPC per read and write, which is the price of the handler being able to write the value.
+
+**Never keep data under `$PASEO_HOME/plugins/<id>/`.** That is Paseo's install root for an npm or
+Git install — the version directories live there — and `paseo plugin remove` deletes it whole.
+Paseo never touches `plugin-data/`. Every plugin here used to write under `plugins/<id>/`, so each
+carries `server/data-dir.ts`, a duplicated helper that names the new directory and, called from the
+server entry before any handler is bound, moves the plugin's own files over *by name* — never the
+directory, never an entry the new place already has, and never deleting an original it has not
+copied. A file moves by hard link and unlink, so a writer racing the move is never overwritten. Code
+reads and writes each file through `dataPath(entry)` — the new place when it has the file or neither
+does, the old one when only it does, which is only after that file's move failed — so the copy in use
+is always the one the next start keeps, and no edit made in the meantime can be superseded. A file that moves is referenced by absolute path somewhere else only in `launchd-jobs` (the
+plists) and `firstmate` (a default home holding clones); both plugin AGENTS.md say what they do.
 
 `github-board` splits exactly on that line: the repository filter, the prompt templates and the
 detail panel's width are drawn and nothing else, so they are settings documents; the `gh` login and

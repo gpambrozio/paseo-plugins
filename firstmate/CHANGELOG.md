@@ -29,6 +29,15 @@ read before you move.
 
 ### Changed
 
+- **Removing the plugin no longer deletes the first mate's files.** Its settings, and its home when you
+  have not chosen one, used to sit inside the folder Paseo installs the plugin into, which Paseo deletes
+  when you remove the plugin. They now live in `~/.paseo/plugin-data/firstmate/`, and the plugin moves
+  them there the first time it starts. A home you picked yourself stays where it is. The old home also
+  stays put, and is still used, while a first mate is aboard in it — it moves on the first start after
+  you release it — or while it holds projects the first mate cloned for you, because Paseo knows those
+  by their location; the plugin's log says which. Once the home has moved, the project Paseo still lists
+  for its old location can be removed.
+
 - **The board hides columns with nobody in them.** Only the columns that have workers show, and on a
   wide screen they fill the space: up to three sit side by side, and more than three take two rows, with
   the extra one in the second row. On a phone the list simply skips the empty ones. When there is no crew

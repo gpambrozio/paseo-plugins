@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-github-board` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [Unreleased]
+
+### Changed
+
+- **Removing the board no longer forgets your GitHub account and your send choices.** They used to sit
+  inside the folder Paseo installs the plugin into, which Paseo deletes when you remove the plugin. They
+  now live in `~/.paseo/plugin-data/github-board/`, and the board moves them there the first time it
+  starts.
+
 ## [0.9.0] — 2026-09-22
 
 ### Added

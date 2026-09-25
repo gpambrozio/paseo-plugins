@@ -1,6 +1,6 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 
-import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./server/config";
+import { migrateLegacyFiles, readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./server/config";
 import { nameHomeOnce } from "./server/home-name";
 import {
   CaptainSteers,
@@ -51,6 +51,7 @@ import { listHomeFiles, readHomeFile, writeHomeFile } from "./shared/files";
 import { displaySettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
+  migrateLegacyFiles();
   const reports = new ReportCache();
   const steers = new CaptainSteers();
 

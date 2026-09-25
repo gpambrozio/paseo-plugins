@@ -22,7 +22,8 @@ compile time. This file covers only what is specific to `model-pricing`.
 | `shared/model-links.ts`      | Model id → the vendor's page for it. Pure, and the Fireworks owner exceptions.            |
 | `server/normalize.ts`        | Each upstream's JSON → `PriceRow[]`. Pure, defensive, skips rather than throws.           |
 | `server/sources.ts`          | The two HTTP fetches, `fetch` injected. ETag revalidation for models.dev.                 |
-| `server/cache.ts`            | `$PASEO_HOME/plugins/model-pricing/<source>.json`, TTL and ETag.                          |
+| `server/cache.ts`            | `$PASEO_HOME/plugin-data/model-pricing/<source>.json`, TTL and ETag.                      |
+| `server/data-dir.ts`         | `$PASEO_HOME/plugin-data/model-pricing/`, and moving the cache out of `plugins/`.        |
 | `server/pricing.ts`          | The handler: which sources to fetch, cache or network, and what a failure returns.        |
 | `client/pricing.tsx`         | The surface: header, legend, search, the module-scope cache, the filter/sort pipeline.    |
 | `client/table.tsx`           | The wide table, the compact card, the sort comparator, and every style the surface uses.  |

@@ -1,5 +1,5 @@
 /**
- * The daemon's own file: `$PASEO_HOME/plugins/herald/config.json`. It holds
+ * The daemon's own file: `$PASEO_HOME/plugin-data/herald/config.json`. It holds
  * what the hooks act on — which events get a summary and which model writes
  * it — and nothing the app only draws.
  *
@@ -7,21 +7,13 @@
  * to take effect on the next event, and the file is a few hundred bytes.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import { DEFAULT_CONFIG, HeraldConfigSchema, type HeraldConfig } from "../shared/herald";
-
-export function paseoHome(): string {
-  return process.env.PASEO_HOME ?? join(homedir(), ".paseo");
-}
-
-export function pluginDir(): string {
-  return join(paseoHome(), "plugins", "herald");
-}
+import { dataPath } from "./data-dir";
 
 function configPath(): string {
-  return join(pluginDir(), "config.json");
+  return dataPath("config.json");
 }
 
 /**
