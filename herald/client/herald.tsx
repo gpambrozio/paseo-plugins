@@ -19,6 +19,7 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 
 import { listAttention, type AttentionEntry, type AttentionReason } from "../shared/herald";
+import { watchAgents } from "./agents";
 import { getAnnouncer, isMutedHere, setMutedHere, speechText } from "./announcer";
 import { canPlaySpeech, speechPlatform } from "./web";
 
@@ -456,17 +457,23 @@ export function HeraldSurface(props: PluginSurfaceProps) {
   useEffect(() => {
     void refresh();
     const timer = setInterval(() => void refresh(), pending ? BUSY_REFRESH_MS : IDLE_REFRESH_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [refresh, pending]);
+  // Its own effect, so the observation is not closed and reopened every time
+  // `pending` flips the poll's pace.
+  useEffect(() => {
     let debounce: ReturnType<typeof setTimeout> | null = null;
-    const unsubscribe = paseo.agents.subscribe(() => {
+    const unwatch = watchAgents(paseo, () => {
       if (debounce !== null) clearTimeout(debounce);
       debounce = setTimeout(() => void refresh(), 400);
     });
     return () => {
-      clearInterval(timer);
       if (debounce !== null) clearTimeout(debounce);
-      unsubscribe();
+      unwatch();
     };
-  }, [refresh, pending, paseo]);
+  }, [refresh, paseo]);
 
   const openAgent = props.navigation?.openAgent;
   const onOpen = useMemo(

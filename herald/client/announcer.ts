@@ -17,6 +17,7 @@ import type { PluginClientContext } from "@getpaseo/plugin/client";
 
 import { listAttention, renderSpeech, type AttentionEntry } from "../shared/herald";
 import { DEFAULT_SPEECH, speechSettings, type SpeechSettings } from "../shared/settings";
+import { watchAgents } from "./agents";
 import {
   canPlayAudio,
   canSpeak,
@@ -236,7 +237,7 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
 
   // Paseo's own stream says an agent needs attention before the summary is
   // ready; use it to start polling quickly rather than waiting for the tick.
-  const unsubscribe = client.paseo.agents.subscribe((update) => {
+  const unwatch = watchAgents(client.paseo, (update) => {
     if (update.kind === "upsert" && update.agent.requiresAttention) schedule(BUSY_POLL_MS / 2);
   });
 
@@ -244,7 +245,7 @@ export function startAnnouncer(client: PluginClientContext): Announcer {
     stop() {
       stopped = true;
       if (timer !== null) clearTimeout(timer);
-      unsubscribe();
+      unwatch();
       // A plugin reload starts the replacement announcer at once, so whatever
       // this one was saying has to stop or the two talk over each other.
       stopSpeaking();

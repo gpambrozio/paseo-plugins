@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [Unreleased]
+
+### Fixed
+
+- **Herald notices an agent waiting for you within a moment again.** Since Paseo 0.9, Herald had
+  stopped hearing Paseo's live agent updates, so it only found out on its regular check every ten
+  seconds: announcements came up to ten seconds late, and the Herald panel was just as slow to add
+  or clear an agent. Nothing was missed, only delayed. Herald now listens to Paseo's agent updates
+  again, on both the announcements and the panel.
+
 ## [0.5.0] — 2026-09-23
 
 ### Changed
