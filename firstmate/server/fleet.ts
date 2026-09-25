@@ -159,15 +159,15 @@ export class ReportCache {
 /**
  * Where a crewmate belongs. What Paseo knows wins while the agent is busy or
  * stuck — a pending permission, an error, a turn in flight — and the status
- * line decides once its turn has ended.
+ * line decides once its turn has ended. A live crewmate is never Done, even
+ * after `done:` or `resolved:`: the task has landed only once the backlog says
+ * so, and until then the first mate still has work to do with it.
  */
 export function crewColumn(agent: AgentSummary, report: CrewReportSummary | null): ColumnId {
   if (agent.pendingPermissions > 0) return "blocked";
   if (agent.status === "error") return "failed";
   if (agent.status === "running" || agent.status === "initializing") return "working";
   switch (report?.state) {
-    case "done":
-      return "done";
     case "failed":
       return "failed";
     case "blocked":
@@ -176,7 +176,8 @@ export function crewColumn(agent: AgentSummary, report: CrewReportSummary | null
     case "paused":
       return "parked";
     default:
-      // Stopped without saying why, or said "working" and then stopped.
+      // Finished and waiting on the first mate, stopped without saying why,
+      // or said "working" and then stopped.
       return "idle";
   }
 }

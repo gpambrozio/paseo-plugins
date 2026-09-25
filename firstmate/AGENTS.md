@@ -138,7 +138,10 @@ that split anywhere, even mid-word — and `parseCrewReport` looks for the statu
 few lines, so "the build is done: …" earlier in a message is not a report.
 
 Columns: a pending permission, an error or a running turn win (blocked, failed, working); once the
-turn has ended the status line decides; an ended turn with no status line is **Idle**.
+turn has ended the status line decides; an ended turn with no status line is **Idle**. So is a
+`done:` or `resolved:` one: **Done** is for work the backlog records as Done, and a crewmate that has
+reported done is still alive and In flight until the first mate lands it and moves the item. Its card
+keeps the status line and the item's hold, so "Done: PR …" still reads on it from the Idle column.
 
 ## The first mate is told it lives in Paseo
 
