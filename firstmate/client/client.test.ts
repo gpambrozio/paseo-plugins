@@ -19,9 +19,10 @@ import {
   restoreFailed,
   toAttachment,
 } from "./attachments";
-import { createDraftStore, withSuggestion } from "./draft";
+import { createDraftStore } from "./draft";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
+import { createSendGate } from "./mate-send";
 import { isDirty, markSaved, type OpenFile } from "./open-file";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import {
@@ -372,15 +373,52 @@ describe("markSaved", () => {
   });
 });
 
-describe("withSuggestion", () => {
-  it("fills an empty draft with the prompt", () => {
-    expect(withSuggestion("", "Merge https://github.com/you/web/pull/42")).toBe("Merge https://github.com/you/web/pull/42");
-    expect(withSuggestion("  \n", "Land it")).toBe("Land it");
+describe("sending a suggestion", () => {
+  it("sends the prompt as the chat's Send would, with nothing attached", () => {
+    expect(captainMessage("  Merge https://github.com/you/web/pull/42\n", [])).toEqual({
+      text: "Merge https://github.com/you/web/pull/42",
+    });
   });
 
-  it("puts the prompt on a new line after what was typed", () => {
-    expect(withSuggestion("Before that,", "Land it")).toBe("Before that,\nLand it");
-    expect(withSuggestion("Before that,\n", "Land it")).toBe("Before that,\nLand it");
+  it("sends once for a double press, and again once the first has settled", async () => {
+    const gate = createSendGate();
+    const sent: string[] = [];
+    let finish = (): void => {};
+    function press(prompt: string): Promise<void> | null {
+      return gate.run(function () {
+        sent.push(prompt);
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      });
+    }
+    const first = press("Land web#42");
+    expect(press("Land web#42")).toBeNull();
+    expect(gate.busy()).toBe(true);
+    finish();
+    await first;
+    expect(gate.busy()).toBe(false);
+    const second = press("Review loop on web#42");
+    expect(second).not.toBeNull();
+    finish();
+    await second;
+    expect(sent).toEqual(["Land web#42", "Review loop on web#42"]);
+  });
+
+  it("opens again after a failed send, and tells its listeners each time", async () => {
+    const gate = createSendGate();
+    const seen: boolean[] = [];
+    const stop = gate.subscribe(() => seen.push(gate.busy()));
+    await expect(gate.run(() => Promise.reject(new Error("daemon away")))).rejects.toThrow("daemon away");
+    expect(gate.busy()).toBe(false);
+    await expect(
+      gate.run(() => {
+        throw new Error("thrown before a promise");
+      }),
+    ).rejects.toThrow("thrown before a promise");
+    expect(gate.busy()).toBe(false);
+    stop();
+    expect(seen).toEqual([true, false, true, false]);
   });
 });
 

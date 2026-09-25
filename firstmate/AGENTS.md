@@ -52,6 +52,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
 | `client/suggestions.tsx`      | The first mate's suggestions as buttons: a card on the wide board, a tab on a phone.       |
+| `client/mate-send.ts`         | Sending to the first mate — Send, Bearings, Ahoy, a suggestion — one message at a time.    |
 | `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
 | `client/activity-rows.ts`     | Timeline entries → Watch rows, machinery kept: reasoning, tool detail, the latest plan. Pure. |
 | `client/mate-controls.tsx`    | The context meter, Compact and Restart (with its confirmation), at the end of the chat's buttons. |
@@ -274,7 +275,7 @@ and the cards grew with them. The charter now says where status lives — the se
 status line, and `(hold: …)` for anything waiting on the captain, which the card already shows as
 "Captain's call".
 
-## Suggestions are the first mate's, and only fill the composer
+## Suggestions are the first mate's, and a press sends one
 
 `data/suggestions.md` is what the captain might do next — `- <label> :: <prompt>`, one per line — and
 the first mate rewrites it whenever that changes (charter §2 and §9). The board reads it with the fleet
@@ -282,11 +283,16 @@ on every poll (`parseSuggestions`): notes are left out, a line without a label a
 of the first `::` is skipped, and at most `MAX_SUGGESTIONS` are kept. Nothing in code writes a
 suggestion; an empty or missing file draws no card and no tab.
 
-A button never sends. It puts the prompt in the chat's draft (`withSuggestion`: alone in an empty one,
-on a new line after a typed one) and brings the chat into view: the First mate tab on a phone, the chat
-unfolded on a wide layout. The draft lives in `client/draft.ts`'s store, which the chat only reads on
-mount, so the surface bumps a `draftVersion` prop to make a mounted chat read it again. A phone left on
-the Suggestions tab when the list empties shows, and then switches to, First mate.
+A button sends its prompt to the first mate at once, and brings the chat into view to show it go out:
+the First mate tab on a phone, the chat unfolded on a wide layout. The draft is not touched. The send is
+the chat's own: `useMateSender` (`client/mate-send.ts`) is what Send, Bearings and Ahoy go through too,
+so a suggestion is the same `firstmate.mate.ask` with the same failure toast, the transcript echoes it
+like a typed message, and a first mate mid-turn gets it the way `server/send.ts` delivers any message.
+The sender's gate — one message on its way at a time — is per first mate in module scope, not in the
+chat's state, because the surface's buttons and the chat both read it, and a phone switching tabs
+unmounts the chat mid-send; the buttons are disabled while it is shut, and a double press that gets in
+before the re-render is refused by it. A phone left on the Suggestions tab when the list empties shows,
+and then switches to, First mate.
 
 ## The home is called FirstMate in the sidebar, with a ship for its icon
 

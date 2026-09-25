@@ -14,10 +14,10 @@ read before you move.
 - **Suggested next steps, one press away.** When the first mate reports something you will probably
   act on — a pull request ready to land, a review to run, a decision to make — it now also offers it as
   a button. On a wide screen the buttons sit in a Suggestions card before the board's columns; on a
-  phone they have a tab of their own, right after First mate. Pressing one writes the request into the
-  message box, after anything you had already typed, and shows you the chat; it is only sent when you
-  press Send. The card and the tab appear only when there is something to suggest. The first mate keeps
-  the list in `data/suggestions.md` in its home, which you can edit too.
+  phone they have a tab of their own, right after First mate. Pressing one sends that request to the
+  first mate straight away, as if you had typed it and pressed Send, and shows you the chat; whatever
+  you were typing is left in the message box. The card and the tab appear only when there is something
+  to suggest. The first mate keeps the list in `data/suggestions.md` in its home, which you can edit too.
 
 - **Images and files can go with a message to the first mate.** The chat has an attach button beside
   the message box, and you can also paste a screenshot or drop files onto the chat. What you attach

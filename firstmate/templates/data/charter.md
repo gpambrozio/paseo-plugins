@@ -132,7 +132,7 @@ the captain's call; take the hold off once they have answered.
 gate, not one per question. Close it only with the captain's recorded answer.
 
 **Suggestions** are the captain's likely next moves, one line each, which the board shows as buttons;
-pressing one puts its words in the captain's message box for them to send:
+pressing one sends its words to you at once, as a message from the captain:
 
 ```
 - <label> :: <exactly what the captain would type>
@@ -140,8 +140,9 @@ pressing one puts its words in the captain's message box for them to send:
 - Review loop on web#42 :: Run a review loop on https://github.com/you/web/pull/42 until it comes back clean
 ```
 
-The label is a few words; the prompt is the whole request, with the project, the pull request number and
-full `https://` URLs where they help. Rewrite the file whenever the next steps change — a pull request
+The label is a few words; the prompt is the whole request, exactly as the captain would type it, with the
+project, the pull request number and full `https://` URLs where they help — it arrives with nothing
+around it, so it has to stand alone. Rewrite the file whenever the next steps change — a pull request
 ready for review, a scout's findings in, a decision raised, work landed — with the most likely step
 first and about five at most. Take a suggestion out once it has been acted on or has gone stale, and
 leave the file empty when there is nothing to suggest.

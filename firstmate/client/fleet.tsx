@@ -6,9 +6,9 @@
  * interval in the display settings and refetched right after any action. The
  * chat reads the first mate's timeline directly and streams.
  *
- * The first mate's suggestions are buttons that fill the chat's composer: a
- * card beside the crew's columns on a wide layout, a tab of their own on a
- * phone, and nowhere at all while it has none.
+ * The first mate's suggestions are buttons that send their words to it, as
+ * the chat's Send would: a card beside the crew's columns on a wide layout, a
+ * tab of their own on a phone, and nowhere at all while it has none.
  *
  * A surface is unmounted whenever the captain opens a workspace, so the last
  * fleet, the compact tab and the crewmate being watched live in module scope
@@ -34,10 +34,11 @@ import { displaySettings, type DisplaySettings } from "../shared/settings";
 import { Board } from "./board";
 import { FilesView, type FilesRequest } from "./files";
 import { MateChat } from "./chat";
-import { drafts, withSuggestion } from "./draft";
+import { captainMessage } from "./attachments";
 import { CrewmateView } from "./crewmate";
 import { agentStatusLabel, agentStatusTone, groupCards, orderedColumns, shortPath } from "./format";
 import { LaunchPanel } from "./launch";
+import { useMateSender } from "./mate-send";
 import { ResizeHandle, clampShare } from "./resize-handle";
 import { SuggestionList } from "./suggestions";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
@@ -103,8 +104,6 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   const [charterBusy, setCharterBusy] = useState(false);
   /** A file the Files view should open; not kept across a remount, or it would open again on return. */
   const [filesRequest, setFilesRequest] = useState<FilesRequest | null>(null);
-  /** Moves when something other than the chat changed its draft, so the chat reads it again. */
-  const [draftVersion, setDraftVersion] = useState(0);
 
   const fleet = useFleet(values.pollSeconds);
   const data = fleet.data ?? null;
@@ -245,6 +244,8 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   }, [theme, compact]);
 
   const mate = data?.mate ?? null;
+  /** The chat's own sender, so a suggestion goes out exactly as a typed message does. */
+  const mateSender = useMateSender(mate?.id ?? "");
 
   /**
    * While this surface is open the captain is looking at the first mate, so
@@ -272,14 +273,14 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
     mate === null || navigation === undefined ? null : () => navigation.openAgent({ agentId: mate.id });
 
   /**
-   * A suggestion goes into the draft — alone, or on a new line after what was
-   * typed — and the chat comes into view with it. It is never sent from here;
-   * the captain reads it and presses Send.
+   * A suggestion is sent to the first mate at once, through the chat's own
+   * path, and the chat comes into view to show it going out. The draft the
+   * captain was typing is left as it was. While a message is on its way the
+   * buttons are disabled, and a press that still gets through is refused by
+   * the sender, so a double press sends once.
    */
   function suggest(prompt: string): void {
-    if (mate === null) return;
-    drafts.set(mate.id, withSuggestion(drafts.get(mate.id), prompt));
-    setDraftVersion((version) => version + 1);
+    if (mate === null || !mateSender.send(captainMessage(prompt, []))) return;
     if (compact) setTab("chat");
     else if (values.chatCollapsed) save({ chatCollapsed: false });
   }
@@ -495,6 +496,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       theme={theme}
       compact={compact}
       suggestions={data.suggestions}
+      suggesting={mateSender.sending}
       onSuggest={suggest}
       onWatch={setWatching}
       onChanged={refresh}
@@ -514,7 +516,6 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       mate={mate}
       theme={theme}
       compact={compact}
-      draftVersion={draftVersion}
       onOpen={openMate}
       onChanged={refresh}
     />
@@ -568,7 +569,12 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
             chat
           ) : shownTab === "suggestions" ? (
             <ScrollView contentContainerStyle={styles.suggestions}>
-              <SuggestionList suggestions={data.suggestions} theme={theme} onPick={suggest} />
+              <SuggestionList
+                suggestions={data.suggestions}
+                theme={theme}
+                disabled={mateSender.sending}
+                onPick={suggest}
+              />
             </ScrollView>
           ) : shownTab === "board" ? (
             crew

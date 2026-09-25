@@ -37,12 +37,3 @@ export function createDraftStore(root: object): DraftStore {
 }
 
 export const drafts = createDraftStore(globalThis);
-
-/**
- * A draft with a suggestion's prompt put in: the prompt alone when nothing
- * was typed, or on a line of its own after what was.
- */
-export function withSuggestion(draft: string, prompt: string): string {
-  if (draft.trim() === "") return prompt;
-  return draft.endsWith("\n") ? `${draft}${prompt}` : `${draft}\n${prompt}`;
-}

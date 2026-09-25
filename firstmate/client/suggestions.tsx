@@ -1,8 +1,8 @@
 /**
  * The first mate's suggestions: one button per next step it wrote in
  * `data/suggestions.md`, each showing its label and the start of the words it
- * puts in the composer. Pressing one never sends anything; the caller puts
- * the prompt in the draft and brings the chat into view.
+ * sends. Pressing one sends them to the first mate straight away; the caller
+ * does that and brings the chat into view.
  *
  * Drawn as a card among the board's columns on a wide layout, and as the
  * Suggestions tab on a phone.
@@ -20,11 +20,14 @@ export const SUGGESTIONS_ICON = "Lightbulb";
 export function SuggestionList({
   suggestions,
   theme,
+  disabled,
   onPick,
 }: {
   suggestions: readonly Suggestion[];
   theme: PluginTheme;
-  /** Puts the prompt in the composer. */
+  /** A message is already on its way to the first mate. */
+  disabled: boolean;
+  /** Sends the prompt to the first mate. */
   onPick: (prompt: string) => void;
 }) {
   const styles = useMemo(() => {
@@ -41,12 +44,13 @@ export function SuggestionList({
         backgroundColor: colors.surface2,
         paddingHorizontal: 10,
         paddingVertical: 8,
+        opacity: disabled ? 0.5 : 1,
       },
       text: { flex: 1, minWidth: 0, gap: 2 },
       label: { color: colors.foreground, fontSize: 13, fontWeight: "600" as const },
       prompt: { color: colors.foregroundMuted, fontSize: 12 },
     };
-  }, [theme]);
+  }, [theme, disabled]);
 
   return (
     <View style={styles.list}>
@@ -54,7 +58,9 @@ export function SuggestionList({
         <Pressable
           key={`${index}:${suggestion.label}`}
           accessibilityRole="button"
-          accessibilityLabel={`${suggestion.label}: put "${suggestion.prompt}" in the message to the first mate`}
+          accessibilityLabel={`${suggestion.label}: send "${suggestion.prompt}" to the first mate`}
+          accessibilityState={{ disabled }}
+          disabled={disabled}
           style={styles.button}
           onPress={() => onPick(suggestion.prompt)}
         >
@@ -66,7 +72,7 @@ export function SuggestionList({
               {suggestion.prompt}
             </Text>
           </View>
-          <Icon name="CornerDownLeft" size={14} color={theme.colors.foregroundMuted} />
+          <Icon name="Send" size={14} color={theme.colors.foregroundMuted} />
         </Pressable>
       ))}
     </View>

@@ -33,7 +33,9 @@ interface BoardProps {
   compact: boolean;
   /** Drawn as the first card of a wide board; empty draws no card. */
   suggestions: readonly Suggestion[];
-  /** Puts a suggestion's prompt in the chat's composer. */
+  /** A message to the first mate is on its way, so the suggestions wait. */
+  suggesting: boolean;
+  /** Sends a suggestion's prompt to the first mate. */
   onSuggest: (prompt: string) => void;
   /** Shows one crewmate's card and transcript in place of the board. */
   onWatch: (agentId: string) => void;
@@ -205,7 +207,12 @@ export function Board(props: BoardProps) {
                     <Text style={styles.count}>{suggestions.length}</Text>
                   </View>
                   <ScrollView contentContainerStyle={styles.body}>
-                    <SuggestionList suggestions={suggestions} theme={theme} onPick={props.onSuggest} />
+                    <SuggestionList
+                      suggestions={suggestions}
+                      theme={theme}
+                      disabled={props.suggesting}
+                      onPick={props.onSuggest}
+                    />
                   </ScrollView>
                 </View>
               );

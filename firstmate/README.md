@@ -87,9 +87,10 @@ charter, the records it starts with, the home's icon — is in `templates/`, as 
 - *Bearings* and *Ahoy* are also buttons above the chat, and *FirstMate: bearings* is in ⌘K.
 - **Suggestions** — when the first mate has an idea of what you will want next ("Land web#42", "Review
   loop on web#42"), it shows as a button: on a wide screen in a card before the board's columns, on a
-  phone in a Suggestions tab after First mate. Pressing one puts the request in the chat's message box —
-  on its own line after anything you had typed — and brings the chat into view. Nothing is sent until
-  you press Send. With no suggestions there is no card and no tab.
+  phone in a Suggestions tab after First mate. Pressing one sends that request to the first mate right
+  away, just as if you had typed it and pressed Send, and brings the chat into view so you see it go
+  out; anything you were typing stays in the message box. With no suggestions there is no card and no
+  tab.
 
 ![After the voyage: the first mate's Bearings report in the chat — Captain's Call: nothing needs your
 action; Recently Landed: the knots fix and the dark mode toggle, both landed on main; Underway and
