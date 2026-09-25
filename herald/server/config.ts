@@ -7,13 +7,13 @@
  * to take effect on the next event, and the file is a few hundred bytes.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import { DEFAULT_CONFIG, HeraldConfigSchema, type HeraldConfig } from "../shared/herald";
-import { pluginDir } from "./data-dir";
+import { dataPath } from "./data-dir";
 
 function configPath(): string {
-  return join(pluginDir(), "config.json");
+  return dataPath("config.json");
 }
 
 /**

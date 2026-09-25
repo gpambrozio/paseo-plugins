@@ -26,10 +26,11 @@ import {
 } from "./shared/jobs";
 
 export default function contribute(server: PluginServerContext) {
-  moveLegacyFiles();
-  void relocateLegacyJobs().catch((error: unknown) => {
-    console.error("[launchd-jobs] could not move jobs to the new data directory:", error);
-  });
+  if (moveLegacyFiles()) {
+    void relocateLegacyJobs().catch((error: unknown) => {
+      console.error("[launchd-jobs] could not move jobs to the new data directory:", error);
+    });
+  }
 
   server.handle(listJobs, listJobsHandler);
   server.handle(createJob, createJobHandler);

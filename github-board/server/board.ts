@@ -37,7 +37,7 @@ import { repositoryIdFor, workspaceTitle } from "../shared/launch";
 // module writes has to carry the same key the client renderer registers, and
 // `shared/timeline` imports nothing, so the standalone transpile still runs.
 import { BOARD_ITEM_TIMELINE_KIND, BOARD_ITEM_TIMELINE_VERSION } from "../shared/timeline";
-import { pluginDir } from "./data-dir";
+import { dataPath } from "./data-dir";
 
 const execFileAsync = promisify(execFile);
 
@@ -45,7 +45,7 @@ const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 function settingsPath(): string {
-  return join(pluginDir(), "settings.json");
+  return dataPath("settings.json");
 }
 
 /**

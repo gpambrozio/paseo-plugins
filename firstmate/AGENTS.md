@@ -237,8 +237,8 @@ in the directory it was launched in, and not while `projects/` holds clones, whi
 registry entries by absolute path (and the roots of their crewmates' worktrees). Nor when the settings
 name that very directory as the home. A home that has to stay is used where it is — `defaultHome()`
 prefers it while `plugin-data/` has none — and the reason is logged on every start. A home the config
-names elsewhere is never touched. The config and the home move in one call, so a failure leaves both on
-the old side together. Once the old home has moved, the Paseo project
+names elsewhere is never touched. The config and the home are each used from wherever `dataPath` finds
+them, so one that failed to move keeps working where it is and moves on a later start. Once the old home has moved, the Paseo project
 still registered at its old path is left for the captain to remove.
 
 There is **no `CLAUDE.md`**. Claude Code and Codex both read `AGENTS.md`, and a `CLAUDE.md` importing

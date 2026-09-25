@@ -150,22 +150,21 @@ describe("the first mate's home", () => {
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("the settings name it"));
   });
 
-  it("keeps the config and the home together on the legacy side when the home fails to move", async () => {
+  it("keeps using a home whose move failed where it is, and moves it on the next start", async () => {
     await legacyConfig({ mateProvider: "claude/claude-sonnet-5" });
     const home = await legacyHome();
-    const actual = vi.mocked(fs.renameSync).getMockImplementation();
-    vi.mocked(fs.renameSync)
-      .mockImplementationOnce((from, to) => actual?.(from, to))
-      .mockImplementationOnce(() => {
-        throw Object.assign(new Error("permission denied"), { code: "EACCES" });
-      });
+    vi.mocked(fs.renameSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+    });
 
     migrateLegacyFiles();
 
-    expect(pluginDir()).toBe(legacyPluginDir());
     expect(await readFirstmateConfig()).toMatchObject({ mateProvider: "claude/claude-sonnet-5" });
     expect(resolveHome(await readFirstmateConfig())).toBe(home);
-    expect(fs.existsSync(join(paseoHome, "plugin-data", "firstmate", "config.json"))).toBe(false);
+
+    migrateLegacyFiles();
+    expect(resolveHome(await readFirstmateConfig())).toBe(join(pluginDir(), "home"));
+    expect(await readFile(join(pluginDir(), "home", "AGENTS.md"), "utf8")).toBe("charter");
   });
 
   it("prefers a home already in plugin-data, and leaves the old one untouched", async () => {

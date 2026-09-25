@@ -106,11 +106,16 @@ moving the files is two steps.
 
 **`moveLegacyFiles`, synchronously, before any handler is bound.** A loaded job can fire at any
 moment, so the new runner and a *forwarder* at the old runner path — a script that execs the new
-runner against the new directory — go in before anything moves. `jobs.json`, `acknowledged.json` and
-each file of `logs/` and `runs/` then move **one by one**, not as directories: a fire through the
-forwarder creates the new `logs/`, and a directory-level move would then call the old one superseded
-and strand it. A failed move leaves the plugin on the old directory for that start (the shared
-`migrateLegacyData` rule), and the real runner goes back at the old path.
+runner against the new directory — go in before anything moves. Both are written to a temporary file
+and renamed into place, as is every runner write: launchd must never find an empty or half-written
+script, and when the forwarder cannot be written nothing moves that start. `jobs.json`,
+`acknowledged.json` and each file of `logs/` and `runs/` then move **one by one**, by no-clobber hard
+link. **The forwarder moves its own job's log and history the same way before it runs**, so a fire
+between the forwarder going in and the daemon's move carries that job's old file over instead of
+starting a fresh one under the same name. launchd never runs two instances of one job, and both movers
+link the same inode, so the two cannot collide. A file whose move failed is served from the old place
+through `dataPath` (the shared rule) and retried next start; logs and history are always read from the
+new place, where the runner writes.
 
 **`relocateLegacyJobs`, asynchronously, after it.** `plistRepairs` compares each of the three paths on
 its own, so a rewrite cut short after the first `plutil` is finished on the next start rather than

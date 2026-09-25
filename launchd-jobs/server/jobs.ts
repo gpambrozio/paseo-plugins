@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
-import { chmod, lstat, mkdir, open, readdir, readFile, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { lstat, mkdir, open, readdir, readFile, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
   describeCron,
@@ -15,7 +16,7 @@ import {
   type CalendarEntry,
 } from "../shared/cron";
 import type { Job, JobSpec, RunRecord, Schedule } from "../shared/jobs";
-import { legacyPluginDir, migrateLegacyData, pluginDir, usingLegacyDir } from "./data-dir";
+import { dataPath, legacyPluginDir, migrateLegacyData, pluginDir } from "./data-dir";
 
 /**
  * The daemon half: every `launchctl` and `plutil` call, the plist files, the
@@ -102,11 +103,11 @@ function runnerPath(): string {
 }
 
 function namesPath(): string {
-  return join(pluginDir(), "jobs.json");
+  return dataPath("jobs.json");
 }
 
 function acksPath(): string {
-  return join(pluginDir(), "acknowledged.json");
+  return dataPath("acknowledged.json");
 }
 
 function isMissing(error: unknown): boolean {
@@ -170,8 +171,8 @@ async function ensureRunner(): Promise<string> {
   } catch (error) {
     if (!isMissing(error)) throw error;
   }
-  if (current !== RUNNER_SCRIPT) await writeFile(path, RUNNER_SCRIPT, "utf8");
-  await chmod(path, 0o755);
+  // Replaced, never rewritten in place: launchd may start it at any moment.
+  if (current !== RUNNER_SCRIPT) writeScriptSync(path, RUNNER_SCRIPT);
   return path;
 }
 
@@ -234,7 +235,7 @@ async function readNames(): Promise<NameFile> {
 }
 
 async function writeNames(file: NameFile): Promise<void> {
-  await mkdir(pluginDir(), { recursive: true });
+  await mkdir(dirname(namesPath()), { recursive: true });
   await writeFile(namesPath(), `${JSON.stringify(file, null, 2)}\n`, "utf8");
 }
 
@@ -271,7 +272,7 @@ async function readAcks(): Promise<AckFile> {
 }
 
 async function writeAcks(file: AckFile): Promise<void> {
-  await mkdir(pluginDir(), { recursive: true });
+  await mkdir(dirname(acksPath()), { recursive: true });
   await writeFile(acksPath(), `${JSON.stringify(file, null, 2)}\n`, "utf8");
 }
 
@@ -707,21 +708,49 @@ function legacyRunnerPath(): string {
  * What stands at the old runner path while launchd still holds a job loaded
  * from there: it runs the new runner against the new directory, so the next
  * fire works and its log lands where the surface reads it.
+ *
+ * First it moves this job's own log and history, if they are still in the old
+ * place, with the same no-clobber link the daemon uses. launchd never runs two
+ * instances of one job, so nothing else is writing them, and the new runner
+ * never starts a fresh file under a name whose history is still in the old
+ * directory. Racing the daemon's move of the same file is harmless: both link
+ * the one inode, and whichever lands second finds it there.
  */
 function forwardingRunner(): string {
   return [
     "#!/bin/zsh",
     "# Written by the launchd-jobs Paseo plugin, whose files moved to plugin-data. It forwards jobs",
     "# launchd loaded before the move, and is removed once every one of them has been reloaded.",
-    `export PASEO_LAUNCHD_JOBS_DIR=${shellQuote(pluginDir())}`,
+    `legacy=${shellQuote(legacyPluginDir())}`,
+    `new=${shellQuote(pluginDir())}`,
+    'for file in "logs/$1.log.1" "logs/$1.log" "runs/$1.jsonl"; do',
+    '  if [[ -f "$legacy/$file" ]]; then',
+    '    mkdir -p "$new/${file:h}"',
+    '    ln "$legacy/$file" "$new/$file" 2>/dev/null && rm -f "$legacy/$file"',
+    "  fi",
+    "done",
+    'export PASEO_LAUNCHD_JOBS_DIR="$new"',
     `exec /bin/zsh ${shellQuote(runnerPath())} "$@"`,
     "",
   ].join("\n");
 }
 
+/**
+ * Writes a script launchd may start at any moment: to a temporary file beside
+ * it, made executable, then renamed over it, so a fire sees the old script or
+ * the new one and never an empty or half-written one. A failure leaves the old
+ * script as it was.
+ */
 function writeScriptSync(path: string, content: string): void {
-  writeFileSync(path, content, "utf8");
-  chmodSync(path, 0o755);
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, content, "utf8");
+    chmodSync(temporary, 0o755);
+    renameSync(temporary, path);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
 }
 
 /** What `logs/` or `runs/` holds in the legacy directory, as entries to move one by one. */
@@ -736,27 +765,32 @@ function legacyEntriesIn(directory: string): string[] {
 
 /**
  * Moves the plugin's files, called by the server entry before any handler is
- * bound. Jobs launchd loaded from the old runner can fire at any moment, so the
- * new runner and the forwarder go in *before* anything moves: from then on a
- * fire writes to the new directory. Logs and history move file by file rather
- * than as directories, so a fire that has already created `logs/` in the new
- * directory cannot make the old ones look superseded. `runner.sh` itself is
- * not moved: it is regenerated, and the old path is the forwarder's.
+ * bound, and says whether the jobs may follow (`relocateLegacyJobs`).
  *
- * A failed move leaves the plugin on the legacy directory for this start (see
- * `migrateLegacyData`), and the real runner goes back where the jobs expect it.
+ * Jobs launchd loaded from the old runner can fire at any moment, so the new
+ * runner and the forwarder go in *before* anything moves: from then on a fire
+ * writes to the new directory, having first moved its own files there. Logs
+ * and history move file by file, so a fire that has created `logs/` in the new
+ * directory cannot make the old directory look superseded. `runner.sh` itself
+ * is not moved: the new one is written fresh, and the old path is the
+ * forwarder's. When the forwarder cannot be installed nothing moves — fires
+ * would still write the old files — and the next start tries again.
  */
-export function moveLegacyFiles(): void {
+export function moveLegacyFiles(): boolean {
   const legacyRunner = legacyRunnerPath();
-  const forwarding = existsSync(legacyRunner);
-  if (forwarding) {
-    mkdirSync(join(pluginDir(), "logs"), { recursive: true });
-    mkdirSync(join(pluginDir(), "runs"), { recursive: true });
-    writeScriptSync(runnerPath(), RUNNER_SCRIPT);
-    writeScriptSync(legacyRunner, forwardingRunner());
+  if (existsSync(legacyRunner)) {
+    try {
+      mkdirSync(join(pluginDir(), "logs"), { recursive: true });
+      mkdirSync(join(pluginDir(), "runs"), { recursive: true });
+      writeScriptSync(runnerPath(), RUNNER_SCRIPT);
+      writeScriptSync(legacyRunner, forwardingRunner());
+    } catch (error) {
+      console.error(`[launchd-jobs] could not put a forwarder at ${legacyRunner}, so nothing moves this start:`, error);
+      return false;
+    }
   }
   migrateLegacyData(["jobs.json", "acknowledged.json", ...legacyEntriesIn("logs"), ...legacyEntriesIn("runs")]);
-  if (forwarding && usingLegacyDir()) writeScriptSync(legacyRunner, RUNNER_SCRIPT);
+  return true;
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -772,8 +806,7 @@ async function pathExists(path: string): Promise<boolean> {
 async function writeForwardingRunner(): Promise<void> {
   // launchd opens the loaded job's `StandardErrorPath`, which is still under here.
   await mkdir(join(legacyPluginDir(), "logs"), { recursive: true });
-  await writeFile(legacyRunnerPath(), forwardingRunner(), "utf8");
-  await chmod(legacyRunnerPath(), 0o755);
+  writeScriptSync(legacyRunnerPath(), forwardingRunner());
 }
 
 async function removeForwardingRunner(): Promise<void> {
@@ -877,7 +910,7 @@ async function relocateJob(slug: string): Promise<boolean> {
  * every failure is logged with the paths involved.
  */
 export async function relocateLegacyJobs(): Promise<void> {
-  if (process.platform !== "darwin" || usingLegacyDir()) return;
+  if (process.platform !== "darwin") return;
   const legacyRunner = legacyRunnerPath();
   await ensureRunner();
 

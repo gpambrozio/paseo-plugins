@@ -1,10 +1,9 @@
-import { join } from "node:path";
 
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 
 import { sweepHelpers } from "./server/cleanup";
 import { readHeraldConfig, writeHeraldConfig } from "./server/config";
-import { migrateLegacyData, pluginDir } from "./server/data-dir";
+import { dataPath, migrateLegacyData } from "./server/data-dir";
 import { registerHooks } from "./server/hooks";
 import { Liveness } from "./server/liveness";
 import { listSayVoices, renderWithSay, sayAvailable } from "./server/say";
@@ -25,7 +24,7 @@ const SWEEP_DELAY_MS = 30_000;
 
 export default function contribute(server: PluginServerContext) {
   migrateLegacyData(["config.json", "attention.json"]);
-  const store = new AttentionStore(join(pluginDir(), "attention.json"));
+  const store = new AttentionStore(dataPath("attention.json"));
   // Not awaited, because a contribution registers its handlers synchronously —
   // it returns a cleanup, not a promise. Events therefore arrive *during* this
   // read, so the store merges rather than overwrites: see `touched` there.

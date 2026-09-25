@@ -15,6 +15,8 @@ import { SOURCE_IDS } from "./shared/providers";
 import { displaySettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
+  // Only a cache: a file whose move failed is not served from the old place,
+  // because the next fetch rewrites it here and nothing is lost but a fetch.
   migrateLegacyData(SOURCE_IDS.map((source) => `${source}.json`));
   const cache = new PricingCache(pluginDir());
 

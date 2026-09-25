@@ -1,10 +1,11 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { legacyPluginDir, pluginDir } from "./data-dir";
+import { dataPath, legacyPluginDir } from "./data-dir";
 import { loadedFromLegacy, moveLegacyFiles, plistRepairs, type PlistFile } from "./jobs";
 
 // Only the file moves and the pure plist logic are exercised here: nothing in
@@ -12,7 +13,12 @@ import { loadedFromLegacy, moveLegacyFiles, plistRepairs, type PlistFile } from 
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, renameSync: vi.fn(actual.renameSync) };
+  return {
+    ...actual,
+    linkSync: vi.fn(actual.linkSync),
+    renameSync: vi.fn(actual.renameSync),
+    writeFileSync: vi.fn(actual.writeFileSync),
+  };
 });
 
 let paseoHome = "";
@@ -115,7 +121,8 @@ describe("moveLegacyFiles", () => {
     moveLegacyFiles();
 
     const forwarder = await readFile(join(legacyPluginDir(), "runner.sh"), "utf8");
-    expect(forwarder).toContain(`export PASEO_LAUNCHD_JOBS_DIR=${newDir()}`);
+    expect(forwarder).toContain(`new=${newDir()}`);
+    expect(forwarder).toContain('export PASEO_LAUNCHD_JOBS_DIR="$new"');
     expect(forwarder).toContain(`exec /bin/zsh ${join(newDir(), "runner.sh")} "$@"`);
     expect(await readFile(join(newDir(), "runner.sh"), "utf8")).toContain('dir="$PASEO_LAUNCHD_JOBS_DIR"');
     expect(await readFile(join(newDir(), "jobs.json"), "utf8")).toContain("Backup");
@@ -134,18 +141,59 @@ describe("moveLegacyFiles", () => {
     expect(await readFile(join(newDir(), "logs", "other.log"), "utf8")).toBe("written through the forwarder");
   });
 
-  it("puts the real runner back and stays on the legacy directory when a move fails", async () => {
+  it.skipIf(process.platform !== "darwin")(
+    "moves a job's own log first when it fires between the forwarder going in and the daemon's move",
+    async () => {
+      await legacyInstall();
+      const actual = vi.mocked(fs.linkSync).getMockImplementation();
+      // The daemon's first link is jobs.json; the job fires just before it.
+      vi.mocked(fs.linkSync).mockImplementationOnce((from, to) => {
+        execFileSync("/bin/zsh", [join(legacyPluginDir(), "runner.sh"), "backup", "echo fired"], {
+          env: { ...process.env, HOME: paseoHome },
+        });
+        actual?.(from, to);
+      });
+
+      moveLegacyFiles();
+
+      const log = await readFile(join(newDir(), "logs", "backup.log"), "utf8");
+      expect(log.startsWith("old log")).toBe(true);
+      expect(log).toContain("fired");
+      const runs = await readFile(join(newDir(), "runs", "backup.jsonl"), "utf8");
+      expect(runs.startsWith("old runs")).toBe(true);
+      expect(fs.existsSync(join(legacyPluginDir(), "logs", "backup.log"))).toBe(false);
+      expect(fs.existsSync(join(legacyPluginDir(), "runs", "backup.jsonl"))).toBe(false);
+    },
+  );
+
+  it("replaces the old runner whole, and moves nothing, when the forwarder cannot be written", async () => {
     await legacyInstall();
-    vi.mocked(fs.renameSync).mockImplementationOnce(() => {
+    const writes = vi.mocked(fs.writeFileSync);
+    const actual = writes.getMockImplementation();
+    // The new runner lands; the forwarder's temporary file fails mid-write.
+    writes.mockImplementationOnce((...args) => actual?.(...args)).mockImplementationOnce((path) => {
+      fs.appendFileSync(path as string, "#!/bin/zsh\n# half a scr");
+      throw Object.assign(new Error("no space left on device"), { code: "ENOSPC" });
+    });
+
+    expect(moveLegacyFiles()).toBe(false);
+
+    expect(await readFile(join(legacyPluginDir(), "runner.sh"), "utf8")).toBe("#!/bin/zsh\n# the old runner\n");
+    expect((await readdir(legacyPluginDir())).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    expect(await readFile(join(legacyPluginDir(), "logs", "backup.log"), "utf8")).toBe("old log");
+    expect(fs.existsSync(join(newDir(), "jobs.json"))).toBe(false);
+  });
+
+  it("serves a file whose move failed from the old place until a later start moves it", async () => {
+    await legacyInstall();
+    vi.mocked(fs.linkSync).mockImplementationOnce(() => {
       throw Object.assign(new Error("permission denied"), { code: "EACCES" });
     });
 
-    moveLegacyFiles();
+    expect(moveLegacyFiles()).toBe(true);
 
-    expect(pluginDir()).toBe(legacyPluginDir());
-    expect(await readFile(join(legacyPluginDir(), "runner.sh"), "utf8")).toContain('dir="$PASEO_LAUNCHD_JOBS_DIR"');
-    expect(await readFile(join(legacyPluginDir(), "jobs.json"), "utf8")).toContain("Backup");
-    expect(await readFile(join(legacyPluginDir(), "logs", "backup.log"), "utf8")).toBe("old log");
+    expect(dataPath("jobs.json")).toBe(join(legacyPluginDir(), "jobs.json"));
+    expect(await readFile(join(newDir(), "logs", "backup.log"), "utf8")).toBe("old log");
   });
 
   it("does nothing for an install that never had the old directory", async () => {

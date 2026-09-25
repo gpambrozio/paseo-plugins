@@ -13,22 +13,20 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { FirstmateConfigSchema, type FirstmateConfig } from "../shared/fleet";
-import { legacyPluginDir, migrateLegacyData, pluginDir } from "./data-dir";
+import { dataPath, legacyPluginDir, migrateLegacyData } from "./data-dir";
 import { serialized } from "./serialize";
 
 function configPath(): string {
-  return join(pluginDir(), "config.json");
+  return dataPath("config.json");
 }
 
 /**
  * The home when the config names none: `plugin-data/firstmate/home`, or the
  * one under `plugins/firstmate/` for as long as `migrateLegacyFiles` has had
- * to leave it there.
+ * to leave it there (`dataPath`).
  */
 export function defaultHome(): string {
-  const home = join(pluginDir(), "home");
-  const legacy = join(legacyPluginDir(), "home");
-  return !existsSync(home) && existsSync(legacy) ? legacy : home;
+  return dataPath("home");
 }
 
 /** The home the config names, with `~` expanded; `defaultHome()` when it names none. */
@@ -45,9 +43,9 @@ export function resolveHome(config: FirstmateConfig): string {
 
 /**
  * Moves the config out of `plugins/firstmate/`, and the old default home with
- * it when nothing depends on where that home is. One call, so a failure moves
- * both back and the plugin stays on the legacy directory for this start (see
- * `migrateLegacyData`). Called by the server entry before any handler is bound.
+ * it when nothing depends on where that home is. Called by the server entry
+ * before any handler is bound; an entry whose move fails is used where it is
+ * (`dataPath`) and tried again on the next start.
  *
  * A home that has to stay is used where it is — `defaultHome()` finds it, or
  * the config names it — and the reason is logged on every start until it can go.
@@ -118,13 +116,12 @@ function parseConfig(raw: string): FirstmateConfig {
 }
 
 /**
- * The saved config, from the new directory or else the legacy one, since this
- * runs before the move; null when it cannot be read at all, the defaults when
- * there is none.
+ * The saved config — from the legacy directory too, since this runs before the
+ * move; null when it cannot be read at all, the defaults when there is none.
  */
 function readConfigSync(): FirstmateConfig | null {
-  const path = [configPath(), join(legacyPluginDir(), "config.json")].find((candidate) => existsSync(candidate));
-  if (path === undefined) return FirstmateConfigSchema.parse({});
+  const path = configPath();
+  if (!existsSync(path)) return FirstmateConfigSchema.parse({});
   try {
     return parseConfig(readFileSync(path, "utf8"));
   } catch (error) {

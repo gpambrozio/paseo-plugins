@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { legacyPluginDir, migrateLegacyData, pluginDir, PLUGIN_ID, usingLegacyDir } from "./data-dir";
+import { dataPath, legacyPluginDir, migrateLegacyData, pluginDir, PLUGIN_ID } from "./data-dir";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, renameSync: vi.fn(actual.renameSync) };
+  return { ...actual, linkSync: vi.fn(actual.linkSync), renameSync: vi.fn(actual.renameSync) };
 });
 
 let paseoHome = "";
@@ -28,25 +28,29 @@ afterEach(async () => {
   await rm(paseoHome, { recursive: true, force: true });
 });
 
-function newDir(): string {
-  return join(paseoHome, "plugin-data", PLUGIN_ID);
-}
-
-function failRenameOnce(): void {
-  vi.mocked(fs.renameSync).mockImplementationOnce(() => {
-    throw Object.assign(new Error("permission denied"), { code: "EACCES" });
-  });
-}
-
 async function put(path: string, content: string): Promise<void> {
   await mkdir(join(path, ".."), { recursive: true });
   await writeFile(path, content, "utf8");
+}
+
+function failLinkOnce(code = "EACCES"): void {
+  vi.mocked(fs.linkSync).mockImplementationOnce(() => {
+    throw Object.assign(new Error(code), { code });
+  });
 }
 
 describe("the data directory", () => {
   it("is under plugin-data, not under Paseo's install root", () => {
     expect(pluginDir()).toBe(join(paseoHome, "plugin-data", PLUGIN_ID));
     expect(legacyPluginDir()).toBe(join(paseoHome, "plugins", PLUGIN_ID));
+  });
+
+  it("serves an entry from the new directory unless only the legacy one has it", async () => {
+    expect(dataPath("config.json")).toBe(join(pluginDir(), "config.json"));
+    await put(join(legacyPluginDir(), "config.json"), "old");
+    expect(dataPath("config.json")).toBe(join(legacyPluginDir(), "config.json"));
+    await put(join(pluginDir(), "config.json"), "new");
+    expect(dataPath("config.json")).toBe(join(pluginDir(), "config.json"));
   });
 });
 
@@ -62,6 +66,15 @@ describe("migrateLegacyData", () => {
     expect(await readdir(legacyPluginDir())).toEqual([]);
   });
 
+  it("moves a path inside a directory, creating the parent", async () => {
+    await put(join(legacyPluginDir(), "logs", "a.log"), "old log");
+
+    expect(migrateLegacyData([join("logs", "a.log")])).toEqual({ [join("logs", "a.log")]: "moved" });
+
+    expect(await readFile(join(pluginDir(), "logs", "a.log"), "utf8")).toBe("old log");
+    expect(await readdir(join(legacyPluginDir(), "logs"))).toEqual([]);
+  });
+
   it("leaves both copies alone when the new place already has the entry", async () => {
     await put(join(legacyPluginDir(), "config.json"), "old config");
     await put(join(pluginDir(), "config.json"), "new config");
@@ -69,6 +82,20 @@ describe("migrateLegacyData", () => {
     expect(migrateLegacyData(["config.json"])).toEqual({ "config.json": "kept" });
 
     expect(await readFile(join(pluginDir(), "config.json"), "utf8")).toBe("new config");
+    expect(await readFile(join(legacyPluginDir(), "config.json"), "utf8")).toBe("old config");
+  });
+
+  it("never overwrites a file that appears at the destination during the move", async () => {
+    await put(join(legacyPluginDir(), "config.json"), "old config");
+    const actual = vi.mocked(fs.linkSync).getMockImplementation();
+    vi.mocked(fs.linkSync).mockImplementationOnce((from, to) => {
+      fs.writeFileSync(to, "written by a racing writer", "utf8");
+      actual?.(from, to);
+    });
+
+    expect(migrateLegacyData(["config.json"])).toEqual({ "config.json": "kept" });
+
+    expect(await readFile(join(pluginDir(), "config.json"), "utf8")).toBe("written by a racing writer");
     expect(await readFile(join(legacyPluginDir(), "config.json"), "utf8")).toBe("old config");
   });
 
@@ -89,11 +116,21 @@ describe("migrateLegacyData", () => {
     expect(await readdir(pluginDir())).toEqual(["config.json"]);
   });
 
-  it("copies across filesystems and removes the original only after the copy lands", async () => {
+  it("copies a file across filesystems and removes the original only after the copy lands", async () => {
+    await put(join(legacyPluginDir(), "config.json"), "old config");
+    failLinkOnce("EXDEV");
+
+    expect(migrateLegacyData(["config.json"])).toEqual({ "config.json": "moved" });
+
+    expect(await readFile(join(pluginDir(), "config.json"), "utf8")).toBe("old config");
+    expect(await readdir(pluginDir())).toEqual(["config.json"]);
+    expect(await readdir(legacyPluginDir())).toEqual([]);
+  });
+
+  it("copies a directory across filesystems the same way", async () => {
     await put(join(legacyPluginDir(), "logs", "a.log"), "old log");
-    const exdev = Object.assign(new Error("cross-device link not permitted"), { code: "EXDEV" });
     vi.mocked(fs.renameSync).mockImplementationOnce(() => {
-      throw exdev;
+      throw Object.assign(new Error("EXDEV"), { code: "EXDEV" });
     });
 
     expect(migrateLegacyData(["logs"])).toEqual({ logs: "moved" });
@@ -103,60 +140,41 @@ describe("migrateLegacyData", () => {
     expect(await readdir(legacyPluginDir())).toEqual([]);
   });
 
-  it("keeps the original and leaves no partial copy when the move fails", async () => {
+  it("keeps the original, and serves and retries it from there, when its move fails", async () => {
     await put(join(legacyPluginDir(), "config.json"), "old config");
-    failRenameOnce();
+    failLinkOnce();
 
     expect(migrateLegacyData(["config.json"])).toEqual({ "config.json": "failed" });
-
-    expect(await readFile(join(legacyPluginDir(), "config.json"), "utf8")).toBe("old config");
-    expect(fs.existsSync(join(newDir(), "config.json"))).toBe(false);
+    expect(fs.existsSync(join(pluginDir(), "config.json"))).toBe(false);
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining(legacyPluginDir()), expect.any(Error));
-  });
 
-  it("stays on the legacy directory after a failed move, so a fresh write cannot supersede the real file", async () => {
-    await put(join(legacyPluginDir(), "config.json"), "old config");
-    failRenameOnce();
-    migrateLegacyData(["config.json"]);
+    // A handler edits the file where dataPath says it is.
+    expect(dataPath("config.json")).toBe(join(legacyPluginDir(), "config.json"));
+    await writeFile(dataPath("config.json"), "edited after the failure", "utf8");
 
-    // What a handler does next: it writes where pluginDir() says.
-    expect(usingLegacyDir()).toBe(true);
-    expect(pluginDir()).toBe(legacyPluginDir());
-    await put(join(pluginDir(), "config.json"), "edited after the failure");
-
-    // The next start retries, and carries the edited file over.
+    // The next start carries the edited file over.
     expect(migrateLegacyData(["config.json"])).toEqual({ "config.json": "moved" });
-    expect(pluginDir()).toBe(newDir());
-    expect(await readFile(join(pluginDir(), "config.json"), "utf8")).toBe("edited after the failure");
+    expect(await readFile(dataPath("config.json"), "utf8")).toBe("edited after the failure");
   });
 
-  it("moves back what it already moved when a later entry fails, so the plugin never runs split", async () => {
+  it("keeps an edit to an entry both places had, even when another entry failed to move", async () => {
     await put(join(legacyPluginDir(), "config.json"), "old config");
-    await put(join(legacyPluginDir(), "state.json"), "old state");
-    const actual = vi.mocked(fs.renameSync).getMockImplementation();
-    vi.mocked(fs.renameSync)
-      .mockImplementationOnce((from, to) => actual?.(from, to))
-      .mockImplementationOnce(() => {
-        throw Object.assign(new Error("permission denied"), { code: "EACCES" });
-      });
+    await put(join(pluginDir(), "config.json"), "new config");
+    await put(join(legacyPluginDir(), "attention.json"), "old attention");
+    failLinkOnce();
 
-    expect(migrateLegacyData(["config.json", "state.json"])).toEqual({
-      "config.json": "restored",
-      "state.json": "failed",
+    expect(migrateLegacyData(["config.json", "attention.json"])).toEqual({
+      "config.json": "kept",
+      "attention.json": "failed",
     });
 
-    expect(await readFile(join(legacyPluginDir(), "config.json"), "utf8")).toBe("old config");
-    expect(await readFile(join(legacyPluginDir(), "state.json"), "utf8")).toBe("old state");
-    expect(await readdir(newDir())).toEqual([]);
-    expect(pluginDir()).toBe(legacyPluginDir());
-  });
+    // The copy in use is the one the next start keeps.
+    await writeFile(dataPath("config.json"), "edited this start", "utf8");
+    await writeFile(dataPath("attention.json"), "attention edited this start", "utf8");
 
-  it("moves a path inside a directory, creating the parent", async () => {
-    await put(join(legacyPluginDir(), "logs", "a.log"), "old log");
-
-    expect(migrateLegacyData([join("logs", "a.log")])).toEqual({ [join("logs", "a.log")]: "moved" });
-
-    expect(await readFile(join(pluginDir(), "logs", "a.log"), "utf8")).toBe("old log");
-    expect(await readdir(join(legacyPluginDir(), "logs"))).toEqual([]);
+    migrateLegacyData(["config.json", "attention.json"]);
+    expect(await readFile(dataPath("config.json"), "utf8")).toBe("edited this start");
+    expect(await readFile(dataPath("attention.json"), "utf8")).toBe("attention edited this start");
+    expect(dataPath("attention.json")).toBe(join(pluginDir(), "attention.json"));
   });
 });
