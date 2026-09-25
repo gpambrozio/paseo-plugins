@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [Unreleased]
+
+### Changed
+
+- **A worker that has finished waits in Idle, not Done.** When a worker reports it is done, its card now
+  moves to the Idle column until the first mate lands the work and records it as done; only then does it
+  reach Done. The card still shows what the worker said and anything waiting on your call. Before, a
+  finished worker's card sat in Done beside work that had really landed, even while it was still waiting
+  on a review or on you.
+
 ## [0.1.1] — 2026-09-23
 
 ### Added
