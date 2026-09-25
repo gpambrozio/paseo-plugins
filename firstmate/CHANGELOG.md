@@ -39,6 +39,25 @@ read before you move.
   reach Done. The card still shows what the worker said and anything waiting on your call. Before, a
   finished worker's card sat in Done beside work that had really landed, even while it was still waiting
   on a review or on you.
+- **The first mate's instructions close a few gaps that let work stall or land badly.**
+  - A worker no longer stops on "still working": it keeps going until it is done or really waiting on
+    something, and one that stops anyway is nudged to carry on.
+  - Before merging a pull request — even under a standing order such as merging green dependency
+    updates — the first mate checks it again: it will not merge while a required check is still running,
+    missing or failing, or when the pull request has changed since it showed it to you — then it shows
+    you the new version instead — and it confirms the merge went through. It notes the pull request's
+    address on the work, and which version it showed you, so it can tell.
+  - Its regular check-in now looks at every pull request it is tracking. One you merge on GitHub is
+    cleaned up and the work waiting on it starts; one you close without merging still holds work that
+    never landed, so it asks you what to do with it rather than throwing it away. It also notices a worker
+    that has stopped making progress in the middle of a task.
+  - Each worker starts from the latest version of the project rather than a local copy that may be days
+    behind.
+  - It picks how hard each worker thinks for its task: less for clear, well-understood work, more for
+    investigation or design, and never the maximum unless you ask for it.
+
+  A home whose charter you have not edited picks this up on its own; if you have edited yours, the board
+  offers the new one to compare.
 
 ### Fixed
 

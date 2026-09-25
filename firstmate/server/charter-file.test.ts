@@ -141,7 +141,7 @@ describe("prepareHome and the charter", () => {
     expect(fingerprint(await read(home, CHARTER_FILE))).toBe(fingerprint(await readTemplate(TEMPLATES.charter)));
     // Pinned so a charter change is deliberate: every untouched home follows it, and every edited one is
     // offered it as charter.new.md. e0b749cb695c5df6 was the charter as it moved into templates/.
-    expect(fingerprint(await readTemplate(TEMPLATES.charter))).toBe("419bd26f1cafc076");
+    expect(fingerprint(await readTemplate(TEMPLATES.charter))).toBe("c8b9340a4c2728a2");
 
     await editCopy(home, "# My first mate\n\n<!-- a note to myself -->\nYour home is {{home}}; keep it tidy.");
     await prepareHome(home, FirstmateConfigSchema.parse({}));

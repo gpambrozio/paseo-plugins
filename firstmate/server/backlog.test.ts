@@ -50,6 +50,18 @@ describe("parseBacklog", () => {
     expect(scout).toMatchObject({ reportPath: "data/scout-auth/report.md", outcome: "done 2026-09-19" });
   });
 
+  it("reads an In flight item's pull request and leaves the review head out of its title", () => {
+    const [item] = parseBacklog(
+      "## In flight\n- [ ] fix-login - Fix login https://github.com/you/web/pull/42 (project: web) (agent: 3f2a9c) (hold: merge) (review-head: 0a1b2c3d)",
+    );
+    expect(item).toMatchObject({
+      title: "Fix login",
+      url: "https://github.com/you/web/pull/42",
+      agentId: "3f2a9c",
+      hold: "merge",
+    });
+  });
+
   it("accepts the headings and dashes an agent drifts into", () => {
     const items = parseBacklog(`### In-flight\n* [ ] a — Alpha\n## Next\n- [ ] b – Beta\n## Landed\n- [X] c - Gamma`);
     expect(items.map((item) => [item.section, item.id, item.title])).toEqual([
