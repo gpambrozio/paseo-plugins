@@ -11,6 +11,18 @@ read before you move.
 
 ### Added
 
+- **The first mate hears about your pull requests within minutes.** When a pull request on its backlog
+  is merged or closed on GitHub, gets a review or a comment from someone else, or its checks go red or
+  green, the first mate is now told within about five minutes, instead of at its next half-hourly check
+  or when you mention it. That covers pull requests to other people's projects too, so a maintainer's
+  review reaches the worker without you passing it on. It needs the `gh` command, logged in.
+
+  This is the first of FirstMate's **watches**: small scripts in a `watches/` folder in the first mate's
+  home that run on a schedule while Paseo is running, and tell the first mate whatever they print —
+  saying nothing costs nothing. You can add your own. A new **Watches** card, after the board's columns
+  (at the bottom of the Crew tab on a phone), lists each one with when it last ran and what it last said,
+  and switches any of them off or on. The card appears only when there are watches.
+
 - **Suggested next steps, one press away.** When the first mate reports something you will probably
   act on — a pull request ready to land, a review to run, a decision to make — it now also offers it as
   a button. On a wide screen the buttons sit in a Suggestions card before the board's columns; on a
@@ -70,6 +82,10 @@ read before you move.
 
 ### Fixed
 
+- **Changing a FirstMate setting no longer lets go of the first mate.** Saving one setting — the crew's
+  model, say — quietly reset the others, including which agent is the first mate and where its home is,
+  so the board could lose track of a first mate that was still running. A save now changes only the
+  setting you changed.
 - **A message you were typing to the first mate is still there when you come back.** Leaving Paseo for
   another app, putting the phone down, or letting the Mac sleep could clear the box, so a half-written
   message was gone by the time you returned. It now stays until you send it, for as long as Paseo is

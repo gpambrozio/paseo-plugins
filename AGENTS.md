@@ -190,6 +190,11 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
   plugin runtime gets its own instance, so the app's own observations do not reach it. Open one and
   release it on teardown; a snapshot is one page (`pageInfo.hasMore`), not the whole list. See
   `skills/client/agents.ts` and `herald/client/agents.ts`.
+- **The server half is given `paseo` only inside an RPC handler or a lifecycle hook.**
+  `PluginServerContext` has none, so a timer started in the server entry cannot reach Paseo on its own.
+  Every handler and hook receives the same object, though — the plugin process creates one `PaseoApi`
+  and hands it to all of them — so keeping the first one seen is sound; until something calls in after
+  a start, the timer has to wait. See `firstmate/server/watch-service.ts`.
 - **Paseo's `<paseo-system>` notes never reach a timeline.** The daemon drops a user message that is a
   whole `<paseo-system>` envelope — a finish note, a schedule fire, a chat mention — before recording
   it, so a hook's `timeline`, a timeline fetch and `paseo logs` all omit it, though the provider's own

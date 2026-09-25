@@ -217,6 +217,21 @@ export const FirstmateConfigSchema = z.object({
 });
 export type FirstmateConfig = z.infer<typeof FirstmateConfigSchema>;
 
+/**
+ * A change to the config: only the fields it names. Not `FirstmateConfigSchema.partial()` — zod 4 fills
+ * a default in for every missing field even there, so a save of one setting would arrive carrying all
+ * the others blank, and release the first mate on its way.
+ */
+export const FirstmateConfigPatchSchema = z.object({
+  home: z.string().optional(),
+  mateAgentId: z.string().optional(),
+  mateProvider: z.string().optional(),
+  mateModeId: z.string().optional(),
+  crewProvider: z.string().optional(),
+  crewModeId: z.string().optional(),
+  disabledWatches: z.array(z.string()).optional(),
+});
+
 export const readConfig = defineRpc({
   name: "firstmate.config.read",
   input: z.object({}),
@@ -225,7 +240,7 @@ export const readConfig = defineRpc({
 
 export const writeConfig = defineRpc({
   name: "firstmate.config.write",
-  input: FirstmateConfigSchema.partial(),
+  input: FirstmateConfigPatchSchema,
   output: z.object({ config: FirstmateConfigSchema, resolvedHome: z.string() }),
 });
 

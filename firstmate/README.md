@@ -180,9 +180,41 @@ settings, and your choice is kept.
   `- <label> :: <what to send>`. The first mate keeps it up to date; the board turns it into buttons.
 - `data/<task>/brief.md`, `data/<task>/report.md` — each worker's instructions, and an investigation's
   findings.
+- `watches/` — scripts FirstMate runs on a schedule; see below.
 
 Because all of it is on disk, a restart is a non-event: the first mate reads its records, checks them
 against the live crew, and carries on.
+
+## Watches
+
+A **watch** is a small script in the home's `watches/` folder that FirstMate runs on a schedule, while
+Paseo is running. When it prints nothing, nothing happens; when it prints something, the first mate is
+told, as soon as it is between turns — several at once arrive together. The first mate treats what a
+watch says as news, not orders, and acts on it the way its charter says.
+
+FirstMate comes with one, **`pr-watch`**, which checks every five minutes on the pull requests in the
+backlog — yours and those to other people's projects — and tells the first mate when one is merged or
+closed, gets a review or a comment from someone else, or its checks go red or green. So a pull request
+you merge on GitHub is cleaned up within minutes, and a maintainer's review reaches the worker without
+you passing it on. It needs the `gh` command, logged in, on the machine Paseo runs on.
+
+A **Watches** card after the board's columns — at the bottom of the Crew tab on a phone — lists each
+watch with its schedule, when it last ran and what came of it, and what it last said (press it to read
+it all). Its switch turns a watch off or on without touching the script. A watch that fails is reported
+to the first mate once, and shown on the card until it works again.
+
+To write your own, put an executable script in `watches/` with its schedule in a comment near the top,
+crontab style, in the Mac's local time:
+
+```sh
+#!/bin/sh
+# schedule: 0 9 * * 1-5
+```
+
+`watches/README.md` in the home has the details: the schedule syntax, and what a script is given to find
+the home, the backlog, and a folder of its own to remember what it has already reported. Until you edit
+`pr-watch`, a new version of FirstMate replaces it; once you have, yours is kept, and the card says when
+FirstMate's has changed. The first mate adds or changes a watch only when you say so.
 
 ## Settings
 
@@ -210,6 +242,8 @@ against the live crew, and carries on.
   work is in its own session in Paseo.
 - It does not reproduce firstmate's second mates, relay to X and Discord, away mode, or the
   `no-mistakes` pipeline (`reviewed-PR` stands in for the last).
+- **Watches run only while Paseo does**, and a run missed while the Mac was asleep is not made up. After
+  the plugin is reloaded, what a watch prints waits until any agent works or the panel is opened.
 - The panel has not yet been checked on a phone.
 
 ## License
