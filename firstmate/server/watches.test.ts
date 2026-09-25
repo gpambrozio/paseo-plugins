@@ -51,8 +51,8 @@ function runner(
   const instance = new WatchRunner({
     home: async () => paths.home,
     disabled: async () => disabled,
-    deliver: async (text, turnEnded): Promise<DeliveryOutcome> => {
-      if (mate.state === "absent" || (mate.state === "busy" && !turnEnded)) return "wait";
+    deliver: async (text: string): Promise<DeliveryOutcome> => {
+      if (mate.state !== "idle") return "wait";
       sent.push(text);
       return "sent";
     },
@@ -188,16 +188,75 @@ describe("WatchRunner", () => {
     expect(sent).toEqual([]);
     expect((await instance.summaries()).find((watch) => watch.name === "a")?.lastResult).toBe("queued");
 
-    // The end of the first mate's turn sends without asking whether it is idle.
-    mate.state = "busy";
-    await instance.flush(true);
+    mate.state = "idle";
+    await instance.flush();
     expect(sent).toHaveLength(1);
     expect(sent[0]?.match(/<firstmate-watch name=/g)).toHaveLength(4);
     expect(sent[0]?.indexOf("from a")).toBeLessThan(sent[0]?.lastIndexOf("from b") ?? 0);
     expect((await instance.summaries()).find((watch) => watch.name === "a")?.lastResult).toBe("delivered");
 
-    await instance.flush(true);
+    await instance.flush();
     expect(sent).toHaveLength(1);
+  });
+
+  it("after the first mate's turn ends, sends only once no newer turn is running", async () => {
+    const paths = await setup();
+    await script(paths.home, "a", "true");
+    const { instance, sent, mate } = runner(paths, { a: () => ok("from a") });
+    mate.state = "busy";
+    await instance.tick(MINUTE);
+
+    // A newer turn is already running when the old one's end is heard: nothing is sent into it.
+    instance.flushAfterTurn([10, 30, 80]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent).toEqual([]);
+    mate.state = "idle";
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(sent).toHaveLength(1);
+    instance.stop();
+  });
+
+  it("shows output still waiting after a later run printed nothing", async () => {
+    const paths = await setup();
+    await script(paths.home, "a", "true");
+    let output = "news";
+    const { instance, mate } = runner(paths, { a: () => ok(output) });
+    mate.state = "busy";
+    await instance.tick(MINUTE);
+    output = "";
+    await instance.tick(new Date(2026, 8, 25, 10, 6));
+    const a = () => instance.summaries().then((watches) => watches.find((watch) => watch.name === "a"));
+    expect(await a()).toMatchObject({ lastResult: "queued", lastOutput: "news" });
+
+    mate.state = "idle";
+    await instance.flush();
+    expect(await a()).toMatchObject({ lastResult: "silent", lastOutput: "news" });
+  });
+
+  it("starts nothing once stopped, even from a tick that was already under way", async () => {
+    const paths = await setup();
+    await script(paths.home, "a", "true");
+    let signal: AbortSignal | undefined;
+    const runs: string[] = [];
+    const instance = new WatchRunner({
+      home: async () => paths.home,
+      // The plugin stops while this tick is still reading the config.
+      disabled: async () => {
+        instance.stop();
+        return ["pr-watch"];
+      },
+      deliver: async () => "sent",
+      stateFile: paths.stateFile,
+      scriptStateRoot: paths.scriptStateRoot,
+      run: async (path, options) => {
+        runs.push(path);
+        signal = options.signal;
+        return ok("");
+      },
+    });
+    await instance.tick(MINUTE);
+    expect(runs).toEqual([]);
+    expect(signal).toBeUndefined();
   });
 
   it("keeps at most MAX_QUEUED outputs, saying how many older ones it dropped", async () => {
@@ -293,6 +352,39 @@ describe("runWatchScript", () => {
     expect(result.timedOut).toBe(true);
     expect(result.code).toBeNull();
     expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it("kills the whole group after the grace period, even a child that ignores SIGTERM and let go of the pipes", async () => {
+    const dir = await tempDir();
+    const pidFile = join(dir, "child.pid");
+    const path = await real(
+      `sh -c 'trap "" TERM; echo $$ > "${pidFile}"; while :; do sleep 1; done' >/dev/null 2>&1 </dev/null &\nsleep 30`,
+    );
+    const result = await runWatchScript(path, { ...options, timeoutMs: 300, killGraceMs: 300 });
+    expect(result.timedOut).toBe(true);
+    const child = Number((await readFile(pidFile, "utf8")).trim());
+    const alive = () => {
+      try {
+        process.kill(child, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    // The script is gone and has been answered for; its child outlives SIGTERM until SIGKILL lands.
+    expect(alive()).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(alive()).toBe(false);
+  });
+
+  it("does not start a script once the plugin has stopped", async () => {
+    const dir = await tempDir();
+    const marker = join(dir, "ran");
+    const aborted = new AbortController();
+    aborted.abort();
+    const result = await runWatchScript(await real(`touch "${marker}"`), { ...options, signal: aborted.signal });
+    expect(result.spawnError).toBe("the plugin stopped");
+    await expect(readFile(marker, "utf8")).rejects.toThrow(/ENOENT/);
   });
 
   it("says why a script did not start", async () => {

@@ -46,6 +46,12 @@ export const MAX_ERROR_CHARS = 1500;
 /** Outputs waiting for the first mate; past this the oldest go. */
 export const MAX_QUEUED = 20;
 const MINUTE_MS = 60 * 1000;
+/**
+ * After the first mate's turn ends, when to try the queue: its snapshot can still say running for a
+ * moment, and a turn it starts straight away — a crewmate's finish note — has to be waited out, not
+ * interrupted. The minute's tick catches anything later.
+ */
+export const AFTER_TURN_DELAYS_MS: readonly number[] = [1000, 5000, 15000];
 
 interface WatchRecord {
   lastRunAt: string | null;
@@ -83,8 +89,8 @@ export interface WatchRunnerOptions {
   home: () => Promise<string | null>;
   /** Names the captain has switched off. */
   disabled: () => Promise<readonly string[]>;
-  /** Sends the note; `turnEnded` says the first mate has just finished a turn, so it need not be asked. */
-  deliver: (text: string, turnEnded: boolean) => Promise<DeliveryOutcome>;
+  /** Sends the note, or says to wait: while the first mate is mid-turn, or while there is none. */
+  deliver: (text: string) => Promise<DeliveryOutcome>;
   /** The runner's own file, `watches.json`. */
   stateFile: string;
   /** Where each script's `FIRSTMATE_WATCH_STATE` directory goes. */
@@ -166,6 +172,7 @@ export class WatchRunner {
   private readonly running = new Set<string>();
   private readonly aborter = new AbortController();
   private flushing: Promise<void> = Promise.resolve();
+  private readonly afterTurn = new Set<NodeJS.Timeout>();
   private timer: NodeJS.Timeout | undefined;
   private readonly now: () => Date;
   private readonly run: typeof runWatchScript;
@@ -177,13 +184,12 @@ export class WatchRunner {
     this.timeoutMs = options.timeoutMs ?? WATCH_TIMEOUT_MS;
   }
 
-  /** Ticks on every minute's boundary until the returned function is called, which also stops running scripts. */
+  /** Ticks on every minute's boundary until the returned function — or `stop` — is called. */
   start(): () => void {
-    let stopped = false;
     const next = () => {
       const target = (Math.floor(Date.now() / MINUTE_MS) + 1) * MINUTE_MS;
       this.timer = setTimeout(() => {
-        if (stopped) return;
+        if (this.aborter.signal.aborted) return;
         // A timer can fire a hair early; a late one (the Mac asleep) checks the minute it woke in.
         const at = new Date(Math.max(Date.now(), target));
         void this.tick(at).catch((error: unknown) => console.error("[firstmate] a watch tick failed:", error));
@@ -191,11 +197,15 @@ export class WatchRunner {
       }, target - Date.now() + 50);
     };
     next();
-    return () => {
-      stopped = true;
-      clearTimeout(this.timer);
-      this.aborter.abort();
-    };
+    return () => this.stop();
+  }
+
+  /** No more ticks; running scripts are stopped, and nothing is started after this, even by a tick under way. */
+  stop(): void {
+    clearTimeout(this.timer);
+    this.afterTurn.forEach((timer) => clearTimeout(timer));
+    this.afterTurn.clear();
+    this.aborter.abort();
   }
 
   /** Runs every watch due in the minute `at` falls in, then tries to deliver what is queued. */
@@ -210,13 +220,15 @@ export class WatchRunner {
     const due = watches.filter(
       (watch) => watch.schedule !== null && !off.has(watch.name) && !this.running.has(watch.name) && isDue(watch.schedule, at),
     );
+    // The plugin may have stopped while this tick read the folder and the config.
+    if (this.aborter.signal.aborted) return;
     await Promise.all(due.map((watch) => this.runOne(home, watch, at)));
     await this.flush();
   }
 
   /** Runs one watch now and records what came of it. Refused while that watch is already running. */
   async runOne(home: string, watch: WatchFile, at: Date = this.now()): Promise<void> {
-    if (this.running.has(watch.name)) return;
+    if (this.running.has(watch.name) || this.aborter.signal.aborted) return;
     this.running.add(watch.name);
     try {
       const stateDirectory = join(this.options.scriptStateRoot, watch.name);
@@ -289,20 +301,39 @@ export class WatchRunner {
    * Sends everything queued as one message, if the first mate can take it. One flush at a time, so two
    * triggers landing together — a run finishing as the first mate's turn ends — cannot send it twice.
    */
-  flush(turnEnded = false): Promise<void> {
-    const run = this.flushing.then(() => this.flushOnce(turnEnded));
+  flush(): Promise<void> {
+    const run = this.flushing.then(() => this.flushOnce());
     this.flushing = run.catch(() => undefined);
     return run;
   }
 
-  private async flushOnce(turnEnded: boolean): Promise<void> {
+  /**
+   * The first mate has just ended a turn: try the queue a few times over the next seconds rather than
+   * once now. Every try asks whether it is mid-turn — a newer turn may already have started, and a
+   * message sent into it could replace it where the provider cannot steer.
+   */
+  flushAfterTurn(delays: readonly number[] = AFTER_TURN_DELAYS_MS): void {
+    delays.forEach((delay) => {
+      const timer = setTimeout(() => {
+        this.afterTurn.delete(timer);
+        if (this.aborter.signal.aborted) return;
+        void this.flush().catch((error: unknown) => {
+          console.error("[firstmate] could not send the watches' output after the first mate's turn:", error);
+        });
+      }, delay);
+      this.afterTurn.add(timer);
+    });
+  }
+
+  private async flushOnce(): Promise<void> {
+    if (this.aborter.signal.aborted) return;
     const state = await this.load();
     if (state.queue.length === 0 && state.dropped === 0) return;
     const batch = [...state.queue];
     const dropped = state.dropped;
     let outcome: DeliveryOutcome;
     try {
-      outcome = await this.options.deliver(await watchNote(batch, dropped), turnEnded);
+      outcome = await this.options.deliver(await watchNote(batch, dropped));
     } catch (error) {
       console.error("[firstmate] could not send the watches' output to the first mate:", error);
       return;
@@ -339,7 +370,7 @@ export class WatchRunner {
         invalid: watch.invalid,
         running: this.running.has(watch.name),
         lastRunAt: record.lastRunAt,
-        lastResult: watch.invalid === null ? record.lastResult : "invalid",
+        lastResult: watch.invalid === null ? shownResult(record, state.queue, watch.name) : "invalid",
         lastOutput: record.lastOutput,
         lastOutputAt: record.lastOutputAt,
         lastError: record.lastError,
@@ -371,6 +402,15 @@ export class WatchRunner {
       console.error(`[firstmate] could not save ${path}:`, error);
     });
   }
+}
+
+/**
+ * A run that printed nothing after one whose output is still waiting says so: the card shows
+ * "waiting for the first mate" until that output is sent, rather than "nothing new".
+ */
+function shownResult(record: WatchRecord, queue: readonly QueuedNote[], name: string): WatchResult {
+  const waiting = queue.some((note) => note.name === name && note.kind === "output");
+  return record.lastResult === "silent" && waiting ? "queued" : record.lastResult;
 }
 
 const RESULTS: ReadonlySet<string> = new Set<WatchResult>(["never", "silent", "queued", "delivered", "failed", "invalid"]);

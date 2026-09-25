@@ -18,6 +18,7 @@ afterEach(async () => {
 const A = "https://github.com/me/web/pull/42";
 const B = "https://github.com/getpaseo/paseo/pull/7";
 const DONE = "https://github.com/me/web/pull/1";
+const DONE_EARLIER = "https://github.com/me/web/pull/2";
 
 /** Answers `gh api user` and `gh pr view <url>` from $FAKE_GH, and logs every call to $FAKE_GH_LOG. */
 const FAKE_GH = `#!/usr/bin/env node
@@ -31,7 +32,7 @@ if (args[0] === "api" && args[1] === "user") {
 } else if (args[0] === "pr" && args[1] === "view") {
   const pull = fixture.prs[args[2]];
   if (!pull || pull.error) { process.stderr.write("GraphQL: " + (pull ? pull.error : "not found") + "\\n"); process.exit(1); }
-  process.stdout.write(JSON.stringify(pull));
+  setTimeout(() => process.stdout.write(JSON.stringify(pull)), pull.delayMs || 0);
 } else { process.exit(2); }
 `;
 
@@ -42,6 +43,8 @@ interface Pull {
   comments?: Array<{ id: string; author: { login: string }; body: string }>;
   statusCheckRollup?: Array<Record<string, string>>;
   error?: string;
+  /** How long the stand-in takes to answer. */
+  delayMs?: number;
 }
 
 function pull(overrides: Pull = {}): Pull {
@@ -80,6 +83,8 @@ async function setup() {
       `- [ ] upstream - Upstream the thing ${B} (project: paseo) and again ${B}`,
       "## Done",
       `- [x] old - Old work ${DONE} (merged 2026-09-01)`,
+      "### August",
+      `- [x] older - Older work ${DONE_EARLIER} (merged 2026-08-01)`,
     ].join("\n"),
     "utf8",
   );
@@ -91,7 +96,7 @@ async function setup() {
     await writeFile(fixture, JSON.stringify({ user, prs }), "utf8");
   }
 
-  async function run(path = bin) {
+  async function run(path = bin, extra: NodeJS.ProcessEnv = {}) {
     return runWatchScript(join(home, "watches", "pr-watch"), {
       cwd: home,
       env: {
@@ -102,6 +107,7 @@ async function setup() {
         FIRSTMATE_WATCH_STATE: state,
         FAKE_GH: fixture,
         FAKE_GH_LOG: log,
+        ...extra,
       },
       timeoutMs: 20_000,
       maxOutputBytes: 64_000,
@@ -120,8 +126,9 @@ describe("pr-watch", () => {
     let result = await run();
     expect(result).toMatchObject({ code: 0, stdout: "", stderr: "" });
     const calls = (await readFile(log, "utf8")).trim().split("\n");
-    expect(calls.filter((call) => call.startsWith("pr view")).map((call) => call.split(" ")[2])).toEqual([A, B]);
-    expect(Object.keys(JSON.parse(await readFile(join(state, "prs.json"), "utf8")).prs)).toEqual([A, B]);
+    // Looked up together, so in no particular order; nothing under Done, however deep.
+    expect(calls.filter((call) => call.startsWith("pr view")).map((call) => call.split(" ")[2]).sort()).toEqual([B, A].sort());
+    expect(Object.keys(JSON.parse(await readFile(join(state, "prs.json"), "utf8")).prs).sort()).toEqual([B, A].sort());
 
     await answer({
       [A]: pull({ state: "MERGED", statusCheckRollup: passing }),
@@ -153,6 +160,25 @@ describe("pr-watch", () => {
 
     result = await run();
     expect(result).toMatchObject({ code: 0, stdout: "" });
+  });
+
+  it("stays inside its time budget on a slow backlog, and reaches what it skipped on the next run", async () => {
+    const { answer, run, state, home } = await setup();
+    const urls = [1, 2, 3, 4, 5, 6].map((n) => `https://github.com/someone/lib/pull/${n}`);
+    await writeFile(join(home, "data", "backlog.md"), `## In flight\n${urls.map((url) => `- [ ] x ${url}`).join("\n")}\n`, "utf8");
+    await answer(Object.fromEntries(urls.map((url) => [url, pull({ delayMs: 800 })])));
+    const budget = { FIRSTMATE_PR_WATCH_BUDGET_MS: "400" };
+    const saved = async () => JSON.parse(await readFile(join(state, "prs.json"), "utf8")).prs as Record<string, { seen?: boolean }>;
+
+    const first = await run(undefined, budget);
+    expect(first).toMatchObject({ code: 0, stdout: "" });
+    // Four at a time, and none started after the budget: the last two wait for the next run.
+    expect(Object.keys(await saved()).sort()).toEqual(urls.slice(0, 4));
+
+    await run(undefined, budget);
+    const after = await saved();
+    expect(Object.keys(after).sort()).toEqual(urls);
+    expect(Object.values(after).every((entry) => entry.seen === true)).toBe(true);
   });
 
   it("mentions a pull request gh keeps failing on once, and fails the run when gh can read none", async () => {

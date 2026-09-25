@@ -13,16 +13,24 @@
 // running is mentioned once, until it can be read again; when `gh` can read none of them — not
 // installed, not logged in — the run fails, and the plugin reports that once.
 //
+// FirstMate stops a run after two minutes, so this one keeps well inside that: four lookups at a time,
+// each given 20 seconds, and none started after BUDGET_MS. The least recently checked go first, so a
+// long backlog is covered over a few runs rather than never, and what was checked is always saved.
+// $FIRSTMATE_PR_WATCH_BUDGET_MS overrides the budget.
+//
 // Edit it freely: once you have, the plugin keeps your copy (see README.md).
 
 const EXCERPT_CHARS = 200;
 const FAILURES_BEFORE_REPORT = 3;
 const KEPT_IDS = 300;
-const GH_TIMEOUT_MS = 30 * 1000;
+const GH_TIMEOUT_MS = 20 * 1000;
+const CONCURRENCY = 4;
+const BUDGET_MS = Number(process.env.FIRSTMATE_PR_WATCH_BUDGET_MS) || 70 * 1000;
 const FIELDS = "state,title,url,reviews,comments,statusCheckRollup";
 const PR_URL = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)/g;
 
 async function main() {
+  const started = Date.now();
   const { readFile, writeFile, rename } = await import("node:fs/promises");
   const { join } = await import("node:path");
   const { execFile } = await import("node:child_process");
@@ -52,17 +60,20 @@ async function main() {
     }
   }
 
-  // The pull requests the backlog links to, outside its Done section, each once.
+  // The pull requests the backlog links to, outside its Done section — subsections of it included —
+  // each once.
   function backlogPulls(markdown) {
     const urls = [];
-    let done = false;
+    let doneLevel = 0;
     for (const line of markdown.replace(/\r\n?/g, "\n").split("\n")) {
-      const heading = /^#{1,6}\s+(.*)$/.exec(line);
+      const heading = /^(#{1,6})\s+(.*)$/.exec(line);
       if (heading) {
-        done = /^done\b/i.test(heading[1].trim());
+        const level = heading[1].length;
+        if (doneLevel > 0 && level > doneLevel) continue;
+        doneLevel = /^done\b/i.test(heading[2].trim()) ? level : 0;
         continue;
       }
-      if (done) continue;
+      if (doneLevel > 0) continue;
       for (const match of line.matchAll(PR_URL)) {
         const url = `https://github.com/${match[1]}/${match[2]}/pull/${match[3]}`;
         if (!urls.includes(url)) urls.push(url);
@@ -124,10 +135,14 @@ async function main() {
   }
 
   const next = {};
-  const report = [];
+  const reports = new Map();
   const errors = [];
-  for (const url of urls) {
+  let checked = 0;
+
+  // One pull request: what is saved for it next, and what to say about it, if anything.
+  async function check(url) {
     const before = previous[url];
+    const checkedAt = Date.now();
     let pull;
     try {
       pull = JSON.parse(await gh(["pr", "view", url, "--json", FIELDS]));
@@ -136,9 +151,9 @@ async function main() {
       errors.push(`${url}: ${error.message}`);
       const failures = (before?.failures || 0) + 1;
       const tell = failures >= FAILURES_BEFORE_REPORT && !before?.failureReported;
-      if (tell) report.push(`${url}\n- gh cannot read it (${error.message}); nothing more about it until it can`);
-      next[url] = { ...(before || {}), failures, failureReported: Boolean(before?.failureReported) || tell };
-      continue;
+      if (tell) reports.set(url, `${url}\n- gh cannot read it (${error.message}); nothing more about it until it can`);
+      next[url] = { ...(before || {}), checkedAt, failures, failureReported: Boolean(before?.failureReported) || tell };
+      return;
     }
 
     const checks = checkState(pull.statusCheckRollup);
@@ -150,11 +165,12 @@ async function main() {
       reviews: ids(reviews),
       comments: ids(comments),
       checks: checks.state,
+      checkedAt,
       failures: 0,
       failureReported: false,
     };
     next[url] = now;
-    if (!before?.seen) continue;
+    if (!before?.seen) return;
 
     const lines = [];
     if (now.state !== before.state) {
@@ -177,15 +193,31 @@ async function main() {
         lines.push("checks turned green");
       }
     }
-    if (lines.length > 0) report.push(`${url} (${pull.title})\n${lines.map((line) => `- ${line}`).join("\n")}`);
+    if (lines.length > 0) reports.set(url, `${url} (${pull.title})\n${lines.map((line) => `- ${line}`).join("\n")}`);
   }
 
+  // Least recently checked first; a few at a time; nothing new started once the budget is spent. One
+  // not reached this run keeps what was saved for it, and goes first next time.
+  const queue = [...urls].sort((a, b) => (previous[a]?.checkedAt || 0) - (previous[b]?.checkedAt || 0));
+  async function worker() {
+    for (let url = queue.shift(); url !== undefined; url = queue.shift()) {
+      if (Date.now() - started >= BUDGET_MS) {
+        if (previous[url]) next[url] = previous[url];
+        continue;
+      }
+      checked += 1;
+      await check(url);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, urls.length) }, worker));
+
+  const report = urls.flatMap((url) => (reports.has(url) ? [reports.get(url)] : []));
   const temporary = `${statePath}.tmp`;
   await writeFile(temporary, `${JSON.stringify({ prs: next }, null, 2)}\n`);
   await rename(temporary, statePath);
 
   if (report.length > 0) process.stdout.write(`${report.join("\n\n")}\n`);
-  if (errors.length === urls.length) {
+  if (checked > 0 && errors.length === checked) {
     process.stderr.write(`gh could not read any of the backlog's pull requests:\n${errors.join("\n")}\n`);
     process.exitCode = 1;
   }

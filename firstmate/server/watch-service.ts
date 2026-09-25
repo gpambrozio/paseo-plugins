@@ -8,9 +8,10 @@
  * turn any agent starts or ends passes it on. Until one has, after a plugin start, watches still run
  * and what they print waits in the queue; the board opening, or any agent's turn, releases it.
  *
- * Delivery waits while the first mate is mid-turn. The end of its turn flushes the queue at once
- * (`agent.turn_ended`), and every minute's tick tries again, so a turn whose end the plugin missed
- * delays a note by a minute at most.
+ * Delivery waits while the first mate is mid-turn, asking Paseo afresh before every send. The end of
+ * its turn (`agent.turn_ended`) tries the queue a few times over the next seconds
+ * (`WatchRunner.flushAfterTurn`), and every minute's tick tries again, so a turn whose end the plugin
+ * missed delays a note by a minute at most.
  */
 import { join } from "node:path";
 
@@ -27,16 +28,12 @@ import { sendWithoutInterrupting } from "./send";
 import { serialized } from "./serialize";
 import { WatchRunner, type DeliveryOutcome } from "./watches";
 
-export async function deliverToMate(
-  paseo: PaseoApi | null,
-  config: FirstmateConfig,
-  text: string,
-  turnEnded: boolean,
-): Promise<DeliveryOutcome> {
+/** Sends to the first mate only when Paseo says it is not mid-turn, asked afresh every time. */
+export async function deliverToMate(paseo: PaseoApi | null, config: FirstmateConfig, text: string): Promise<DeliveryOutcome> {
   if (paseo === null) return "wait";
   const { agent } = await resolveMate(paseo, config);
   if (agent === null) return "wait";
-  if (!turnEnded && isMidTurn(agent)) return "wait";
+  if (isMidTurn(agent)) return "wait";
   await sendWithoutInterrupting(paseo, agent.id, text);
   return "sent";
 }
@@ -67,8 +64,8 @@ export function startWatches(
     async disabled() {
       return (await readConfig()).disabledWatches;
     },
-    async deliver(text, turnEnded) {
-      return deliverToMate(paseo, await readConfig(), text, turnEnded);
+    async deliver(text) {
+      return deliverToMate(paseo, await readConfig(), text);
     },
     stateFile: join(pluginDir(), "watches.json"),
     scriptStateRoot: join(pluginDir(), "watch-state"),
@@ -78,10 +75,7 @@ export function startWatches(
   const offEnded = server.on("agent.turn_ended", async (event, context) => {
     remember(context.paseo);
     const config = await readConfig();
-    if (event.agent.id !== config.mateAgentId.trim()) return;
-    void runner.flush(true).catch((error: unknown) => {
-      console.error("[firstmate] could not send the watches' output after the first mate's turn:", error);
-    });
+    if (event.agent.id === config.mateAgentId.trim()) runner.flushAfterTurn();
   });
   const stopTimer = runner.start();
 

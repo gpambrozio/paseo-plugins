@@ -1,8 +1,11 @@
 /**
  * Runs one watch script: as it is, by its `#!` line, with its own process group so a timeout takes its
- * children (`gh`, `curl`) with it. What it prints is kept up to a cap and read to the end regardless,
- * so a chatty script never blocks on a full pipe; stderr is kept as its last lines, which is where an
- * error usually is.
+ * children (`gh`, `curl`) with it. Once a run is stopped — timed out, or the plugin shutting down — the
+ * group gets SIGTERM and, after the grace period, SIGKILL whatever has happened in between: the script
+ * exiting on SIGTERM does not mean a child that ignores it, and has let go of the pipes, is gone too.
+ *
+ * What it prints is kept up to a cap and read to the end regardless, so a chatty script never blocks on
+ * a full pipe; stderr is kept as its last lines, which is where an error usually is.
  */
 import { spawn } from "node:child_process";
 
@@ -43,6 +46,11 @@ function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
 
 export function runWatchScript(path: string, options: RunOptions): Promise<RunResult> {
   return new Promise((resolve) => {
+    // An abort that has already happened is never replayed to a listener added now, so check it here.
+    if (options.signal?.aborted === true) {
+      resolve({ code: null, timedOut: false, stdout: "", truncated: false, stderr: "", spawnError: "the plugin stopped" });
+      return;
+    }
     const stdout: Buffer[] = [];
     let stdoutBytes = 0;
     let truncated = false;
@@ -91,7 +99,7 @@ export function runWatchScript(path: string, options: RunOptions): Promise<RunRe
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (killTimer !== undefined) clearTimeout(killTimer);
+      // A pending SIGKILL is left to fire: it is for the group, not for the script alone.
       options.signal?.removeEventListener("abort", abort);
       resolve({
         code,

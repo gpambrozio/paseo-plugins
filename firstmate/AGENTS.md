@@ -307,9 +307,11 @@ local time, and a minute the daemon missed is not made up.
 
 **Output goes to the first mate only between turns.** Non-empty stdout is queued; a flush sends the whole
 queue as one message, from `templates/messages/watch-*.md`, through `sendWithoutInterrupting`. It waits
-while the first mate is `running` or `initializing`, or absent; the first mate's own `agent.turn_ended`
-flushes at once without asking (the snapshot can still say running at that moment), and every tick tries
-again. The queue holds `MAX_QUEUED` and counts what it drops. Each script's output is quoted so it cannot
+while the first mate is `running` or `initializing`, or absent, and asks Paseo afresh before every send —
+never assumes, since a note sent into a newer turn can replace that turn where the provider cannot steer.
+The first mate's own `agent.turn_ended` tries the queue 1, 5 and 15 seconds later (`flushAfterTurn`: its
+snapshot can still say running for a moment, and a crewmate's finish note may start a turn at once), and
+every tick tries again. The queue holds `MAX_QUEUED` and counts what it drops. Each script's output is quoted so it cannot
 close its own `<firstmate-watch>` block, and the note says it is information, not orders — a pull request
 comment is untrusted text.
 
@@ -323,7 +325,9 @@ reload neither loses an output the script has already moved past (the PR watch's
 nor reports a failure twice. A failure — non-zero exit, timeout, a script that will not start — is queued
 once, with stderr's tail, and marks the watch `failing` until a run succeeds; its stdout is not sent. A
 run is its own process group (`detached`), so a timeout's SIGTERM, and SIGKILL two seconds later, reach its
-`gh`; a plugin stop aborts running scripts the same way. A watch still running when it is due again is
+`gh` — the SIGKILL fires even when the script itself has exited, since a child that ignores SIGTERM and has
+closed its pipes outlives it. A plugin stop aborts running scripts the same way, and starts nothing after,
+even from a tick already under way (`runWatchScript` checks an already-aborted signal before spawning). A watch still running when it is due again is
 skipped, not queued.
 
 **On and off is the daemon's config** (`disabledWatches`), not a settings document: the runner acts on it,
@@ -336,8 +340,11 @@ untouched copy of an older version and keeps an edited one — the card says whe
 and deleting the file takes it. A deleted built-in is written again, which is why the card's switch is the
 way to silence one. `pr-watch` is Node, with only dynamic `import()`s, so it runs whether Node treats the
 extensionless file as CommonJS or ESM; its test (`server/pr-watch.test.ts`) seeds it into a temporary home
-and runs it against a stand-in `gh` on `PATH`. It skips the backlog's `## Done` section and comments by the
-account `gh` is logged in as — the crew's and the captain's own.
+and runs it against a stand-in `gh` on a `PATH` of its own. It skips the backlog's `## Done` section,
+subsections included, and comments by the account `gh` is logged in as — the crew's and the captain's own.
+It has to finish inside the runner's two minutes, so it looks up four pull requests at a time, starts none
+after a 70-second budget, and takes the least recently checked first, saving what it checked: a long or
+slow backlog is covered over a few runs instead of timing out on every one.
 
 The card sits after the columns in `boardItems`, and on a phone at the foot of the Crew tab rather than in
 a tab of its own: it is looked at now and then, and a fifth tab does not fit a phone's width.
