@@ -211,6 +211,7 @@ export function MateChat({
       },
       dropText: { color: colors.foreground, fontSize: 13 },
       inputRow: { flexDirection: "row" as const, alignItems: "flex-end" as const, gap: 8 },
+      inputActions: { gap: 6 },
       input: {
         flex: 1,
         color: colors.foreground,
@@ -421,7 +422,6 @@ export function MateChat({
             </View>
           )}
           <View style={styles.inputRow}>
-            {canAttachFiles ? <IconButton icon="Paperclip" label="Attach files or images" theme={theme} onPress={openPicker} /> : null}
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -444,14 +444,20 @@ export function MateChat({
               }
               style={styles.input}
             />
-            <IconButton
-              icon="Send"
-              label="Send"
-              tone="accent"
-              theme={theme}
-              disabled={sending || !hasContent(draft, attachments)}
-              onPress={sendDraft}
-            />
+            {/* Stacked on the right, so the box keeps its full width: attach above send. */}
+            <View style={styles.inputActions}>
+              {canAttachFiles ? (
+                <IconButton icon="Paperclip" label="Attach files or images" theme={theme} onPress={openPicker} />
+              ) : null}
+              <IconButton
+                icon="Send"
+                label="Send"
+                tone="accent"
+                theme={theme}
+                disabled={sending || !hasContent(draft, attachments)}
+                onPress={sendDraft}
+              />
+            </View>
           </View>
         </View>
       </SafeAreaView>
