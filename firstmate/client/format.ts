@@ -226,6 +226,15 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
+/**
+ * What showing the Files view changes about the saved layout: a wide layout
+ * whose right pane is hidden brings it back, or opening a file there would
+ * draw nothing. A phone shows Files as a tab, and a shown pane needs nothing.
+ */
+export function revealFilesPatch(compact: boolean, boardCollapsed: boolean): { boardCollapsed: false } | null {
+  return !compact && boardCollapsed ? { boardCollapsed: false } : null;
+}
+
 /** The last `max` characters of a path, from a separator, so the end — the part that differs — survives. */
 export function shortPath(path: string, max = 48): string {
   if (path.length <= max) return path;

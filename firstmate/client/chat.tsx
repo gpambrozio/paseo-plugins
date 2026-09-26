@@ -23,7 +23,7 @@ import {
   type PendingAttachment,
 } from "./attachments";
 import { drafts } from "./draft";
-import { fileCandidates, lookupIn } from "./file-links";
+import { lookupIn, recentCandidates } from "./file-links";
 import { useFollowEnd } from "./follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { MateControls } from "./mate-controls";
@@ -70,19 +70,16 @@ function groupRows(rows: readonly TranscriptRow[]): Group[] {
 /**
  * Which of the paths the first mate's replies name are files in its home — the
  * daemon's say, since only it can see the disk. Asked once for the whole
- * conversation, the latest mentions first past the cap, and again now and
- * then, so a file the first mate writes after naming it becomes a link.
+ * conversation, the most recently mentioned kept past the cap, and again now
+ * and then, so a file the first mate writes after naming it becomes a link.
  * Until the answer arrives, and if it fails, the paths are text.
  */
 function useHomeFileLinks(rows: readonly TranscriptRow[]) {
   const find = useRpc(findHomeFiles);
-  const candidates = useMemo(() => {
-    const all = new Set<string>();
-    for (const row of rows) {
-      if (row.kind === "mate") for (const candidate of fileCandidates(row.text)) all.add(candidate);
-    }
-    return [...all].slice(-MAX_FILE_CANDIDATES);
-  }, [rows]);
+  const candidates = useMemo(
+    () => recentCandidates(rows.flatMap((row) => (row.kind === "mate" ? [row.text] : [])), MAX_FILE_CANDIDATES),
+    [rows],
+  );
   const found = useQuery({
     queryKey: ["firstmate", "files", "find", candidates],
     queryFn: () => find({ paths: candidates }),

@@ -61,6 +61,9 @@ export const writeHomeFile = defineRpc({
 /** How many paths one `firstmate.files.find` call checks; a longer conversation links its latest mentions. */
 export const MAX_FILE_CANDIDATES = 500;
 
+/** The longest path `firstmate.files.find` takes; the chat does not ask about a longer word. */
+export const MAX_FILE_PATH_LENGTH = 1024;
+
 /**
  * Which of the paths the chat mentions are files in the home, for linking
  * them. A candidate is relative to the home or absolute under it; the answer
@@ -70,6 +73,6 @@ export const MAX_FILE_CANDIDATES = 500;
  */
 export const findHomeFiles = defineRpc({
   name: "firstmate.files.find",
-  input: z.object({ paths: z.array(z.string()).max(MAX_FILE_CANDIDATES) }),
+  input: z.object({ paths: z.array(z.string().max(MAX_FILE_PATH_LENGTH)).max(MAX_FILE_CANDIDATES) }),
   output: z.object({ files: z.record(z.string(), z.string()) }),
 });

@@ -38,7 +38,7 @@ import { FilesView, type FilesRequest } from "./files";
 import { MateChat } from "./chat";
 import { captainMessage } from "./attachments";
 import { CrewmateView } from "./crewmate";
-import { agentStatusLabel, agentStatusTone, groupCards, orderedColumns, shortPath } from "./format";
+import { agentStatusLabel, agentStatusTone, groupCards, orderedColumns, revealFilesPatch, shortPath } from "./format";
 import { LaunchPanel } from "./launch";
 import { useMateSender } from "./mate-send";
 import { ResizeHandle, clampShare } from "./resize-handle";
@@ -305,10 +305,12 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       .finally(() => setEnabling(false));
   }
 
-  /** Shows the Files view — the tab on a phone, the right-hand pane on a wide layout — with `path` open. */
+  /** Shows the Files view — the tab on a phone, the right-hand pane on a wide layout, unhidden — with `path` open. */
   function openFile(path: string): void {
     if (compact) setTab("files");
     else setRightPane("files");
+    const reveal = revealFilesPatch(compact, values.boardCollapsed);
+    if (reveal !== null) save(reveal);
     setFilesRequest({ path, at: Date.now() });
   }
 

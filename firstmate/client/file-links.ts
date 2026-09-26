@@ -10,6 +10,9 @@
  * does not vouch for — outside the home, missing, a folder — stays text.
  */
 
+import { MAX_FILE_PATH_LENGTH } from "../shared/files";
+import { inlineTexts, parseMarkdown } from "./markdown-parse";
+
 /** Bold, inline code and links, in one pass; everything else stays as written. */
 const INLINE = /(\*\*[^*\n]+\*\*|__[^_\n]+__|`[^`\n]+`|\[[^\]\n]*\]\([^)\s]+\)|https?:\/\/[^\s)<>]+)/g;
 
@@ -37,11 +40,11 @@ export type FileLookup = (candidate: string) => string | null;
  * The path `text` would name, without a trailing line number, or null when it
  * does not look like one: a path has a `/` in it or ends in an extension, so
  * `data/scout-x/report.md`, `watches/pr-watch` and `AGENTS.md` are, and
- * `backlog` is not.
+ * `backlog` is not. Nor is anything longer than the daemon will look up.
  */
 export function pathCandidate(text: string): string | null {
   const path = text.replace(LINE_SUFFIX, "");
-  if (path === "" || /\s/.test(path) || (SCHEME.test(path) && !path.startsWith("/"))) return null;
+  if (path === "" || path.length > MAX_FILE_PATH_LENGTH || /\s/.test(path) || (SCHEME.test(path) && !path.startsWith("/"))) return null;
   if (path.includes("/")) return /[\w-]/.test(path) ? path : null;
   return /^[\w.@+-]*\w\.[a-zA-Z0-9]{1,10}$/.test(path) ? path : null;
 }
@@ -101,15 +104,37 @@ export function inlineTokens(text: string, lookup: FileLookup): InlineToken[] {
   });
 }
 
-/** Every path `source` could link, in order of first mention, each once — what to ask the daemon about. */
+/**
+ * Every path `source` could link, in order of first mention, each once — what
+ * to ask the daemon about. Only the text the renderer draws inline is walked,
+ * so a path in a fenced code block, which is never linked, is never asked about.
+ */
 export function fileCandidates(source: string): string[] {
   const seen = new Set<string>();
   const collect: FileLookup = (candidate) => {
     seen.add(candidate);
     return null;
   };
-  for (const line of source.split("\n")) inlineTokens(line, collect);
+  for (const text of inlineTexts(parseMarkdown(source))) {
+    for (const line of text.split("\n")) inlineTokens(line, collect);
+  }
   return [...seen];
+}
+
+/**
+ * The candidates of a whole conversation, oldest message first, each once and
+ * at its latest mention, keeping the `max` most recently mentioned — so a file
+ * named early and again just now is not the one left out.
+ */
+export function recentCandidates(messages: readonly string[], max: number): string[] {
+  const order = new Set<string>();
+  for (const message of messages) {
+    for (const candidate of fileCandidates(message)) {
+      order.delete(candidate);
+      order.add(candidate);
+    }
+  }
+  return [...order].slice(-max);
 }
 
 /** A lookup over the daemon's answer. */

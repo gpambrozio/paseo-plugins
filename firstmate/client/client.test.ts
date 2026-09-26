@@ -20,7 +20,8 @@ import {
   toAttachment,
 } from "./attachments";
 import { createDraftStore } from "./draft";
-import { fileCandidates, inlineTokens, lookupIn, pathCandidate } from "./file-links";
+import { fileCandidates, inlineTokens, lookupIn, pathCandidate, recentCandidates } from "./file-links";
+import { MAX_FILE_PATH_LENGTH, findHomeFiles } from "../shared/files";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { createSendGate } from "./mate-send";
@@ -37,6 +38,7 @@ import {
   opensAsLeft,
   orderedColumns,
   relativeTime,
+  revealFilesPatch,
   shortPath,
   watchStatusText,
   watchTone,
@@ -748,6 +750,26 @@ describe("file links", () => {
     ).toEqual(["data/backlog.md", "AGENTS.md", "data/scout-x/report.md"]);
   });
 
+  it("never asks about a path in a fenced code block, which is not linked", () => {
+    expect(
+      fileCandidates(["Wrote AGENTS.md:", "```", "cat data/sample.md", "src/big/listing.ts", "```", "- `watches/pr-watch`"].join("\n")),
+    ).toEqual(["AGENTS.md", "watches/pr-watch"]);
+  });
+
+  it("keeps the most recently mentioned paths past the cap, counting a repeat as recent", () => {
+    const messages = ["data/backlog.md", "a/1.md b/2.md c/3.md", "data/backlog.md again"];
+    expect(recentCandidates(messages, 2)).toEqual(["c/3.md", "data/backlog.md"]);
+    expect(recentCandidates(messages, 10)).toEqual(["a/1.md", "b/2.md", "c/3.md", "data/backlog.md"]);
+  });
+
+  it("does not ask about a path longer than the daemon takes, which refuses one", () => {
+    const long = `data/${"x".repeat(MAX_FILE_PATH_LENGTH)}.md`;
+    expect(pathCandidate(long)).toBeNull();
+    expect(fileCandidates(`see ${long}`)).toEqual([]);
+    expect(findHomeFiles.input.safeParse({ paths: [long] }).success).toBe(false);
+    expect(findHomeFiles.input.safeParse({ paths: ["data/backlog.md"] }).success).toBe(true);
+  });
+
   it("links a file named in plain text, leaving the punctuation around it as text", () => {
     expect(inlineTokens("Wrote data/backlog.md.", lookup)).toEqual([
       { kind: "text", text: "Wrote " },
@@ -811,5 +833,13 @@ describe("file links", () => {
       { kind: "text", text: " " },
       { kind: "link", text: "https://x.dev/a.", url: "https://x.dev/a" },
     ]);
+  });
+});
+
+describe("revealFilesPatch", () => {
+  it("unhides the right pane on a wide layout, and changes nothing otherwise", () => {
+    expect(revealFilesPatch(false, true)).toEqual({ boardCollapsed: false });
+    expect(revealFilesPatch(false, false)).toBeNull();
+    expect(revealFilesPatch(true, true)).toBeNull();
   });
 });

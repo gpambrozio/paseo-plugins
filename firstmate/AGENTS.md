@@ -69,6 +69,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/panels.tsx`           | The workspace and agent panels: the crewmate's card beside its own tab.                    |
 | `client/settings-screen.tsx`  | Settings › Plugins › FirstMate.                                                            |
 | `client/markdown.tsx`         | A trimmed copy of `github-board`'s renderer, for the first mate's replies.                 |
+| `client/markdown-parse.ts`    | The renderer's blocks, and the inline text in them — what `file-links.ts` walks. Pure.     |
 | `client/file-links.ts`        | A reply's inline tokens, and the home files it names that the daemon (`firstmate.files.find`) says exist. Pure. |
 | `client/option-picker.tsx`    | A copy of `herald`'s searchable picker, for the model lists.                               |
 | `client/web.ts`, `resize-handle.tsx` | The chat/board split's drag (a copy of `github-board`'s); the chat's file picker, paste and drop. |
@@ -507,11 +508,12 @@ folder and opens any text file in an editor, with a Markdown preview for `.md`. 
 - **Text only, up to a megabyte.** A NUL byte in the first 8 KB marks a file binary; either kind is
   listed but not opened.
 - **The chat links only what the daemon vouches for.** `client/file-links.ts` picks anything
-  path-shaped out of the first mate's replies — plain text, inline code, a Markdown link's target;
-  a `/` or an extension, a trailing `:line` dropped — and `firstmate.files.find` answers which are
-  files, through the same confinement, absolute paths included when they sit under the home. One
-  query for the whole conversation, re-asked every 30 s so a file named before it was written becomes
-  a link. Captain's messages are plain `Text`, not the Markdown renderer, so they are not linked.
+  path-shaped out of the first mate's replies — plain text, inline code, a Markdown link's target,
+  never a fenced code block; a `/` or an extension, a trailing `:line` dropped, at most 1024
+  characters — and `firstmate.files.find` answers which are files, through the same confinement,
+  absolute paths included when they sit under the home. One query for the whole conversation, the
+  500 most recently mentioned paths, re-asked every 30 s so a file named before it was written
+  becomes a link. Opening one unhides a hidden right pane. Captain's messages are plain `Text`, not the Markdown renderer, so they are not linked.
 
 `AGENTS.md` opens with a note that the plugin rewrites it on every start, pointing at
 `data/captain.md` for anything that should last. The open folder, the open file and its unsaved text
