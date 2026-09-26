@@ -34,7 +34,9 @@ describe("deliverToMate", () => {
   it("sends to an idle first mate without interrupting, and waits without one or without Paseo", async () => {
     const { paseo, sent } = paseoWith("idle");
     expect(await deliverToMate(paseo, config, "note")).toBe("sent");
-    expect(sent).toEqual([{ text: "note", options: { activeTurnBehavior: "steer" } }]);
+    expect(sent).toEqual([
+      { text: "note", options: { activeTurnBehavior: "steer", messageId: expect.stringMatching(/^firstmate-watch-[0-9a-f-]{36}$/) } },
+    ]);
     expect(await deliverToMate(paseo, FirstmateConfigSchema.parse({}), "note")).toBe("wait");
     expect(await deliverToMate(null, config, "note")).toBe("wait");
   });

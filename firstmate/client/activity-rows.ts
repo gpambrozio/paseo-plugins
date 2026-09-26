@@ -215,7 +215,7 @@ export function activityRows(entries: readonly TimelineEntry[]): ActivityRow[] {
     const last = rows[rows.length - 1];
     switch (item.type) {
       case "user_message": {
-        const summary = injectedSummary(item.text);
+        const summary = injectedSummary(item.text, item.clientMessageId);
         rows.push(summary === null ? { key, kind: "prompt", text: item.text } : { key, kind: "event", text: summary });
         break;
       }

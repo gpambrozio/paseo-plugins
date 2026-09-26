@@ -13,11 +13,12 @@
  * (`WatchRunner.flushAfterTurn`), and every minute's tick tries again, so a turn whose end the plugin
  * missed delays a note by a minute at most.
  */
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import type { PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 
-import type { FirstmateConfig } from "../shared/fleet";
+import { WATCH_MESSAGE_ID_PREFIX, type FirstmateConfig } from "../shared/fleet";
 import { resolveHome, updateFirstmateConfig } from "./config";
 import { pluginDir } from "./data-dir";
 import { resolveMate } from "./fleet";
@@ -28,13 +29,16 @@ import { sendWithoutInterrupting } from "./send";
 import { serialized } from "./serialize";
 import { WatchRunner, type DeliveryOutcome } from "./watches";
 
-/** Sends to the first mate only when Paseo says it is not mid-turn, asked afresh every time. */
+/**
+ * Sends to the first mate only when Paseo says it is not mid-turn, asked afresh every time, under a
+ * watch message id so the chat can tell it from the captain's words.
+ */
 export async function deliverToMate(paseo: PaseoApi | null, config: FirstmateConfig, text: string): Promise<DeliveryOutcome> {
   if (paseo === null) return "wait";
   const { agent } = await resolveMate(paseo, config);
   if (agent === null) return "wait";
   if (isMidTurn(agent)) return "wait";
-  await sendWithoutInterrupting(paseo, agent.id, text);
+  await sendWithoutInterrupting(paseo, agent.id, text, { messageId: `${WATCH_MESSAGE_ID_PREFIX}${randomUUID()}` });
   return "sent";
 }
 

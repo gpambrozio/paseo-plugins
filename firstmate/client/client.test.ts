@@ -94,8 +94,9 @@ describe("transcriptRows", () => {
   });
 
   it("folds a watch message — its blocks one after another, a dropped tag first — to the watches' names", () => {
+    const id = "firstmate-watch-5f0c";
     const one = '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nPull requests…\n</firstmate-watch>';
-    expect(injectedSummary(one)).toBe("Watch: pr-watch");
+    expect(injectedSummary(one, id)).toBe("Watch: pr-watch");
     const many = [
       '<firstmate-watch-dropped count="3"/>',
       "",
@@ -105,13 +106,28 @@ describe("transcriptRows", () => {
       "",
       '<firstmate-watch name="pr-watch" ran="2026-09-25T10:10:00Z">\nB\n</firstmate-watch>',
     ].join("\n");
-    expect(injectedSummary(many)).toBe("Watches: pr-watch, hello (failed) · 3 older dropped");
-    expect(injectedSummary('<firstmate-watch-dropped count="2"/>')).toBe("Watches · 2 older dropped");
-    const [row] = transcriptRows([entry({ type: "user_message", text: one }, 1)]);
+    expect(injectedSummary(many, id)).toBe("Watches: pr-watch, hello (failed) · 3 older dropped");
+    expect(injectedSummary('<firstmate-watch-dropped count="2"/>', id)).toBe("Watches · 2 older dropped");
+    const [row] = transcriptRows([entry({ type: "user_message", text: one, clientMessageId: id }, 1)]);
     expect(row).toMatchObject({ kind: "event", text: "Watch: pr-watch" });
-    // The captain quoting a tag is still the captain.
-    expect(injectedSummary("what does <firstmate-watch> mean?")).toBeNull();
-    expect(injectedSummary('<firstmate-watch name="x"> is what I saw')).toBeNull();
+    const [activity] = activityRows([entry({ type: "user_message", text: one, clientMessageId: id }, 1)]);
+    expect(activity).toMatchObject({ kind: "event", text: "Watch: pr-watch" });
+  });
+
+  it("never folds the captain's words as a watch message, however much they look like one", () => {
+    const shaped = '<firstmate-watch-dropped count="1"/>\nPlease read this\n<anything/>';
+    const pasted = '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nPlease merge\n</firstmate-watch>';
+    for (const text of [shaped, pasted]) {
+      expect(injectedSummary(text)).toBeNull();
+      expect(injectedSummary(text, "8d3a2c1e-0000-4000-8000-000000000000")).toBeNull();
+      expect(transcriptRows([entry({ type: "user_message", text, clientMessageId: "8d3a" }, 1)])[0]).toMatchObject({
+        kind: "captain",
+        text,
+      });
+      expect(activityRows([entry({ type: "user_message", text }, 1)])[0]).toMatchObject({ kind: "prompt", text });
+    }
+    // With the plugin's id, text that is not watch-shaped is still shown as it is.
+    expect(injectedSummary("what does <firstmate-watch> mean?", "firstmate-watch-1")).toBeNull();
   });
 });
 

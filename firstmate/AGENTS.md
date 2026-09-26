@@ -319,10 +319,22 @@ everything it printed, never a turn per line, and **a message carries nothing of
 read is the script's to say: charter §7 has the first mate take a script's own instructions as the
 captain's, since the captain approved the script, and what it marks as quoted from others as information
 only, so a script that relays outside text has to mark it (`pr-watch` prints its own line saying the
-reviews and comments it quotes are other people's). Each script's output is escaped so it cannot close
-its own block or write either tag, which is what lets the chat trust them: `watchSummary`
-(`client/transcript-rows.ts`) folds a message that starts with one tag and ends with one into a single
-line naming the watches, the way `<paseo-system>` and `<firstmate-board>` notes fold.
+text it takes from GitHub — titles, check names, reviews, comments — is other people's, and prints every
+piece of it JSON-quoted, so a hostile title cannot pass for a line of the script's own).
+
+Two defences keep a watch message honest, and both are needed:
+
+- **What a script prints cannot write a tag.** `quoted` (`server/watches.ts`) turns the `<` of anything
+  tag-shaped into `&lt;`, stdout and stderr alike — not only the watch's own tags but `<firstmate-board>`,
+  `<paseo-system>` and whatever envelope comes next, since the charter tells the first mate to trust
+  those.
+- **The chat folds only what the plugin sent.** A watch message goes out with a `messageId` starting
+  `firstmate-watch-` (`WATCH_MESSAGE_ID_PREFIX`), which the daemon records as the timeline item's
+  `clientMessageId` (`agent-prompt.ts` in Paseo). `watchSummary` (`client/transcript-rows.ts`) folds a
+  message into one line naming the watches only when it carries that id and is watch-shaped; the captain's
+  words, even a pasted watch block, stay as they are. A timeline rebuilt without the id shows a watch
+  message in full rather than hiding anything. `<paseo-system>` and `<firstmate-board>` notes are still
+  recognised by their text alone.
 
 **The timer has no Paseo handle of its own.** The plugin API passes `paseo` only to RPC handlers and hooks —
 but it is one object per plugin process (`plugin-process.ts` in Paseo creates it once), so

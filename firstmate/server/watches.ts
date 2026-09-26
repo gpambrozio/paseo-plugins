@@ -135,9 +135,13 @@ function tail(text: string, max: number): string {
   return trimmed.length <= max ? trimmed : `…${trimmed.slice(trimmed.length - max)}`;
 }
 
-/** A script cannot close its own block, or open one — or a dropped tag — with what it prints. */
-function quoted(text: string): string {
-  return text.replace(/<(\/?firstmate-watch)/gi, "&lt;$1");
+/**
+ * What a script prints cannot open or close a tag of any kind: not its own block, not a dropped count,
+ * and not another envelope the first mate is told to trust — `<firstmate-board>`, `<paseo-system>`, or
+ * whatever comes next. Every `<` that begins something tag-shaped becomes `&lt;`; any other `<` stays.
+ */
+export function quoted(text: string): string {
+  return text.replace(/<(?=\/?[A-Za-z][\w.:-]*(?:[\s/>]|$))/g, "&lt;");
 }
 
 /**

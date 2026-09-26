@@ -20,8 +20,11 @@ import type { PaseoApi } from "./host-types";
 
 type SendOptions = NonNullable<Parameters<ReturnType<PaseoApi["agents"]["ref"]>["send"]>[1]>;
 
-/** What can go with the words: the send's own `images` and `attachments`, as Paseo's composer fills them. */
-export type SendExtras = Pick<SendOptions, "images" | "attachments">;
+/**
+ * What can go with the words: the send's own `images` and `attachments`, as Paseo's composer fills them,
+ * and a `messageId`, which the timeline keeps as the message's `clientMessageId`.
+ */
+export type SendExtras = Pick<SendOptions, "images" | "attachments" | "messageId">;
 
 export async function sendWithoutInterrupting(
   paseo: PaseoApi,
