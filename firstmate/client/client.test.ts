@@ -37,7 +37,10 @@ import {
   orderedColumns,
   relativeTime,
   shortPath,
+  watchStatusText,
+  watchTone,
 } from "./format";
+import { watchPath, type WatchSummary } from "../shared/fleet";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
@@ -88,6 +91,43 @@ describe("transcriptRows", () => {
       "The captain spoke to crewmate a1.",
     );
     expect(injectedSummary("please look at <paseo-system>")).toBeNull();
+  });
+
+  it("folds a watch message — its blocks one after another, a dropped tag first — to the watches' names", () => {
+    const id = "firstmate-watch-5f0c";
+    const one = '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nPull requests…\n</firstmate-watch>';
+    expect(injectedSummary(one, id)).toBe("Watch: pr-watch");
+    const many = [
+      '<firstmate-watch-dropped count="3"/>',
+      "",
+      '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nA\n</firstmate-watch>',
+      "",
+      '<firstmate-watch name="hello" ran="2026-09-25T10:05:00Z" failed="it exited with code 1">\nboom\n</firstmate-watch>',
+      "",
+      '<firstmate-watch name="pr-watch" ran="2026-09-25T10:10:00Z">\nB\n</firstmate-watch>',
+    ].join("\n");
+    expect(injectedSummary(many, id)).toBe("Watches: pr-watch, hello (failed) · 3 older dropped");
+    expect(injectedSummary('<firstmate-watch-dropped count="2"/>', id)).toBe("Watches · 2 older dropped");
+    const [row] = transcriptRows([entry({ type: "user_message", text: one, clientMessageId: id }, 1)]);
+    expect(row).toMatchObject({ kind: "event", text: "Watch: pr-watch" });
+    const [activity] = activityRows([entry({ type: "user_message", text: one, clientMessageId: id }, 1)]);
+    expect(activity).toMatchObject({ kind: "event", text: "Watch: pr-watch" });
+  });
+
+  it("never folds the captain's words as a watch message, however much they look like one", () => {
+    const shaped = '<firstmate-watch-dropped count="1"/>\nPlease read this\n<anything/>';
+    const pasted = '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nPlease merge\n</firstmate-watch>';
+    for (const text of [shaped, pasted]) {
+      expect(injectedSummary(text)).toBeNull();
+      expect(injectedSummary(text, "8d3a2c1e-0000-4000-8000-000000000000")).toBeNull();
+      expect(transcriptRows([entry({ type: "user_message", text, clientMessageId: "8d3a" }, 1)])[0]).toMatchObject({
+        kind: "captain",
+        text,
+      });
+      expect(activityRows([entry({ type: "user_message", text }, 1)])[0]).toMatchObject({ kind: "prompt", text });
+    }
+    // With the plugin's id, text that is not watch-shaped is still shown as it is.
+    expect(injectedSummary("what does <firstmate-watch> mean?", "firstmate-watch-1")).toBeNull();
   });
 });
 
@@ -235,6 +275,71 @@ describe("columns", () => {
     expect(boardRows(boardItems(["working", "blocked", "idle"], false))).toEqual([["working", "blocked", "idle"]]);
     expect(boardRows(boardItems([], true))).toEqual([["suggestions"]]);
     expect(boardRows(boardItems([], false))).toEqual([]);
+  });
+
+  it("counts the watches card too, last, and only when the home has watches", () => {
+    expect(boardRows(boardItems(["working"], true, true))).toEqual([["suggestions", "working", "watches"]]);
+    expect(boardRows(boardItems(["working", "idle"], true, true))).toEqual([
+      ["suggestions", "working"],
+      ["idle", "watches"],
+    ]);
+    expect(boardRows(boardItems([], false, true))).toEqual([["watches"]]);
+    expect(boardRows(boardItems(["working"], false, false))).toEqual([["working"]]);
+  });
+});
+
+describe("the Watches card", () => {
+  const now = Date.parse("2026-09-25T12:00:00.000Z");
+  const watch = (overrides: Partial<WatchSummary> = {}): WatchSummary => ({
+    name: "pr-watch",
+    schedule: "*/5 * * * *",
+    enabled: true,
+    invalid: null,
+    running: false,
+    lastRunAt: null,
+    lastResult: "never",
+    lastOutput: null,
+    lastOutputAt: null,
+    lastError: null,
+    builtIn: true,
+    outdated: false,
+    ...overrides,
+  });
+  const theme = {
+    colors: { foregroundMuted: "muted", statusWarning: "warning", statusDanger: "danger", accent: "accent" },
+  } as unknown as Parameters<typeof watchTone>[0];
+
+  it("says in one line whether a watch is on, when it last ran and what came of it", () => {
+    expect(watchStatusText(watch(), now)).toBe("not run yet");
+    expect(watchStatusText(watch({ lastRunAt: "2026-09-25T11:55:00.000Z", lastResult: "silent" }), now)).toBe(
+      "ran 5m ago · nothing new",
+    );
+    expect(
+      watchStatusText(watch({ enabled: false, lastRunAt: "2026-09-25T09:00:00.000Z", lastResult: "delivered" }), now),
+    ).toBe("off · ran 3h ago · sent to the first mate");
+    expect(watchStatusText(watch({ running: true, lastRunAt: "2026-09-25T11:59:50.000Z", lastResult: "queued" }), now)).toBe(
+      "running now · ran just now · waiting for the first mate",
+    );
+    expect(watchStatusText(watch({ lastRunAt: "2026-09-25T11:00:00.000Z", lastResult: "dropped" }), now)).toBe(
+      "ran 1h ago · dropped before the first mate could take it",
+    );
+    expect(watchStatusText(watch({ invalid: "no schedule", lastRunAt: "2026-09-25T11:00:00.000Z", lastResult: "invalid" }), now)).toBe(
+      "cannot run",
+    );
+  });
+
+  it("opens a watch's script by its path in the home", () => {
+    expect(watchPath("pr-watch")).toBe("watches/pr-watch");
+  });
+
+  it("colours a watch by its last result, and a switched-off one as muted", () => {
+    expect(watchTone(theme, watch({ lastResult: "failed" }))).toBe("danger");
+    expect(watchTone(theme, watch({ lastResult: "invalid" }))).toBe("danger");
+    expect(watchTone(theme, watch({ lastResult: "queued" }))).toBe("warning");
+    expect(watchTone(theme, watch({ lastResult: "dropped" }))).toBe("warning");
+    expect(watchTone(theme, watch({ lastResult: "delivered" }))).toBe("accent");
+    expect(watchTone(theme, watch({ lastResult: "silent" }))).toBe("muted");
+    expect(watchTone(theme, watch({ lastResult: "failed", enabled: false }))).toBe("muted");
   });
 });
 

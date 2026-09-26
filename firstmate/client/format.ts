@@ -1,6 +1,13 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 
-import { COLUMN_IDS, type AgentSummary, type ColumnId, type FleetCard } from "../shared/fleet";
+import {
+  COLUMN_IDS,
+  type AgentSummary,
+  type ColumnId,
+  type FleetCard,
+  type WatchResult,
+  type WatchSummary,
+} from "../shared/fleet";
 
 export interface ColumnMeta {
   id: ColumnId;
@@ -53,15 +60,20 @@ export function moveColumn(
 
 /** The suggestions card, which sits among the wide board's columns but is not one. */
 export const SUGGESTIONS_CARD = "suggestions";
-export type BoardItem = ColumnId | typeof SUGGESTIONS_CARD;
+/** The watches card, likewise. */
+export const WATCHES_CARD = "watches";
+export type BoardItem = ColumnId | typeof SUGGESTIONS_CARD | typeof WATCHES_CARD;
 
 /**
  * What the wide board lays out: the suggestions card first, when the first mate
- * has any, then the shown columns. The card counts toward `boardRows` like a
- * column, but it never folds or moves.
+ * has any, then the shown columns, then the watches card when the home has any
+ * watches. Each card counts toward `boardRows` like a column, but never folds or
+ * moves.
  */
-export function boardItems(shown: readonly ColumnId[], hasSuggestions: boolean): BoardItem[] {
-  return hasSuggestions ? [SUGGESTIONS_CARD, ...shown] : [...shown];
+export function boardItems(shown: readonly ColumnId[], hasSuggestions: boolean, hasWatches = false): BoardItem[] {
+  const items: BoardItem[] = hasSuggestions ? [SUGGESTIONS_CARD, ...shown] : [...shown];
+  if (hasWatches) items.push(WATCHES_CARD);
+  return items;
 }
 
 /** At most this many columns sit in one row; past it the board takes two. */
@@ -163,6 +175,42 @@ export function contextTone(theme: PluginTheme, percent: number): string {
   if (percent > 90) return theme.colors.statusDanger;
   if (percent >= 70) return theme.colors.statusWarning;
   return theme.colors.foregroundMuted;
+}
+
+const WATCH_RESULTS: Readonly<Record<WatchResult, string>> = {
+  never: "not run yet",
+  silent: "nothing new",
+  queued: "waiting for the first mate",
+  dropped: "dropped before the first mate could take it",
+  delivered: "sent to the first mate",
+  failed: "failed",
+  invalid: "cannot run",
+};
+
+/** One line on how a watch stands: "every 5 min" is the schedule's, this is the rest — "off · ran 5m ago · nothing new". */
+export function watchStatusText(watch: WatchSummary, now: number = Date.now()): string {
+  const parts: string[] = [];
+  if (!watch.enabled) parts.push("off");
+  if (watch.running) parts.push("running now");
+  if (watch.lastRunAt !== null && watch.lastResult !== "invalid") parts.push(`ran ${relativeTime(watch.lastRunAt, now)}`);
+  parts.push(WATCH_RESULTS[watch.lastResult]);
+  return parts.join(" · ");
+}
+
+export function watchTone(theme: PluginTheme, watch: WatchSummary): string {
+  if (!watch.enabled) return theme.colors.foregroundMuted;
+  switch (watch.lastResult) {
+    case "failed":
+    case "invalid":
+      return theme.colors.statusDanger;
+    case "queued":
+    case "dropped":
+      return theme.colors.statusWarning;
+    case "delivered":
+      return theme.colors.accent;
+    default:
+      return theme.colors.foregroundMuted;
+  }
 }
 
 /** "just now", "5m ago", "3h ago", "2d ago". */

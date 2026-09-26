@@ -12,6 +12,7 @@
  *     <home>/data/suggestions.md what the captain might do next; the board's buttons
  *     <home>/data/learnings.md
  *     <home>/data/opening.md     a new first mate's first message; the captain's, never overwritten
+ *     <home>/watches/            scripts the plugin runs on a schedule (watch-files.ts, watches.ts)
  *     <home>/projects/           clones for projects with no local checkout
  *     <home>/icon.svg            the icon Paseo's sidebar shows for the home
  *
@@ -41,6 +42,7 @@ import { renderCharter } from "./charter";
 import { syncCharter } from "./charter-file";
 import { parseSuggestions } from "./suggestions";
 import { TEMPLATES, readTemplate, withoutNotes, type TemplatePath } from "./templates";
+import { seedWatches } from "./watch-files";
 
 /** The home's records: written from their templates when missing, and the captain's or the first mate's after. */
 const RECORDS: readonly TemplatePath[] = [
@@ -73,7 +75,8 @@ async function writeIfMissing(path: string, content: string): Promise<void> {
 
 /**
  * Creates whatever of the home is missing, brings `data/charter.md` in step with the plugin's charter
- * (`charter-file.ts`), and renders `AGENTS.md` from it with the current config.
+ * (`charter-file.ts`) and the built-in watches with theirs (`watch-files.ts`), and renders `AGENTS.md`
+ * from the charter with the current config.
  */
 export async function prepareHome(home: string, config: FirstmateConfig): Promise<void> {
   await mkdir(join(home, "data"), { recursive: true });
@@ -85,6 +88,7 @@ export async function prepareHome(home: string, config: FirstmateConfig): Promis
     "utf8",
   );
   for (const record of RECORDS) await writeIfMissing(join(home, record), await readTemplate(record));
+  await seedWatches(home);
 }
 
 /** Whether a launch has ever prepared this home. */

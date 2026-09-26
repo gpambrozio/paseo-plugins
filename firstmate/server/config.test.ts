@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defaultHome, migrateLegacyFiles, readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import { legacyPluginDir, pluginDir } from "./data-dir";
+import { FirstmateConfigSchema, writeConfig } from "../shared/fleet";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -24,6 +25,18 @@ afterEach(async () => {
   if (previousHome === undefined) delete process.env.PASEO_HOME;
   else process.env.PASEO_HOME = previousHome;
   await rm(paseoHome, { recursive: true, force: true });
+});
+
+describe("the config.write contract", () => {
+  it("carries only the fields a save names, so the rest keep their saved values", async () => {
+    expect(writeConfig.input.parse({ crewProvider: "codex/gpt-5.5" })).toEqual({ crewProvider: "codex/gpt-5.5" });
+    // Every field of the config can be written, and nothing else.
+    expect(Object.keys(writeConfig.input.shape).sort()).toEqual(Object.keys(FirstmateConfigSchema.shape).sort());
+
+    await updateFirstmateConfig({ mateAgentId: "mate-1", disabledWatches: ["pr-watch"] });
+    const saved = await updateFirstmateConfig(writeConfig.input.parse({ crewProvider: "codex/gpt-5.5" }));
+    expect(saved).toMatchObject({ mateAgentId: "mate-1", disabledWatches: ["pr-watch"], crewProvider: "codex/gpt-5.5" });
+  });
 });
 
 describe("updateFirstmateConfig", () => {

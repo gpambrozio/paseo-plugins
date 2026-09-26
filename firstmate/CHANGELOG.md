@@ -11,6 +11,28 @@ read before you move.
 
 ### Added
 
+- **The first mate hears about your pull requests within minutes.** When a pull request on its backlog
+  is merged or closed on GitHub, gets a review or a comment from someone else, or its checks go red or
+  green, the first mate is now told within about five minutes, instead of at its next half-hourly check
+  or when you mention it. That covers pull requests to other people's projects too, so a maintainer's
+  review reaches the worker without you passing it on. Everything that changed since the last check
+  arrives together, as one short list with a link to each pull request. It needs the `gh` command,
+  logged in.
+
+  This is the first of FirstMate's **watches**: small scripts in a `watches/` folder in the first mate's
+  home that run on a schedule while Paseo is running. Everything a run prints — up to 16,000 characters —
+  reaches the first mate as one message, shown in the chat as one line naming the watches, and saying
+  nothing costs nothing. What piles up while the first mate is busy arrives together, up to 32,000
+  characters; past that the oldest are left out, and the card shows which. You can add your own — a README
+  in the folder explains how — or ask the first mate to write one for you — it asks for your approval
+  first, and knows how to build and try one. FirstMate adds nothing to what a watch prints, so a watch can
+  tell the first mate what to do about what it finds, and since you approved it, the first mate takes that
+  as your instruction. A watch that passes on text from someone else, such as a pull request comment,
+  marks it as quoted, and the first mate treats that as news, not orders; the pull request watch does this
+  itself. A new **Watches** card, after the board's columns (at the bottom of the Crew tab on a phone),
+  lists each one with when it last ran and what it last said, and switches any of them off or on. Press a
+  watch's name to open its script in the Files view. The card appears only when there are watches.
+
 - **Suggested next steps, one press away.** When the first mate reports something you will probably
   act on — a pull request ready to land, a review to run, a decision to make — it now also offers it as
   a button. On a wide screen the buttons sit in a Suggestions card before the board's columns; on a
@@ -70,6 +92,13 @@ read before you move.
 
 ### Fixed
 
+- **Saving a file in the Files view keeps its permissions.** A script you could run — a watch, say —
+  used to lose that after an edit and save, so the Watches card called it "not executable". It now stays
+  as it was; a new file is created as before.
+- **Changing a FirstMate setting no longer lets go of the first mate.** Saving one setting — the crew's
+  model, say — quietly reset the others, including which agent is the first mate and where its home is,
+  so the board could lose track of a first mate that was still running. A save now changes only the
+  setting you changed.
 - **A message you were typing to the first mate is still there when you come back.** Leaving Paseo for
   another app, putting the phone down, or letting the Mac sleep could clear the box, so a half-written
   message was gone by the time you returned. It now stays until you send it, for as long as Paseo is

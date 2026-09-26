@@ -1,9 +1,10 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { cleanRelative, listDirectory, readTextFile, writeTextFile } from "./files";
+import { listWatches } from "./watch-files";
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -105,6 +106,34 @@ describe("writeTextFile", () => {
     expect(winners).toHaveLength(1);
     expect(await readFile(join(dir, "data", "backlog.md"), "utf8")).toBe(winners[0]);
     expect((await readdir(join(dir, "data"))).sort()).toEqual(["backlog.md", "fix-login"]);
+  });
+
+  it("keeps a saved file's mode, so a watch script edited in the panel stays executable", async () => {
+    const dir = await home();
+    await mkdir(join(dir, "watches"));
+    const script = join(dir, "watches", "demo");
+    await writeFile(script, "#!/bin/sh\n# schedule: * * * * *\necho one\n");
+    await chmod(script, 0o755);
+    await chmod(join(dir, "data", "backlog.md"), 0o640);
+
+    const opened = await readTextFile(dir, "watches/demo");
+    await writeTextFile(dir, {
+      path: "watches/demo",
+      content: "#!/bin/sh\n# schedule: * * * * *\necho two\n",
+      expectedModifiedMs: opened.modifiedMs,
+      force: false,
+    });
+    expect(await readFile(script, "utf8")).toContain("echo two");
+    expect((await stat(script)).mode & 0o777).toBe(0o755);
+    expect((await listWatches(dir))[0]).toMatchObject({ name: "demo", invalid: null });
+
+    const backlog = await readTextFile(dir, "data/backlog.md");
+    await writeTextFile(dir, { path: "data/backlog.md", content: "x", expectedModifiedMs: backlog.modifiedMs, force: false });
+    expect((await stat(join(dir, "data", "backlog.md"))).mode & 0o777).toBe(0o640);
+
+    // A new file gets the default, which is never executable.
+    await writeTextFile(dir, { path: "watches/new", content: "#!/bin/sh\n", expectedModifiedMs: null, force: false });
+    expect((await stat(join(dir, "watches", "new"))).mode & 0o111).toBe(0);
   });
 
   it("creates a new file, folders and all, but never over an existing one", async () => {

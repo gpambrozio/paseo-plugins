@@ -10,6 +10,8 @@
  */
 import type { usePaseo } from "@getpaseo/plugin/client";
 
+import { isWatchMessageId } from "../shared/fleet";
+
 type PaseoApi = ReturnType<typeof usePaseo>;
 export type TimelinePage = Awaited<ReturnType<ReturnType<PaseoApi["agents"]["ref"]>["timeline"]["refetch"]>>;
 export type TimelineEntry = TimelinePage["entries"][number];
@@ -26,9 +28,39 @@ export type TranscriptRow =
 /** Envelopes a message is wrapped in when it did not come from the captain. */
 const ENVELOPES = ["paseo-system", "firstmate-board"] as const;
 
-/** The first line inside an injected note — "Agent 3f2a… (Fix login) finished." — or null for the captain's own words. */
-export function injectedSummary(text: string): string | null {
+/**
+ * A watch message — `<firstmate-watch name=… ran=…>` blocks one after another, a
+ * `<firstmate-watch-dropped count="N"/>` first when older ones were dropped — as one line naming the
+ * watches: "Watch: pr-watch", "Watches: pr-watch, hello (failed) · 3 older dropped". Null for anything
+ * else. Called only for a message the plugin sent as one (`isWatchMessageId`); a script cannot write a
+ * tag into its own output (the runner escapes them), so every one found is the plugin's.
+ */
+export function watchSummary(trimmed: string): string | null {
+  if (!/^<firstmate-watch(-dropped)?[\s>/]/.test(trimmed)) return null;
+  if (!/(<\/firstmate-watch>|\/>)$/.test(trimmed)) return null;
+  const blocks = [...trimmed.matchAll(/<firstmate-watch name="([^"]*)"([^>]*)>/g)].map((match) => ({
+    name: match[1] ?? "",
+    failed: (match[2] ?? "").includes("failed="),
+  }));
+  const names = [...new Set(blocks.map((block) => block.name))].map((name) =>
+    blocks.some((block) => block.name === name && block.failed) ? `${name} (failed)` : name,
+  );
+  const dropped = /<firstmate-watch-dropped count="(\d+)"\/>/.exec(trimmed)?.[1];
+  const head = names.length === 0 ? "Watches" : `${names.length === 1 ? "Watch" : "Watches"}: ${names.join(", ")}`;
+  return dropped === undefined ? head : `${head} · ${dropped} older dropped`;
+}
+
+/**
+ * The first line inside an injected note — "Agent 3f2a… (Fix login) finished." — or null for the captain's
+ * own words. `clientMessageId` is the timeline item's: only a message the plugin sent as a watch message
+ * is folded as one, so the captain's words stay visible even when they look like a watch note.
+ */
+export function injectedSummary(text: string, clientMessageId?: string): string | null {
   const trimmed = text.trim();
+  if (isWatchMessageId(clientMessageId)) {
+    const watch = watchSummary(trimmed);
+    if (watch !== null) return watch;
+  }
   for (const tag of ENVELOPES) {
     if (!trimmed.startsWith(`<${tag}>`)) continue;
     const body = trimmed.slice(tag.length + 2).replace(new RegExp(`</${tag}>\\s*$`), "");
@@ -121,7 +153,7 @@ export function transcriptRows(entries: readonly TimelineEntry[]): TranscriptRow
     const item = entry.item;
     switch (item.type) {
       case "user_message": {
-        const summary = injectedSummary(item.text);
+        const summary = injectedSummary(item.text, item.clientMessageId);
         // A message of attachments alone has no words; the row still says the captain sent something.
         const text = item.text.trim() === "" ? "(attachments)" : item.text;
         rows.push(summary === null ? { key, kind: "captain", text } : { key, kind: "event", text: summary });

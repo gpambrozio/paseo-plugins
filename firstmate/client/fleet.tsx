@@ -8,7 +8,9 @@
  *
  * The first mate's suggestions are buttons that send their words to it, as
  * the chat's Send would: a card beside the crew's columns on a wide layout, a
- * tab of their own on a phone, and nowhere at all while it has none.
+ * tab of their own on a phone, and nowhere at all while it has none. The home's
+ * watch scripts are a card after the columns, and on a phone the foot of the
+ * Crew tab: they are looked at now and then, not acted on, so they get no tab.
  *
  * A surface is unmounted whenever the captain opens a workspace, so the last
  * fleet, the compact tab and the crewmate being watched live in module scope
@@ -303,6 +305,13 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       .finally(() => setEnabling(false));
   }
 
+  /** Shows the Files view — the tab on a phone, the right-hand pane on a wide layout — with `path` open. */
+  function openFile(path: string): void {
+    if (compact) setTab("files");
+    else setRightPane("files");
+    setFilesRequest({ path, at: Date.now() });
+  }
+
   /** Puts the plugin's current charter beside the captain's and opens it in the Files view. */
   function compareCharterFiles(): void {
     setCharterBusy(true);
@@ -312,9 +321,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
           refresh();
           return;
         }
-        if (compact) setTab("files");
-        else setRightPane("files");
-        setFilesRequest({ path, at: Date.now() });
+        openFile(path);
       })
       .catch((caught: unknown) => toast.error(errorText(caught)))
       .finally(() => setCharterBusy(false));
@@ -498,6 +505,8 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       suggestions={data.suggestions}
       suggesting={mateSender.sending}
       onSuggest={suggest}
+      watches={data.watches}
+      onOpenFile={openFile}
       onWatch={setWatching}
       onChanged={refresh}
       onToggleColumn={(id: ColumnId) =>

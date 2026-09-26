@@ -70,7 +70,7 @@ export async function launchMate(
 
 const MID_TURN = "The first mate is in the middle of a turn.";
 
-function isMidTurn(agent: { status: string }): boolean {
+export function isMidTurn(agent: { status: string }): boolean {
   return agent.status === "running" || agent.status === "initializing";
 }
 

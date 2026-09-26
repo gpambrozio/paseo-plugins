@@ -30,6 +30,11 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
 | `server/crew-seen.ts`         | Clears a crewmate's "finished" flag once a later first-mate turn has completed.            |
+| `server/watches.ts`           | The watch runner: the minute timer, runs, the queue, `<firstmate-watch>` notes, `watches.json`. |
+| `server/watch-service.ts`     | The runner wired to Paseo: the kept Paseo handle, delivery to the first mate, the on/off switch. |
+| `server/watch-files.ts`       | `watches/`: which files are watches, their `schedule:` line, seeding the built-ins.        |
+| `server/watch-schedule.ts`    | A crontab line → `Schedule`, and whether a local minute matches it. Pure.                  |
+| `server/watch-run.ts`         | One script run: its own process group, a timeout, stdout capped, stderr's tail.           |
 | `server/send.ts`              | Sending to an agent without interrupting its turn where the provider allows (`"steer"`).   |
 | `shared/attachments.ts`       | What the captain can attach: the message's shape, image-or-file by Paseo's rules, the size cap. |
 | `server/uploads.ts`           | An attached file written to `$PASEO_HOME/uploads/`, described as Paseo's `uploaded_file`.     |
@@ -53,6 +58,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
 | `client/suggestions.tsx`      | The first mate's suggestions as buttons: a card on the wide board, a tab on a phone.       |
+| `client/watches.tsx`          | The Watches card: each watch's schedule, last run and output, and its on/off switch.       |
 | `client/mate-send.ts`         | Sending to the first mate — Send, Bearings, Ahoy, a suggestion — one message at a time.    |
 | `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
 | `client/activity-rows.ts`     | Timeline entries → Watch rows, machinery kept: reasoning, tool detail, the latest plan. Pure. |
@@ -179,7 +185,8 @@ drop out of the first mate's view. Agents get `PASEO_CLI`, `PASEO_HOME` and thei
 holds, in three places:
 
 - **The home's files**, laid out as they land there — `AGENTS.md`, `icon.svg`, `data/captain.md` and the
-  other records, `data/charter.md` with its note, `data/charter.new.md`.
+  other records, `data/charter.md` with its note, `data/charter.new.md`, and `watches/` with the built-in
+  watches and the folder's README.
 - **`parts/`** — the sentences that fill `{{crewProviderRule}}` and `{{crewModeRule}}` in the charter, one
   for a setting left open and one for a setting chosen.
 - **`messages/`** — everything the plugin sends the first mate: the note a restart adds after the opening,
@@ -188,7 +195,9 @@ holds, in three places:
   `/ahoy`. A template cannot branch, so a message that reads differently when something is missing is
   two files. Bearings and Ahoy are worded on the daemon — the app cannot read the plugin's files — so
   the buttons, ⌘K and the slash commands send `firstmate.mate.command` with the command's name and what
-  followed it, and `commandText` picks the template.
+  followed it, and `commandText` picks the template. A watch message has no wrapper: it is `watch-output.md`
+  and `watch-failed.md` blocks one after another, led by `watch-dropped.md`'s self-closing
+  `<firstmate-watch-dropped count="N"/>` when a full queue dropped some.
 
 `TEMPLATES` in `server/templates.ts` names every one, and `templates.test.ts` fails if the folder and that
 list disagree, or if `package.json` stops shipping the folder (`files` names it; a top-level directory it
@@ -287,6 +296,85 @@ two local branches wrote "…, ready in branch fm/…, awaiting captain's approv
 and the cards grew with them. The charter now says where status lives — the section, the crewmate's
 status line, and `(hold: …)` for anything waiting on the captain, which the card already shows as
 "Captain's call".
+
+## Watches run on the plugin's own clock
+
+A watch is an executable script in the home's `watches/` folder that declares a crontab schedule in a
+comment near its top (`server/watch-files.ts` says exactly which files count, and `templates/watches/README.md`
+is the captain's documentation, env vars included). `WatchRunner` (`server/watches.ts`) ticks on every
+minute's boundary and runs whatever is due, enabled and valid. Paseo's own schedules are no use here: each
+fire prompts an agent, and a watch's usual run should cost nothing. The schedule is read in the daemon's
+local time, and a minute the daemon missed is not made up.
+
+**Output goes to the first mate only between turns.** Non-empty stdout is queued; a flush sends the whole
+queue as one message, from `templates/messages/watch-*.md`, through `sendWithoutInterrupting`. It waits
+while the first mate is `running` or `initializing`, or absent, and asks Paseo afresh before every send —
+never assumes, since a note sent into a newer turn can replace that turn where the provider cannot steer.
+The first mate's own `agent.turn_ended` tries the queue 1, 5 and 15 seconds later (`flushAfterTurn`: its
+snapshot can still say running for a moment, and a crewmate's finish note may start a turn at once), and
+every tick tries again. The queue holds `MAX_QUEUED` and counts what it drops, and one message holds at
+most `MAX_MESSAGE_CHARS` (32,000), tags included: `fitWatchNote` keeps the newest blocks that fit and drops
+the oldest whole, counting them in the same `<firstmate-watch-dropped>` tag and marking their watches
+`dropped` on the card. The newest block always goes — two blocks at the 16,000 cap come to a little over
+32,000 with their tags and marker, so only one is certain. **A run is one block**,
+everything it printed, never a turn per line, and **a message carries nothing of the plugin's** — just
+`<firstmate-watch name=… ran=…>` blocks one after another, oldest first, with the plugin's own facts
+(a `failed=` block, a leading `<firstmate-watch-dropped count="N"/>`). How output is to be
+read is the script's to say: charter §7 has the first mate take a script's own instructions as the
+captain's, since the captain approved the script, and what it marks as quoted from others as information
+only, so a script that relays outside text has to mark it (`pr-watch` prints its own line saying the
+text it takes from GitHub — titles, check names, reviews, comments — is other people's, and prints every
+piece of it JSON-quoted, so a hostile title cannot pass for a line of the script's own).
+
+Two defences keep a watch message honest, and both are needed:
+
+- **What a script prints cannot write a tag.** `quoted` (`server/watches.ts`) turns the `<` of anything
+  tag-shaped into `&lt;`, stdout and stderr alike — not only the watch's own tags but `<firstmate-board>`,
+  `<paseo-system>` and whatever envelope comes next, since the charter tells the first mate to trust
+  those.
+- **The chat folds only what the plugin sent.** A watch message goes out with a `messageId` starting
+  `firstmate-watch-` (`WATCH_MESSAGE_ID_PREFIX`), which the daemon records as the timeline item's
+  `clientMessageId` (`agent-prompt.ts` in Paseo). `watchSummary` (`client/transcript-rows.ts`) folds a
+  message into one line naming the watches only when it carries that id and is watch-shaped; the captain's
+  words, even a pasted watch block, stay as they are. A timeline rebuilt without the id shows a watch
+  message in full rather than hiding anything. `<paseo-system>` and `<firstmate-board>` notes are still
+  recognised by their text alone.
+
+**The timer has no Paseo handle of its own.** The plugin API passes `paseo` only to RPC handlers and hooks —
+but it is one object per plugin process (`plugin-process.ts` in Paseo creates it once), so
+`server/watch-service.ts` keeps the first it sees from `firstmate.fleet.load`, the toggle RPC, or any
+agent's `turn_started`/`turn_ended`. Until then, after a plugin start, watches run and their output waits.
+
+What the card shows and the queue itself are in `$PASEO_HOME/plugin-data/firstmate/watches.json`, so a
+reload neither loses an output the script has already moved past (the PR watch's baseline has advanced)
+nor reports a failure twice. A failure — non-zero exit, timeout, a script that will not start — is queued
+once, with stderr's tail, and marks the watch `failing` until a run succeeds; its stdout is not sent. A
+run is its own process group (`detached`), so a timeout's SIGTERM, and SIGKILL two seconds later, reach its
+`gh` — the SIGKILL fires even when the script itself has exited, since a child that ignores SIGTERM and has
+closed its pipes outlives it. A plugin stop aborts running scripts the same way, and starts nothing after,
+even from a tick already under way (`runWatchScript` checks an already-aborted signal before spawning). A watch still running when it is due again is
+skipped, not queued.
+
+**On and off is the daemon's config** (`disabledWatches`), not a settings document: the runner acts on it,
+and a toggle from the card is `firstmate.watch.toggle`, read and written under `serialized` so two quick
+presses cannot undo each other. The script is never touched.
+
+**Built-in watches follow the plugin until edited**, like `data/charter.md`: each carries a
+`firstmate-watch <fingerprint>` comment, and `seedWatches` (on `prepareHome` and every tick) rewrites an
+untouched copy of an older version and keeps an edited one — the card says when the plugin's has moved on,
+and deleting the file takes it. A deleted built-in is written again, which is why the card's switch is the
+way to silence one. `pr-watch` is Node, with only dynamic `import()`s, so it runs whether Node treats the
+extensionless file as CommonJS or ESM; its test (`server/pr-watch.test.ts`) seeds it into a temporary home
+and runs it against a stand-in `gh` on a `PATH` of its own. It skips the backlog's `## Done` section,
+subsections included, and comments by the account `gh` is logged in as — the crew's and the captain's own.
+It has to finish inside the runner's two minutes, so it looks up four pull requests at a time, starts none
+after a 70-second budget, and takes the least recently checked first, saving what it checked: a long or
+slow backlog is covered over a few runs instead of timing out on every one.
+
+The card sits after the columns in `boardItems`, and on a phone at the foot of the Crew tab rather than in
+a tab of its own: it is looked at now and then, and a fifth tab does not fit a phone's width. A watch's
+name opens its script (`watchPath`, the same `watches/` the server reads) through the surface's `openFile`,
+the charter Compare's way into the Files view: the Files tab on a phone, the right-hand pane otherwise.
 
 ## Suggestions are the first mate's, and a press sends one
 
@@ -590,7 +678,8 @@ later, web-only — see *Attachments go the way Paseo's composer sends them*.
 ## Checking it
 
 `npm test` covers the parsers, the column rules, the card join, the charter's placeholders, the home's
-write-once records, the relay text, the transcript rows and the column order. What it cannot cover,
+write-once records, the relay text, the transcript rows, the column order, and the watches — schedules,
+the runner's queue and guardrails, seeding, and `pr-watch` against a stand-in `gh`. What it cannot cover,
 check against a **throwaway daemon** (see the root AGENTS.md — never the real one, whose agents are
 the user's):
 

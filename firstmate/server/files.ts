@@ -11,12 +11,13 @@
  * Writes carry the modification time the editor opened the file at, because
  * the first mate writes these same files; a save over a newer version is
  * refused unless forced. Each write goes to a temporary file that is then
- * renamed, so a crash never leaves half a file for the first mate to read.
+ * renamed, so a crash never leaves half a file for the first mate to read; it
+ * takes the replaced file's mode first, so an executable stays executable.
  * Writes to one path run one at a time, so two saves opened at the same
  * version cannot both pass the check.
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 
 import { MAX_EDITABLE_BYTES, type HomeEntry } from "../shared/files";
@@ -158,6 +159,9 @@ async function replaceChecked(
   const temporary = `${absolute}.firstmate-${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, input.content, "utf8");
+    // The temporary file has the default mode; the one it replaces keeps its own, so a watch script
+    // saved here stays executable. A new file keeps the default.
+    if (current !== null) await chmod(temporary, current.mode & 0o7777);
     await rename(temporary, absolute);
   } catch (error) {
     await rm(temporary, { force: true });

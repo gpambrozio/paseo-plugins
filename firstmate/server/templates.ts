@@ -33,6 +33,8 @@ export const TEMPLATES = {
   opening: "data/opening.md",
   projects: "data/projects.md",
   suggestions: "data/suggestions.md",
+  watchesReadme: "watches/README.md",
+  watchPr: "watches/pr-watch",
   crewModeChosen: "parts/crew-mode-chosen.md",
   crewModeOpen: "parts/crew-mode-open.md",
   crewProviderChosen: "parts/crew-provider-chosen.md",
@@ -46,6 +48,9 @@ export const TEMPLATES = {
   steerRelay: "messages/steer-relay.md",
   steerRelayClipped: "messages/steer-relay-clipped.md",
   steerRelayNoAnswer: "messages/steer-relay-no-answer.md",
+  watchOutput: "messages/watch-output.md",
+  watchFailed: "messages/watch-failed.md",
+  watchDropped: "messages/watch-dropped.md",
 } as const;
 
 export type TemplatePath = (typeof TEMPLATES)[keyof typeof TEMPLATES];
