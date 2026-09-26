@@ -171,6 +171,41 @@ async function replaceChecked(
   return { path: rel, size: saved.size, modifiedMs: Math.floor(saved.mtimeMs) };
 }
 
+/**
+ * The home-relative path of `candidate` — relative to the home, or absolute
+ * under it as given or as its real path — or null when it names no file
+ * inside the home: outside it, lexically or through a symlink, missing, or a
+ * folder.
+ */
+async function homeFileOf(home: string, root: string, candidate: string): Promise<string | null> {
+  let rel = candidate;
+  if (isAbsolute(candidate)) {
+    const inside = [home, root].find((base) => isInside(base, candidate));
+    if (inside === undefined) return null;
+    rel = relative(inside, candidate);
+  }
+  try {
+    const resolved = await resolveInHome(home, rel);
+    if (resolved.relative === "") return null;
+    return (await stat(resolved.absolute)).isFile() ? resolved.relative : null;
+  } catch {
+    // Outside the home, or not there: not a link, and not worth an error in a chat.
+    return null;
+  }
+}
+
+/** Each of `candidates` that is a file in the home, mapped to the path the Files view opens it by. */
+export async function findFiles(home: string, candidates: readonly string[]): Promise<Record<string, string>> {
+  const root = await realpath(home);
+  const found = await Promise.all(candidates.map((candidate) => homeFileOf(home, root, candidate)));
+  const files: Record<string, string> = {};
+  candidates.forEach((candidate, index) => {
+    const path = found[index];
+    if (path !== null && path !== undefined) files[candidate] = path;
+  });
+  return files;
+}
+
 /** The home, which a launch creates; before that there is nothing to show, and saying so beats ENOENT. */
 export async function requireHome(home: string): Promise<string> {
   try {

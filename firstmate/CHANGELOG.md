@@ -48,6 +48,11 @@ read before you move.
   the same way it would from Paseo's own message box. This works in the Mac app and in a browser,
   phone browsers included; in the iPhone and Android apps the button does not appear yet, because
   Paseo does not let plugins open the photo library or the file picker there.
+- **Files the first mate mentions are links.** When a reply in the chat names a file in the first
+  mate's home — `data/backlog.md`, `AGENTS.md`, a watch script, or the file's full path — it is a link
+  that opens the file in the Files view: beside the chat on a wide window, in the Files tab on a phone.
+  Only files that are really there are linked; anything outside the home, or not written yet, stays
+  plain text.
 
 ### Changed
 
