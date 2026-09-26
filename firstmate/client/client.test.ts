@@ -20,6 +20,7 @@ import {
   toAttachment,
 } from "./attachments";
 import { createDraftStore } from "./draft";
+import { fileCandidates, inlineTokens, lookupIn, pathCandidate } from "./file-links";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { createSendGate } from "./mate-send";
@@ -711,5 +712,104 @@ describe("CaptainMessageSchema", () => {
     const file = { fileName: "a.bin", mimeType: "application/octet-stream", data: base64Of(each) };
     expect(CaptainMessageSchema.safeParse({ text: "", files: [file] }).success).toBe(true);
     expect(CaptainMessageSchema.safeParse({ text: "", files: [file, file, file] }).success).toBe(false);
+  });
+});
+
+describe("file links", () => {
+  const home = "/Users/captain/firstmate";
+  const lookup = lookupIn({
+    "data/backlog.md": "data/backlog.md",
+    "AGENTS.md": "AGENTS.md",
+    "watches/pr-watch": "watches/pr-watch",
+    "./data/backlog.md": "data/backlog.md",
+    [`${home}/data/scout-x/report.md`]: "data/scout-x/report.md",
+  });
+
+  it("takes paths with a slash or an extension, without a trailing line number", () => {
+    expect(pathCandidate("data/scout-x/report.md")).toBe("data/scout-x/report.md");
+    expect(pathCandidate("watches/pr-watch")).toBe("watches/pr-watch");
+    expect(pathCandidate("AGENTS.md")).toBe("AGENTS.md");
+    expect(pathCandidate(`${home}/data/backlog.md`)).toBe(`${home}/data/backlog.md`);
+    expect(pathCandidate("data/backlog.md:12")).toBe("data/backlog.md");
+    expect(pathCandidate("data/backlog.md:12:4")).toBe("data/backlog.md");
+    expect(pathCandidate("backlog")).toBeNull();
+    expect(pathCandidate("npm run test")).toBeNull();
+    expect(pathCandidate("https://example.com/a.md")).toBeNull();
+    expect(pathCandidate("/")).toBeNull();
+    expect(pathCandidate("10:30")).toBeNull();
+  });
+
+  it("collects every candidate once, from plain text, inline code and link targets", () => {
+    expect(
+      fileCandidates(
+        "See data/backlog.md, `AGENTS.md` and [the report](data/scout-x/report.md).\n" +
+          "Again: data/backlog.md. Not this: https://github.com/a/b.md or **bold/text**.",
+      ),
+    ).toEqual(["data/backlog.md", "AGENTS.md", "data/scout-x/report.md"]);
+  });
+
+  it("links a file named in plain text, leaving the punctuation around it as text", () => {
+    expect(inlineTokens("Wrote data/backlog.md.", lookup)).toEqual([
+      { kind: "text", text: "Wrote " },
+      { kind: "file", text: "data/backlog.md", path: "data/backlog.md", code: false },
+      { kind: "text", text: "." },
+    ]);
+    expect(inlineTokens("(see AGENTS.md)", lookup)).toEqual([
+      { kind: "text", text: "(see " },
+      { kind: "file", text: "AGENTS.md", path: "AGENTS.md", code: false },
+      { kind: "text", text: ")" },
+    ]);
+    expect(inlineTokens('"watches/pr-watch", then ./data/backlog.md?', lookup)).toEqual([
+      { kind: "text", text: '"' },
+      { kind: "file", text: "watches/pr-watch", path: "watches/pr-watch", code: false },
+      { kind: "text", text: '", then ' },
+      { kind: "file", text: "./data/backlog.md", path: "data/backlog.md", code: false },
+      { kind: "text", text: "?" },
+    ]);
+  });
+
+  it("keeps a line number in the link's text and out of the path it opens", () => {
+    expect(inlineTokens("at data/backlog.md:12:", lookup)).toEqual([
+      { kind: "text", text: "at " },
+      { kind: "file", text: "data/backlog.md:12", path: "data/backlog.md", code: false },
+      { kind: "text", text: ":" },
+    ]);
+  });
+
+  it("links an absolute path under the home to its home-relative path", () => {
+    expect(inlineTokens(`\`${home}/data/scout-x/report.md\``, lookup)).toEqual([
+      { kind: "file", text: `${home}/data/scout-x/report.md`, path: "data/scout-x/report.md", code: true },
+    ]);
+  });
+
+  it("marks a path written as inline code, so it keeps that look", () => {
+    expect(inlineTokens("Open `AGENTS.md`", lookup)).toEqual([
+      { kind: "text", text: "Open " },
+      { kind: "file", text: "AGENTS.md", path: "AGENTS.md", code: true },
+    ]);
+    expect(inlineTokens("Run `npm test`", lookup)).toEqual([
+      { kind: "text", text: "Run " },
+      { kind: "code", text: "npm test" },
+    ]);
+  });
+
+  it("leaves a path the daemon did not vouch for as text", () => {
+    expect(inlineTokens("Not data/missing.md or ../outside.md", lookup)).toEqual([
+      { kind: "text", text: "Not data/missing.md or ../outside.md" },
+    ]);
+    expect(inlineTokens("`data/missing.md`", lookup)).toEqual([{ kind: "code", text: "data/missing.md" }]);
+  });
+
+  it("opens a Markdown link to a home file in Files, and leaves URLs and bold as they were", () => {
+    expect(inlineTokens("[the backlog](data/backlog.md)", lookup)).toEqual([
+      { kind: "file", text: "the backlog", path: "data/backlog.md", code: false },
+    ]);
+    expect(inlineTokens("[docs](https://paseo.sh/docs). **data/backlog.md** https://x.dev/a.", lookup)).toEqual([
+      { kind: "link", text: "docs", url: "https://paseo.sh/docs" },
+      { kind: "text", text: ". " },
+      { kind: "bold", text: "data/backlog.md" },
+      { kind: "text", text: " " },
+      { kind: "link", text: "https://x.dev/a.", url: "https://x.dev/a" },
+    ]);
   });
 });

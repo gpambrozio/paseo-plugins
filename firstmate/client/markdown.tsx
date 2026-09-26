@@ -5,10 +5,11 @@
  * Markdown library is reachable, and the host has no renderer of its own to
  * lend. This covers what a first mate's reply actually uses — headings,
  * lists, fenced code, quotes, rules, pipe tables, and bold, code and links
- * inline — and renders anything else as a plain paragraph. It is a trimmed
- * copy of `github-board/client/markdown.tsx`, without the HTML, `<details>`
- * and image handling an issue body needs and an agent's reply does not; there
- * is no workspace root to share one from.
+ * inline, with the home's files it names linked (`./file-links`) — and
+ * renders anything else as a plain paragraph. It is a trimmed copy of
+ * `github-board/client/markdown.tsx`, without the HTML, `<details>` and image
+ * handling an issue body needs and an agent's reply does not; there is no
+ * workspace root to share one from.
  *
  * Single newlines break lines, so a list the agent wrapped by hand keeps its
  * shape instead of reflowing.
@@ -17,6 +18,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useMemo, type ReactNode } from "react";
 import { Text, View } from "react-native";
 
+import { inlineTokens, type FileLookup } from "./file-links";
 import { MONOSPACE } from "./ui";
 
 type Block =
@@ -200,48 +202,66 @@ function useMarkdownStyles(theme: PluginTheme, fontSize: number): MarkdownStyles
   );
 }
 
-/** Bold, inline code and links, in one pass; everything else stays as written. */
-const INLINE = /(\*\*[^*\n]+\*\*|__[^_\n]+__|`[^`\n]+`|\[[^\]\n]*\]\([^)\s]+\)|https?:\/\/[^\s)<>]+)/g;
+const noFiles: FileLookup = () => null;
 
-function renderInline(text: string, styles: MarkdownStyles, onOpenLink: (url: string) => void): ReactNode[] {
-  // Splitting on a capturing group interleaves plain text (even indexes) with
-  // the tokens it matched (odd ones). `.map` rather than a loop, because a
-  // link's press handler closes over its URL and a closure made in a
-  // `for…of` body captures the binding's final value under Hermes.
-  return text.split(INLINE).map((part, index) => {
-    if (index % 2 === 0 || part === "") return part;
-    if (part.startsWith("`")) {
-      return (
-        <Text key={index} style={styles.inlineCode}>
-          {part.slice(1, -1)}
-        </Text>
-      );
+/** What a press on an inline link does, and which paths are files to link. */
+interface InlineContext {
+  lookup: FileLookup;
+  onOpenLink: (url: string) => void;
+  onOpenFile: ((path: string) => void) | null;
+}
+
+function renderInline(text: string, styles: MarkdownStyles, context: InlineContext): ReactNode[] {
+  // `.map` rather than a loop, because a link's press handler closes over its
+  // target and a closure made in a `for…of` body captures the binding's final
+  // value under Hermes.
+  const { onOpenFile } = context;
+  const lookup = onOpenFile === null ? noFiles : context.lookup;
+  return inlineTokens(text, lookup).map((token, index) => {
+    switch (token.kind) {
+      case "text":
+        return token.text;
+      case "code":
+        return (
+          <Text key={index} style={styles.inlineCode}>
+            {token.text}
+          </Text>
+        );
+      case "bold":
+        return (
+          <Text key={index} style={styles.bold}>
+            {token.text}
+          </Text>
+        );
+      case "file":
+        return (
+          <Text
+            key={index}
+            accessibilityRole="link"
+            accessibilityHint={`Opens ${token.path} in Files`}
+            style={token.code ? [styles.inlineCode, styles.link] : styles.link}
+            onPress={() => onOpenFile?.(token.path)}
+          >
+            {token.text}
+          </Text>
+        );
+      default:
+        return (
+          <Text key={index} accessibilityRole="link" style={styles.link} onPress={() => context.onOpenLink(token.url)}>
+            {token.text}
+          </Text>
+        );
     }
-    if (part.startsWith("**") || part.startsWith("__")) {
-      return (
-        <Text key={index} style={styles.bold}>
-          {part.slice(2, -2)}
-        </Text>
-      );
-    }
-    const link = /^\[([^\]]*)\]\(([^)]+)\)$/.exec(part);
-    const url = (link?.[2] ?? part).replace(/[.,;:]+$/, "");
-    const label = link === null ? part : link[1] === "" ? url : (link[1] ?? url);
-    return (
-      <Text key={index} accessibilityRole="link" style={styles.link} onPress={() => onOpenLink(url)}>
-        {label}
-      </Text>
-    );
   });
 }
 
-function renderBlocks(blocks: Block[], styles: MarkdownStyles, onOpenLink: (url: string) => void): ReactNode[] {
+function renderBlocks(blocks: Block[], styles: MarkdownStyles, context: InlineContext): ReactNode[] {
   return blocks.map((block, index) => {
     switch (block.kind) {
       case "heading":
         return (
           <Text key={index} accessibilityRole="header" style={block.level <= 2 ? styles.headingLarge : styles.heading}>
-            {renderInline(block.text, styles, onOpenLink)}
+            {renderInline(block.text, styles, context)}
           </Text>
         );
       case "list":
@@ -250,7 +270,7 @@ function renderBlocks(blocks: Block[], styles: MarkdownStyles, onOpenLink: (url:
             {block.items.map((item, itemIndex) => (
               <View key={itemIndex} style={[styles.listRow, { paddingLeft: item.depth * 14 }]}>
                 <Text style={styles.listMarker}>{item.marker}</Text>
-                <Text style={[styles.paragraph, styles.listText]}>{renderInline(item.text, styles, onOpenLink)}</Text>
+                <Text style={[styles.paragraph, styles.listText]}>{renderInline(item.text, styles, context)}</Text>
               </View>
             ))}
           </View>
@@ -266,7 +286,7 @@ function renderBlocks(blocks: Block[], styles: MarkdownStyles, onOpenLink: (url:
       case "quote":
         return (
           <View key={index} style={styles.quote}>
-            {renderBlocks(block.blocks, styles, onOpenLink)}
+            {renderBlocks(block.blocks, styles, context)}
           </View>
         );
       case "rule":
@@ -279,7 +299,7 @@ function renderBlocks(blocks: Block[], styles: MarkdownStyles, onOpenLink: (url:
                 {cells.map((cell, cellIndex) => (
                   <View key={cellIndex} style={styles.tableCell}>
                     <Text style={[styles.paragraph, rowIndex === 0 ? styles.tableHeader : null]}>
-                      {renderInline(cell, styles, onOpenLink)}
+                      {renderInline(cell, styles, context)}
                     </Text>
                   </View>
                 ))}
@@ -290,7 +310,7 @@ function renderBlocks(blocks: Block[], styles: MarkdownStyles, onOpenLink: (url:
       default:
         return (
           <Text key={index} selectable style={styles.paragraph}>
-            {renderInline(block.text, styles, onOpenLink)}
+            {renderInline(block.text, styles, context)}
           </Text>
         );
     }
@@ -302,13 +322,18 @@ export function Markdown({
   theme,
   fontSize = 13,
   onOpenLink,
+  files = noFiles,
+  onOpenFile = null,
 }: {
   source: string;
   theme: PluginTheme;
   fontSize?: number;
   onOpenLink: (url: string) => void;
+  /** Which paths the text names are files in the home — see `./file-links`; none without `onOpenFile`. */
+  files?: FileLookup;
+  onOpenFile?: ((path: string) => void) | null;
 }) {
   const styles = useMarkdownStyles(theme, fontSize);
   const blocks = useMemo(() => parseMarkdown(source), [source]);
-  return <View style={{ gap: 6 }}>{renderBlocks(blocks, styles, onOpenLink)}</View>;
+  return <View style={{ gap: 6 }}>{renderBlocks(blocks, styles, { lookup: files, onOpenLink, onOpenFile })}</View>;
 }

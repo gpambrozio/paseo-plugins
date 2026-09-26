@@ -67,7 +67,8 @@ charter, the records it starts with, the home's icon — is in `templates/`, as 
 - The chat in the panel — Enter sends and Shift+Enter starts a new line, as in Paseo — or open the
   first mate in Paseo for the whole session, every tool call and its output. The chat follows new
   messages while you are at the bottom; scroll up to read, and the round button at the bottom brings
-  you back.
+  you back. A file in the home that the first mate names in a reply is a link that opens it in the
+  Files view.
 - **How full its memory is** — the ring at the end of the chat's buttons shows how much of the first
   mate's context window is used, the way Paseo's own chat does: amber from 70%, red past 90%. Hover
   over it, or tap it on a phone, for the share and the token counts.

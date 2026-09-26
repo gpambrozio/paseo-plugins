@@ -4,11 +4,13 @@
  * one press away in Paseo itself, which is what the Open button is for.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
-import { openExternalUrl } from "@getpaseo/plugin/client";
+import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Image, Platform, Pressable, SafeAreaView, ScrollView, Text, View } from "react-native";
 
+import { MAX_FILE_CANDIDATES, findHomeFiles } from "../shared/files";
 import type { AgentSummary, MateCommand } from "../shared/fleet";
 import {
   admit,
@@ -21,6 +23,7 @@ import {
   type PendingAttachment,
 } from "./attachments";
 import { drafts } from "./draft";
+import { fileCandidates, lookupIn } from "./file-links";
 import { useFollowEnd } from "./follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { MateControls } from "./mate-controls";
@@ -64,12 +67,41 @@ function groupRows(rows: readonly TranscriptRow[]): Group[] {
   return groups;
 }
 
+/**
+ * Which of the paths the first mate's replies name are files in its home — the
+ * daemon's say, since only it can see the disk. Asked once for the whole
+ * conversation, the latest mentions first past the cap, and again now and
+ * then, so a file the first mate writes after naming it becomes a link.
+ * Until the answer arrives, and if it fails, the paths are text.
+ */
+function useHomeFileLinks(rows: readonly TranscriptRow[]) {
+  const find = useRpc(findHomeFiles);
+  const candidates = useMemo(() => {
+    const all = new Set<string>();
+    for (const row of rows) {
+      if (row.kind === "mate") for (const candidate of fileCandidates(row.text)) all.add(candidate);
+    }
+    return [...all].slice(-MAX_FILE_CANDIDATES);
+  }, [rows]);
+  const found = useQuery({
+    queryKey: ["firstmate", "files", "find", candidates],
+    queryFn: () => find({ paths: candidates }),
+    enabled: candidates.length > 0,
+    refetchInterval: 30_000,
+    // A new mention asks again; the links already drawn stay while it does.
+    placeholderData: (previous) => previous,
+  });
+  const answer = found.data?.files;
+  return useMemo(() => lookupIn(answer ?? {}), [answer]);
+}
+
 export function MateChat({
   mate,
   theme,
   compact,
   onOpen,
   onChanged,
+  onOpenFile,
 }: {
   mate: AgentSummary;
   theme: PluginTheme;
@@ -78,6 +110,8 @@ export function MateChat({
   onOpen: (() => void) | null;
   /** After a compact or a restart, so the board catches up without waiting for its poll. */
   onChanged: () => void;
+  /** Opens a home file in the Files view, the same way a watch's name does. */
+  onOpenFile: (path: string) => void;
 }) {
   const toast = useToast();
   /** Shared with the surface's suggestion buttons: one message on its way at a time — see `./mate-send`. */
@@ -85,6 +119,7 @@ export function MateChat({
   const timeline = useAgentTimeline(mate.id, `${mate.updatedAt}:${mate.pendingPermissions}`);
   const rows = useMemo(() => transcriptRows(timeline.entries), [timeline.entries]);
   const groups = useMemo(() => groupRows(rows), [rows]);
+  const files = useHomeFileLinks(rows);
   const follow = useFollowEnd();
   /** What the first mate is waiting on — a question, a permission, a plan. */
   const { pending, respond } = usePendingRequests(mate.id, timeline.agent?.pendingPermissions, follow.pin);
@@ -332,7 +367,7 @@ export function MateChat({
       case "mate":
         return (
           <View key={row.key} style={styles.mate}>
-            <Markdown source={row.text} theme={theme} onOpenLink={openLink} />
+            <Markdown source={row.text} theme={theme} onOpenLink={openLink} files={files} onOpenFile={onOpenFile} />
           </View>
         );
       case "error":

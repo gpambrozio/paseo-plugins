@@ -527,6 +527,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       compact={compact}
       onOpen={openMate}
       onChanged={refresh}
+      onOpenFile={openFile}
     />
   );
   const crew =

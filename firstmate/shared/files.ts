@@ -57,3 +57,19 @@ export const writeHomeFile = defineRpc({
   }),
   output: z.object({ path: z.string(), size: z.number(), modifiedMs: z.number() }),
 });
+
+/** How many paths one `firstmate.files.find` call checks; a longer conversation links its latest mentions. */
+export const MAX_FILE_CANDIDATES = 500;
+
+/**
+ * Which of the paths the chat mentions are files in the home, for linking
+ * them. A candidate is relative to the home or absolute under it; the answer
+ * maps each one that is an existing file to its home-relative path, the one
+ * the Files view opens, and leaves out the rest — anything outside the home,
+ * through `..` or a symlink, anything missing, and folders.
+ */
+export const findHomeFiles = defineRpc({
+  name: "firstmate.files.find",
+  input: z.object({ paths: z.array(z.string()).max(MAX_FILE_CANDIDATES) }),
+  output: z.object({ files: z.record(z.string(), z.string()) }),
+});

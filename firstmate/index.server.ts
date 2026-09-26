@@ -12,7 +12,7 @@ import {
 } from "./server/crew";
 import { registerCrewSeen } from "./server/crew-seen";
 import { ReportCache, loadFleet, readAgentTools } from "./server/fleet";
-import { listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
+import { findFiles, listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
 import { CHARTER_FILE, NEW_CHARTER_FILE, acknowledgeCharter, writeNewCharter } from "./server/charter-file";
 import { isHomeReady, prepareHome } from "./server/home";
 import {
@@ -48,7 +48,7 @@ import {
   toggleWatch,
   writeConfig,
 } from "./shared/fleet";
-import { listHomeFiles, readHomeFile, writeHomeFile } from "./shared/files";
+import { findHomeFiles, listHomeFiles, readHomeFile, writeHomeFile } from "./shared/files";
 import { startWatches } from "./server/watch-service";
 import { displaySettings } from "./shared/settings";
 
@@ -127,6 +127,7 @@ export default function contribute(server: PluginServerContext) {
     return { home: root, ...(await listDirectory(root, path)) };
   });
   server.handle(readHomeFile, async ({ path }) => readTextFile(await home(), path));
+  server.handle(findHomeFiles, async ({ paths }) => ({ files: await findFiles(await home(), paths) }));
   server.handle(writeHomeFile, async (input) => {
     const written = await writeTextFile(await home(), input);
     // The charter's source, saved in the panel, reaches AGENTS.md at once rather than at the next reload.
