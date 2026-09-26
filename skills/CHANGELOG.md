@@ -7,7 +7,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-skills` and tagged here, so a version is something to install and a line to
 read before you move.
 
-## [Unreleased]
+## [0.3.0] — 2026-09-26
 
 ### Changed
 
