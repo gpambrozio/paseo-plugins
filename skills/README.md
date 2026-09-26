@@ -49,9 +49,10 @@ plugin.
 
 ## Use
 
-Press the **Skills** pill above an agent's composer — its badge counts what the panel will list.
-The Command Center reaches the same panel: focus a workspace tab holding an agent, press ⌘K, and
-pick **Skills**.
+Press the **Skills** pill above an agent's composer — its badge counts what it will list. It opens
+a popover over the composer with the agent's skills: pick one to read it and invoke it with
+arguments, or press **Open tab** at its top right for the full Skills panel. The Command Center
+reaches the same panel: focus a workspace tab holding an agent, press ⌘K, and pick **Skills**.
 
 ## Demo
 
@@ -87,7 +88,9 @@ A failed reload stays failed; Paseo does not restore the previous code.
 | `server/resolve/skill-entry.ts`     | Entry types, skill id construction, first-wins dedupe.      |
 | `server/resolve/frontmatter.ts`     | `SKILL.md` frontmatter parsing.                             |
 | `server/resolve/reported.ts`        | Splits session-reported entries discovery did not find.     |
-| `client/panel.tsx`                  | The panel: list, search, detail, invoke.                    |
+| `client/browser.tsx`                | List, search, detail, invoke — drawn by the panel and the popover. |
+| `client/panel.tsx`                  | The panel: the browser as a whole tab.                      |
+| `client/popover.tsx`                | The pill's popover: the browser, plus a button to the panel. |
 | `client/pill.tsx`                   | The composer pill and the registration loop that owns it.   |
 | `client/skills-query.tsx`           | The `skills.list` query the panel and the pill share.       |
 

@@ -41,7 +41,7 @@ entries there exist because a reviewer proved the code was wrong about the real 
   sync writes there and older builds read it. Paseo's own `listCodexSkills` is stale on this; do
   not "fix" the resolver back to matching it.
 - **A source kind lives in three files.** `SkillSourceKind` (`server/resolve/skill-entry.ts`), the
-  zod enum (`shared/skills.ts`), and `SOURCE_ORDER` (`client/panel.tsx`). The first two disagreeing
+  zod enum (`shared/skills.ts`), and `SOURCE_ORDER` (`client/browser.tsx`). The first two disagreeing
   fails validation at runtime; a kind missing from the third sorts to the top of the panel, since
   `indexOf` returns `-1`.
 - **Claude plugin scoping keys on `projectPath`, not on `scope`.** Real manifests carry
@@ -56,8 +56,16 @@ entries there exist because a reviewer proved the code was wrong about the real 
   `server/resolve/reported.ts` is belt and braces rather than load-bearing — but it costs one
   `typeof` and it documents that the boundary is a runtime one. Keep it.
 - **Nothing in Paseo enumerates registered panels.** `addWorkspacePanel` registers the tab type
-  only; the panel is reachable because the Command Center item and the composer pill both call
-  `openPanel`. Remove both and the panel exists but cannot be opened.
+  only; the panel is reachable because the Command Center item and the pill's popover (its **Open
+  tab** button) both call `openPanel`. Remove both and the panel exists but cannot be opened.
+- **The panel and the pill's popover are one browser.** `client/browser.tsx` owns the list, the
+  search, both detail screens and the invoke; `SkillsPanel` and the popover only frame it and say
+  what happens after a send — the panel moves to the agent's tab, the popover calls `close()`. The
+  popover is a host surface that already scrolls and pads (`maxHeight` 440, 280–420 wide), so
+  `frame="popover"` draws a plain `View`; a `ScrollView` inside it would fight the host's for the
+  gesture. Content props carry `close()` but no `openPanel`, so `contributePills` hands the popover
+  the call its **Open tab** button makes. Updating the pill's `label` leaves an open popover open;
+  changing `behavior`, hiding or disabling it closes it.
 - **The pill's registration loop *is* the client entry.** Before 0.8 it was a callback handed to
   `addClientSide`; now `index.client.tsx` runs in the app directly and calls `contributePills`,
   returning its cleanup as the entry's. The `paseo-plugin.d.ts` shim that used to type all of this

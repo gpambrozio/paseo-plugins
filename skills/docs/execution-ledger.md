@@ -355,3 +355,14 @@ listen-and-seed shape. Paseo releases a failed observation itself, so it is reop
 snapshot page stays at the default 200 with no pagination. Cost if wrong: one held observation
 per app connection instead of one list call, and a host with more than 200 agents gets pills for
 the first page only.
+
+Ruling 52 (2026-09-26): the pill opens a POPOVER (`behavior: { kind: "popover" }`) instead of the
+panel, and the popover draws the panel's own browser rather than a smaller copy of it. The list,
+search, detail screens and invoke moved from `client/panel.tsx` into `client/browser.tsx`, and both
+callers frame it: the panel as a scrolling tab, the popover as a plain view inside Paseo's own
+scrolling surface. A skill sent from either goes through the same `useInvoke`, so the two cannot
+drift; they differ only in what follows a successful send — the panel moves to the agent's tab, the
+popover closes over a composer that is already that agent's. The panel stays reachable from an
+**Open tab** button in the popover's header and from the Command Center. Cost if wrong: the full
+`SKILL.md` body renders inside a 440-point-tall popover, and a skill list long enough to need the
+search is scrolled there rather than in a whole tab.
