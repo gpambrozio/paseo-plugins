@@ -48,7 +48,6 @@ export const TEMPLATES = {
   steerRelay: "messages/steer-relay.md",
   steerRelayClipped: "messages/steer-relay-clipped.md",
   steerRelayNoAnswer: "messages/steer-relay-no-answer.md",
-  watchNote: "messages/watch-note.md",
   watchOutput: "messages/watch-output.md",
   watchFailed: "messages/watch-failed.md",
   watchDropped: "messages/watch-dropped.md",

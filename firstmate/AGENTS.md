@@ -195,8 +195,9 @@ holds, in three places:
   `/ahoy`. A template cannot branch, so a message that reads differently when something is missing is
   two files. Bearings and Ahoy are worded on the daemon — the app cannot read the plugin's files — so
   the buttons, ⌘K and the slash commands send `firstmate.mate.command` with the command's name and what
-  followed it, and `commandText` picks the template. The `<firstmate-watch>` note is four: the wrapper, an
-  output, a failure, and the line counting outputs dropped from a full queue.
+  followed it, and `commandText` picks the template. A watch message has no wrapper: it is `watch-output.md`
+  and `watch-failed.md` blocks one after another, led by `watch-dropped.md`'s self-closing
+  `<firstmate-watch-dropped count="N"/>` when a full queue dropped some.
 
 `TEMPLATES` in `server/templates.ts` names every one, and `templates.test.ts` fails if the folder and that
 list disagree, or if `package.json` stops shipping the folder (`files` names it; a top-level directory it
@@ -312,13 +313,16 @@ never assumes, since a note sent into a newer turn can replace that turn where t
 The first mate's own `agent.turn_ended` tries the queue 1, 5 and 15 seconds later (`flushAfterTurn`: its
 snapshot can still say running for a moment, and a crewmate's finish note may start a turn at once), and
 every tick tries again. The queue holds `MAX_QUEUED` and counts what it drops. **A run is one block**,
-everything it printed, never a turn per line, and **the note carries nothing of the plugin's** — only the
-tags, the output, and the plugin's own facts (a failure, a count of dropped outputs). How output is to be
+everything it printed, never a turn per line, and **a message carries nothing of the plugin's** — just
+`<firstmate-watch name=… ran=…>` blocks one after another, oldest first, with the plugin's own facts
+(a `failed=` block, a leading `<firstmate-watch-dropped count="N"/>`). How output is to be
 read is the script's to say: charter §7 has the first mate take a script's own instructions as the
 captain's, since the captain approved the script, and what it marks as quoted from others as information
 only, so a script that relays outside text has to mark it (`pr-watch` prints its own line saying the
 reviews and comments it quotes are other people's). Each script's output is escaped so it cannot close
-its own `<firstmate-watch>` block.
+its own block or write either tag, which is what lets the chat trust them: `watchSummary`
+(`client/transcript-rows.ts`) folds a message that starts with one tag and ends with one into a single
+line naming the watches, the way `<paseo-system>` and `<firstmate-board>` notes fold.
 
 **The timer has no Paseo handle of its own.** The plugin API passes `paseo` only to RPC handlers and hooks —
 but it is one object per plugin process (`plugin-process.ts` in Paseo creates it once), so

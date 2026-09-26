@@ -92,6 +92,27 @@ describe("transcriptRows", () => {
     );
     expect(injectedSummary("please look at <paseo-system>")).toBeNull();
   });
+
+  it("folds a watch message — its blocks one after another, a dropped tag first — to the watches' names", () => {
+    const one = '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nPull requests…\n</firstmate-watch>';
+    expect(injectedSummary(one)).toBe("Watch: pr-watch");
+    const many = [
+      '<firstmate-watch-dropped count="3"/>',
+      "",
+      '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nA\n</firstmate-watch>',
+      "",
+      '<firstmate-watch name="hello" ran="2026-09-25T10:05:00Z" failed="it exited with code 1">\nboom\n</firstmate-watch>',
+      "",
+      '<firstmate-watch name="pr-watch" ran="2026-09-25T10:10:00Z">\nB\n</firstmate-watch>',
+    ].join("\n");
+    expect(injectedSummary(many)).toBe("Watches: pr-watch, hello (failed) · 3 older dropped");
+    expect(injectedSummary('<firstmate-watch-dropped count="2"/>')).toBe("Watches · 2 older dropped");
+    const [row] = transcriptRows([entry({ type: "user_message", text: one }, 1)]);
+    expect(row).toMatchObject({ kind: "event", text: "Watch: pr-watch" });
+    // The captain quoting a tag is still the captain.
+    expect(injectedSummary("what does <firstmate-watch> mean?")).toBeNull();
+    expect(injectedSummary('<firstmate-watch name="x"> is what I saw')).toBeNull();
+  });
 });
 
 describe("activityRows", () => {

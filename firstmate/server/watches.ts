@@ -6,11 +6,11 @@
  * plugin keeps its own clock: a timer on each minute's boundary that runs every enabled, valid watch
  * whose schedule (`watch-schedule.ts`) matches that minute. A run prints nothing — the usual case —
  * and nothing happens. A run that prints something is queued, and the queue goes to the first mate in
- * one message once it is idle: a `<firstmate-watch>` block per run, holding everything that run
- * printed and nothing of the plugin's — how the output is to be read, and what in it is quoted from
+ * one message once it is idle: `<firstmate-watch>` blocks one after another, one per run, each holding
+ * everything that run printed, and nothing of the plugin's — how the output is to be read, and what in it is quoted from
  * others, is for the script to say. While it is mid-turn, or while there is no first mate at all,
  * the queue waits, at most `MAX_QUEUED` long, the oldest dropped first and the drop counted in the
- * next message.
+ * next message, as a `<firstmate-watch-dropped count="N"/>` ahead of its blocks.
  *
  * Guardrails: a run has `WATCH_TIMEOUT_MS`; its output is clipped to `MAX_OUTPUT_CHARS`, with a
  * marker; a watch still running when it is due again is not started twice; and a watch that fails —
@@ -135,12 +135,15 @@ function tail(text: string, max: number): string {
   return trimmed.length <= max ? trimmed : `…${trimmed.slice(trimmed.length - max)}`;
 }
 
-/** A script cannot close its own block, or open one, with what it prints. */
+/** A script cannot close its own block, or open one — or a dropped tag — with what it prints. */
 function quoted(text: string): string {
   return text.replace(/<(\/?firstmate-watch)/gi, "&lt;$1");
 }
 
-/** The whole message for a batch: `templates/messages/watch-*.md`. */
+/**
+ * The whole message for a batch: the blocks one after another, oldest first, and nothing else —
+ * `<firstmate-watch-dropped count="N"/>` first when older ones were dropped (`templates/messages/watch-*.md`).
+ */
 export async function watchNote(notes: readonly QueuedNote[], dropped: number): Promise<string> {
   const blocks = await Promise.all(
     notes.map((note) =>
@@ -156,7 +159,7 @@ export async function watchNote(notes: readonly QueuedNote[], dropped: number): 
     ),
   );
   if (dropped > 0) blocks.unshift(await message(TEMPLATES.watchDropped, { count: String(dropped) }));
-  return message(TEMPLATES.watchNote, { watches: blocks.join("\n\n") });
+  return blocks.join("\n\n");
 }
 
 /** What went wrong with a run, in a few words, or null when it succeeded. */
