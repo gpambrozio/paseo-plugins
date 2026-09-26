@@ -10,13 +10,16 @@
  *
  * Writes carry the modification time the editor opened the file at, because
  * the first mate writes these same files; a save over a newer version is
- * refused unless forced. Each write goes to a temporary file that is then
- * renamed, so a crash never leaves half a file for the first mate to read; it
- * takes the replaced file's mode first, so an executable stays executable.
+ * refused unless forced, checked both before the new content is staged and
+ * again just before it replaces the file. Each write goes to a temporary file
+ * that is then renamed, so a crash never leaves half a file for the first mate
+ * to read; it takes the replaced file's mode first, so an executable stays
+ * executable.
  * Writes to one path run one at a time, so two saves opened at the same
  * version cannot both pass the check.
  */
 import { randomUUID } from "node:crypto";
+import type { Stats } from "node:fs";
 import { chmod, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 
@@ -119,56 +122,121 @@ export async function readTextFile(home: string, path: string) {
   return { ...base, content: await readFile(absolute, "utf8"), binary: false, tooLarge: false };
 }
 
+/**
+ * A write refused because the file is no longer the version it was checked against: the first mate
+ * wrote it, deleted it or created it in between. Callers that can start over from the new version
+ * tell it from other failures by its class.
+ */
+export class FileChangedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FileChangedError";
+  }
+}
+
+/** For tests: runs once the temporary file is written, before the destination is checked again. */
+export interface WriteHooks {
+  afterStaging?: () => Promise<void>;
+}
+
 export async function writeTextFile(
   home: string,
   input: { path: string; content: string; expectedModifiedMs: number | null; force: boolean },
+  hooks: WriteHooks = {},
 ): Promise<{ path: string; size: number; modifiedMs: number }> {
   const { absolute, relative: rel } = await resolveInHome(home, input.path);
   if (rel === "") throw new Error("The home itself is not a file.");
-  return serialized(absolute, () => replaceChecked(absolute, rel, input));
+  return serialized(absolute, async () => {
+    await stageAndReplace(absolute, input.content, (current) => checkVersion(rel, current, input), hooks);
+    const saved = await stat(absolute);
+    return { path: rel, size: saved.size, modifiedMs: Math.floor(saved.mtimeMs) };
+  });
 }
 
-async function replaceChecked(
-  absolute: string,
-  rel: string,
-  input: { content: string; expectedModifiedMs: number | null; force: boolean },
-): Promise<{ path: string; size: number; modifiedMs: number }> {
-  let current: Awaited<ReturnType<typeof stat>> | null = null;
+/**
+ * Replaces a text file only if it still reads exactly `expected`, compared by content rather than by
+ * modification time, which cannot tell two writes within one millisecond apart. Throws
+ * `FileChangedError` when it does not, or when it is gone.
+ */
+export async function replaceTextIfUnchanged(
+  home: string,
+  path: string,
+  expected: string,
+  content: string,
+  hooks: WriteHooks = {},
+): Promise<void> {
+  const { absolute, relative: rel } = await resolveInHome(home, path);
+  if (rel === "") throw new Error("The home itself is not a file.");
+  await serialized(absolute, () =>
+    stageAndReplace(
+      absolute,
+      content,
+      async (current) => {
+        if (current === null) throw new FileChangedError(`"${rel}" was deleted since it was read.`);
+        if (!current.isFile()) throw new Error(`"${rel}" is not a file.`);
+        if ((await readFile(absolute, "utf8")) !== expected) throw new FileChangedError(`"${rel}" changed since it was read.`);
+      },
+      hooks,
+    ),
+  );
+}
+
+type Current = Stats | null;
+
+async function statIfPresent(absolute: string): Promise<Current> {
   try {
-    current = await stat(absolute);
+    return await stat(absolute);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return null;
   }
+}
+
+function checkVersion(rel: string, current: Current, input: { expectedModifiedMs: number | null; force: boolean }): void {
   if (current !== null && !current.isFile()) throw new Error(`"${rel}" is not a file.`);
+  if (input.force) return;
   if (input.expectedModifiedMs === null && current !== null) {
-    throw new Error(`"${rel}" already exists. Open it to edit it.`);
+    throw new FileChangedError(`"${rel}" already exists. Open it to edit it.`);
   }
-  if (
-    input.expectedModifiedMs !== null &&
-    !input.force &&
-    (current === null || Math.floor(current.mtimeMs) !== input.expectedModifiedMs)
-  ) {
-    throw new Error(
+  if (input.expectedModifiedMs !== null && (current === null || Math.floor(current.mtimeMs) !== input.expectedModifiedMs)) {
+    throw new FileChangedError(
       current === null
         ? `"${rel}" was deleted since you opened it — the first mate may have removed it. Overwrite to write your version back.`
         : `"${rel}" changed since you opened it — the first mate may have written it. Reload to see that version, or overwrite it with yours.`,
     );
   }
+}
+
+/**
+ * Writes `content` to a temporary file beside `absolute` and renames it into place, running `check`
+ * on the destination twice: before anything is written, and again once the temporary file is ready,
+ * just before the rename. The second check is what catches the first mate writing while this one was
+ * staging. What it cannot catch is a write landing between that check and the rename — there is no
+ * compare-and-swap rename to close it — so the window is a stat, or a read of a small file, wide.
+ */
+async function stageAndReplace(
+  absolute: string,
+  content: string,
+  check: (current: Current) => void | Promise<void>,
+  hooks: WriteHooks,
+): Promise<void> {
+  const current = await statIfPresent(absolute);
+  await check(current);
 
   await mkdir(dirname(absolute), { recursive: true });
   const temporary = `${absolute}.firstmate-${randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, input.content, "utf8");
+    await writeFile(temporary, content, "utf8");
     // The temporary file has the default mode; the one it replaces keeps its own, so a watch script
     // saved here stays executable. A new file keeps the default.
     if (current !== null) await chmod(temporary, current.mode & 0o7777);
+    await hooks.afterStaging?.();
+    await check(await statIfPresent(absolute));
     await rename(temporary, absolute);
   } catch (error) {
     await rm(temporary, { force: true });
     throw error;
   }
-  const saved = await stat(absolute);
-  return { path: rel, size: saved.size, modifiedMs: Math.floor(saved.mtimeMs) };
 }
 
 /**

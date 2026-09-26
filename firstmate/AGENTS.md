@@ -24,7 +24,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/charter-file.ts`      | `data/charter.md`, the captain's copy it is rendered from: follows the plugin until edited. |
 | `server/home.ts`              | The home directory: writes the charter and records, reads the backlog and project registry. |
 | `server/backlog.ts`           | `data/backlog.md` → `BacklogItem[]`. Lenient, because an agent writes the file.            |
-| `server/suggestions.ts`       | `data/suggestions.md` → `Suggestion[]`, the board's next-step buttons. Lenient, likewise.   |
+| `server/suggestions.ts`       | `data/suggestions.md` → `Suggestion[]`, the board's next-step buttons, and taking one out. Lenient, likewise. |
 | `server/crew-report.ts`       | A crewmate's closing status line (`done: PR …`) → state and text.                          |
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
@@ -58,6 +58,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
 | `client/suggestions.tsx`      | The first mate's suggestions as buttons: a card on the wide board, a tab on a phone.       |
+| `client/suggestion-removals.ts` | Which suggestions have a removal on its way, by label and prompt. Pure.                  |
 | `client/watches.tsx`          | The Watches card: each watch's schedule, last run and output, and its on/off switch.       |
 | `client/mate-send.ts`         | Sending to the first mate — Send, Bearings, Ahoy, a suggestion — one message at a time.    |
 | `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
@@ -386,16 +387,27 @@ on every poll (`parseSuggestions`): notes are left out, a line without a label a
 of the first `::` is skipped, and at most `MAX_SUGGESTIONS` are kept. Nothing in code writes a
 suggestion; an empty or missing file draws no card and no tab.
 
-The one thing code does to the file is take a line out, for a card's trash button
-(`firstmate.suggestion.remove`, `removeSuggestion` in `server/home.ts`). The line is found by the label
-and prompt the board showed, not by position, because the first mate may have rewritten the list since
-the board loaded it; the first visible line that parses to both goes, byte for byte with its line
-ending, and nothing else changes (`withoutSuggestion`). A suggestion the file no longer has writes
-nothing. The write is the Files view's own `writeTextFile`, so it is confined to the home, atomic, and
-refused over a newer version — which is the first mate writing at the same moment, and the removal
-starts over from its version. The RPC answers with the list left, which the board puts in the fleet
-query at once. The trash is the card's sibling rather than a `Pressable` inside it, so pressing it can
-never press the card.
+The one thing code does to the file is take a suggestion out, for a card's trash button
+(`firstmate.suggestion.remove`, `removeSuggestion` in `server/home.ts`). It is found by the label and
+prompt the board showed, not by position, because the first mate may have rewritten the list since the
+board loaded it. Parsing and removal share one scanner (`scan` in `server/suggestions.ts`) that takes
+notes out of the whole text, as the board always has, while remembering each visible character's
+offset in the file: a note that splits a suggestion across lines is read the way the board reads it,
+and removal deletes only that suggestion's own characters and its line break, never a note's bytes —
+deleting the whole physical line could take a `<!--` with it and bring what the note hid onto the board.
+A suggestion the file no longer has writes nothing. The write is `replaceTextIfUnchanged` in
+`server/files.ts`: confined to the home, staged and renamed, and refused with `FileChangedError` unless
+the file still reads exactly as it did — by content, since two writes in one millisecond share an
+mtime — checked before staging and again just before the rename. A refusal is the first mate writing
+at the same moment, and the removal starts over from its version, `REMOVE_ATTEMPTS` times at most. A
+write landing between that last check and the rename is still lost: a rename cannot compare and swap.
+The Files view's own saves get the same second check, by modification time as before. The RPC answers
+with the list left, which the board puts in the fleet query at once.
+
+On the card, the trash is a sibling of the send `Pressable` rather than inside it, so pressing it can
+never press the card. A removal on its way shuts that card by label and prompt, not position
+(`client/suggestion-removals.ts`), since a poll can move it; identical twins wait together, and the gate
+is checked synchronously, so two presses before a redraw start one removal.
 
 A button sends its prompt to the first mate at once, and brings the chat into view to show it go out:
 the First mate tab on a phone, the chat unfolded on a wide layout. The draft is not touched. The send is

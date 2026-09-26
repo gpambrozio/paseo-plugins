@@ -40,7 +40,7 @@ import type { BacklogItem, FirstmateConfig, Project, Suggestion } from "../share
 import { parseBacklog } from "./backlog";
 import { renderCharter } from "./charter";
 import { syncCharter } from "./charter-file";
-import { readTextFile, writeTextFile } from "./files";
+import { FileChangedError, readTextFile, replaceTextIfUnchanged, type WriteHooks } from "./files";
 import { parseSuggestions, withoutSuggestion } from "./suggestions";
 import { TEMPLATES, readTemplate, withoutNotes, type TemplatePath } from "./templates";
 import { seedWatches } from "./watch-files";
@@ -127,18 +127,20 @@ export async function readSuggestions(home: string): Promise<Suggestion[]> {
 }
 
 /** How many times a removal starts over when the first mate rewrites the file under it. */
-const REMOVE_ATTEMPTS = 3;
+export const REMOVE_ATTEMPTS = 3;
 
 /**
- * Takes one suggestion out of `data/suggestions.md`, leaving every other line as it was, and answers
+ * Takes one suggestion out of `data/suggestions.md`, leaving every other byte as it was, and answers
  * with the suggestions left. One the file no longer has — the first mate rewrote it since the board
  * looked — is not an error: nothing is written.
  *
- * The write goes through the Files view's own (`files.ts`): confined to the home, a temporary file
- * renamed into place, and refused if the file changed since it was read. That last is the first mate
- * rewriting its list at the same moment, and the removal starts over from what it wrote.
+ * The write is confined to the home, staged in a temporary file and renamed into place, and refused
+ * if the file no longer reads as it did (`replaceTextIfUnchanged`), checked again just before the
+ * rename. A refusal is the first mate rewriting its list at the same moment, and the removal starts
+ * over from what it wrote. A write of its that lands between that last check and the rename is still
+ * lost; see `stageAndReplace`.
  */
-export async function removeSuggestion(home: string, target: Suggestion): Promise<Suggestion[]> {
+export async function removeSuggestion(home: string, target: Suggestion, hooks: WriteHooks = {}): Promise<Suggestion[]> {
   for (let attempt = 1; ; attempt++) {
     let file: Awaited<ReturnType<typeof readTextFile>>;
     try {
@@ -151,25 +153,14 @@ export async function removeSuggestion(home: string, target: Suggestion): Promis
     const next = withoutSuggestion(file.content, target);
     if (next === null) return parseSuggestions(file.content);
     try {
-      await writeTextFile(home, {
-        path: TEMPLATES.suggestions,
-        content: next,
-        expectedModifiedMs: file.modifiedMs,
-        force: false,
-      });
+      await replaceTextIfUnchanged(home, TEMPLATES.suggestions, file.content, next, hooks);
       return parseSuggestions(next);
     } catch (error) {
-      if (attempt >= REMOVE_ATTEMPTS || !(await changedSince(home, file.modifiedMs))) throw error;
+      if (!(error instanceof FileChangedError)) throw error;
+      if (attempt >= REMOVE_ATTEMPTS) {
+        throw new Error("The first mate kept rewriting its suggestions while this one was being removed. Try again.");
+      }
     }
-  }
-}
-
-async function changedSince(home: string, modifiedMs: number): Promise<boolean> {
-  try {
-    return Math.floor((await stat(join(home, TEMPLATES.suggestions))).mtimeMs) !== modifiedMs;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
-    throw error;
   }
 }
 

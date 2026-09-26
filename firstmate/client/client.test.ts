@@ -25,6 +25,7 @@ import { MAX_FILE_PATH_LENGTH, findHomeFiles } from "../shared/files";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { createSendGate } from "./mate-send";
+import { createRemovalGate } from "./suggestion-removals";
 import { isDirty, markSaved, type OpenFile } from "./open-file";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import {
@@ -847,5 +848,52 @@ describe("revealFilesPatch", () => {
     expect(revealFilesPatch(false, true)).toEqual({ boardCollapsed: false });
     expect(revealFilesPatch(false, false)).toBeNull();
     expect(revealFilesPatch(true, true)).toBeNull();
+  });
+});
+
+describe("createRemovalGate", () => {
+  const a = { label: "A", prompt: "a" };
+  const b = { label: "B", prompt: "b" };
+  const c = { label: "C", prompt: "c" };
+
+  it("keeps a pending removal on its suggestion wherever the list moves it", () => {
+    const gate = createRemovalGate(() => {});
+    let finish = (): void => {};
+    const removing = gate.run(b, () => new Promise<void>((resolve) => (finish = resolve)));
+    expect(removing).not.toBeNull();
+    // A poll drops A while B's removal is out: B moves up, C takes its old place.
+    const list = [b, c];
+    expect(list.map((suggestion) => gate.pending(suggestion))).toEqual([true, false]);
+    expect(gate.run(b, () => Promise.resolve())).toBeNull();
+    finish();
+    return removing?.then(() => expect(gate.pending(b)).toBe(false));
+  });
+
+  it("starts one removal for two presses before a redraw, identical twins included", async () => {
+    const changes: number[] = [];
+    const gate = createRemovalGate(() => changes.push(changes.length));
+    const started: string[] = [];
+    const first = gate.run(a, () => {
+      started.push("first");
+      return Promise.resolve();
+    });
+    expect(gate.run({ ...a }, () => Promise.resolve())).toBeNull();
+    expect(gate.pending(b)).toBe(false);
+    await first;
+    expect(started).toEqual(["first"]);
+    expect(gate.pending(a)).toBe(false);
+    expect(changes).toHaveLength(2);
+  });
+
+  it("reopens after a task that fails or throws", async () => {
+    const gate = createRemovalGate(() => {});
+    await expect(gate.run(a, () => Promise.reject(new Error("no")))).rejects.toThrow("no");
+    expect(gate.pending(a)).toBe(false);
+    await expect(
+      gate.run(a, () => {
+        throw new Error("sync");
+      }),
+    ).rejects.toThrow("sync");
+    expect(gate.pending(a)).toBe(false);
   });
 });

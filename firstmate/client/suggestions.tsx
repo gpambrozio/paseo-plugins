@@ -10,10 +10,11 @@
  */
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useMemo, useState } from "react";
+import { useMemo, useReducer, useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import type { Suggestion } from "../shared/fleet";
+import { createRemovalGate, type RemovalGate } from "./suggestion-removals";
 
 export const SUGGESTIONS_TITLE = "Suggestions";
 export const SUGGESTIONS_ICON = "Lightbulb";
@@ -34,8 +35,11 @@ export function SuggestionList({
   /** Takes the suggestion out of the first mate's file; settles once the board has the new list. */
   onRemove: (suggestion: Suggestion) => Promise<void>;
 }) {
-  /** Cards whose removal is on its way, by position, so a second press does nothing. */
-  const [removing, setRemoving] = useState<ReadonlySet<number>>(new Set());
+  const [, redraw] = useReducer((count: number) => count + 1, 0);
+  /** Suggestions whose removal is on its way, by label and prompt; see `./suggestion-removals`. */
+  const removals = useRef<RemovalGate | null>(null);
+  if (removals.current === null) removals.current = createRemovalGate(redraw);
+  const gate = removals.current;
   const styles = useMemo(() => {
     const { colors } = theme;
     return {
@@ -66,22 +70,15 @@ export function SuggestionList({
     };
   }, [theme, disabled]);
 
-  function remove(suggestion: Suggestion, index: number): void {
-    if (removing.has(index)) return;
-    setRemoving((current) => new Set(current).add(index));
-    void onRemove(suggestion).finally(() => {
-      setRemoving((current) => {
-        const next = new Set(current);
-        next.delete(index);
-        return next;
-      });
-    });
+  function remove(suggestion: Suggestion): void {
+    // The board's own handler reports a failure; the gate only needs to reopen once it settles.
+    void gate.run(suggestion, () => onRemove(suggestion));
   }
 
   return (
     <View style={styles.list}>
       {suggestions.map((suggestion, index) => {
-        const busy = removing.has(index);
+        const busy = gate.pending(suggestion);
         return (
           // The trash is the card's sibling, not its child, so pressing it never presses the card.
           <View key={`${index}:${suggestion.label}`} style={[styles.card, busy ? { opacity: 0.5 } : null]}>
@@ -110,7 +107,7 @@ export function SuggestionList({
               disabled={busy}
               hitSlop={6}
               style={styles.trash}
-              onPress={() => remove(suggestion, index)}
+              onPress={() => remove(suggestion)}
             >
               <Icon name="Trash2" size={14} color={theme.colors.foregroundMuted} />
             </Pressable>

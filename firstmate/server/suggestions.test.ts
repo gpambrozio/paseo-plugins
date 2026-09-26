@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { readSuggestions, removeSuggestion } from "./home";
+import { REMOVE_ATTEMPTS, readSuggestions, removeSuggestion } from "./home";
 import { MAX_SUGGESTIONS, parseSuggestions, withoutSuggestion } from "./suggestions";
 import { TEMPLATES, readTemplate } from "./templates";
 
@@ -108,6 +108,54 @@ describe("withoutSuggestion", () => {
     ).toBeNull();
   });
 
+  it("keeps a note that opens on the removed line whole, so nothing it hides shows", () => {
+    const markdown = "- A :: a <!--\n- Hidden :: hidden\n-->\n- B :: b\n";
+    expect(parseSuggestions(markdown)).toEqual([
+      { label: "A", prompt: "a" },
+      { label: "B", prompt: "b" },
+    ]);
+    const next = withoutSuggestion(markdown, { label: "A", prompt: "a" });
+    expect(next).toBe("<!--\n- Hidden :: hidden\n-->- B :: b\n");
+    expect(parseSuggestions(next ?? "")).toEqual([{ label: "B", prompt: "b" }]);
+  });
+
+  it("keeps a note that closes on the removed line whole", () => {
+    const markdown = "<!--\n- Hidden :: hidden\n--> - A :: a\n- B :: b\n";
+    const next = withoutSuggestion(markdown, { label: "A", prompt: "a" });
+    expect(next).toBe("<!--\n- Hidden :: hidden\n-->- B :: b\n");
+    expect(parseSuggestions(next ?? "")).toEqual([{ label: "B", prompt: "b" }]);
+  });
+
+  it("finds a suggestion a note splits across lines, as the board shows it", () => {
+    const markdown = "- A <!-- note\nends here --> :: a\n- B :: b\n";
+    expect(parseSuggestions(markdown)).toEqual([
+      { label: "A", prompt: "a" },
+      { label: "B", prompt: "b" },
+    ]);
+    const next = withoutSuggestion(markdown, { label: "A", prompt: "a" });
+    expect(next).toBe("<!-- note\nends here -->- B :: b\n");
+    expect(parseSuggestions(next ?? "")).toEqual([{ label: "B", prompt: "b" }]);
+  });
+
+  it("leaves exactly the other suggestions, whichever is removed", () => {
+    const files = [
+      "- A :: a <!--\n- Hidden :: hidden\n-->\n- B :: b\n",
+      "<!-- x --> - A :: a <!-- y -->\r\n- B :: b <!--\r\n-->\r\n- C :: c",
+      "- A <!-- note\nends here --> :: a\n- B :: b\n- A :: a\n",
+      "x\r- A :: a\n\n- B :: b\r- C :: c <!-- open\n",
+      "<!-- - Z :: z -->- A :: a<!--\n-->- B :: b",
+    ];
+    for (const markdown of files) {
+      const shown = parseSuggestions(markdown);
+      shown.forEach((suggestion, index) => {
+        const next = withoutSuggestion(markdown, suggestion);
+        const others = [...shown];
+        others.splice(shown.findIndex((other) => other.label === suggestion.label && other.prompt === suggestion.prompt), 1);
+        expect(parseSuggestions(next ?? ""), `${JSON.stringify(markdown)} without #${index}`).toEqual(others);
+      });
+    }
+  });
+
   it("removes one of two identical lines at a time", () => {
     const line = "- Land web#42 :: Merge https://github.com/you/web/pull/42";
     const once = withoutSuggestion(`${line}\n- A :: a\n${line}\n`, land);
@@ -135,5 +183,70 @@ describe("removeSuggestion", () => {
     } finally {
       await rm(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe("removeSuggestion when the first mate writes too", () => {
+  const land = "- Land :: Merge it\n";
+  const scout = "- Scout :: Look around\n";
+
+  async function withHome(run: (home: string, path: string) => Promise<void>): Promise<void> {
+    const home = await mkdtemp(join(tmpdir(), "firstmate-suggestions-"));
+    try {
+      await mkdir(join(home, "data"));
+      await run(home, join(home, TEMPLATES.suggestions));
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  }
+
+  it("starts over from the first mate's rewrite and keeps what it added", async () => {
+    await withHome(async (home, path) => {
+      await writeFile(path, land + scout);
+      let rewrites = 0;
+      const left = await removeSuggestion(
+        home,
+        { label: "Land", prompt: "Merge it" },
+        {
+          afterStaging: async () => {
+            if (rewrites++ === 0) await writeFile(path, `${land}- Scout :: Look closer\n- Ship :: Release it\n`);
+          },
+        },
+      );
+      expect(await readFile(path, "utf8")).toBe("- Scout :: Look closer\n- Ship :: Release it\n");
+      expect(left).toEqual([
+        { label: "Scout", prompt: "Look closer" },
+        { label: "Ship", prompt: "Release it" },
+      ]);
+    });
+  });
+
+  it("gives up after a bounded number of rewrites, leaving the first mate's last one", async () => {
+    await withHome(async (home, path) => {
+      await writeFile(path, land + scout);
+      let rewrites = 0;
+      await expect(
+        removeSuggestion(
+          home,
+          { label: "Land", prompt: "Merge it" },
+          { afterStaging: () => writeFile(path, `${land}- Rewrite :: ${++rewrites}\n`) },
+        ),
+      ).rejects.toThrow(/kept rewriting/);
+      expect(rewrites).toBe(REMOVE_ATTEMPTS);
+      expect(await readFile(path, "utf8")).toBe(`${land}- Rewrite :: ${REMOVE_ATTEMPTS}\n`);
+    });
+  });
+
+  it("writes nothing when the rewrite already dropped the suggestion", async () => {
+    await withHome(async (home, path) => {
+      await writeFile(path, land + scout);
+      const left = await removeSuggestion(
+        home,
+        { label: "Land", prompt: "Merge it" },
+        { afterStaging: () => writeFile(path, scout) },
+      );
+      expect(left).toEqual([{ label: "Scout", prompt: "Look around" }]);
+      expect(await readFile(path, "utf8")).toBe(scout);
+    });
   });
 });
