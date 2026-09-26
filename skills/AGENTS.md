@@ -61,9 +61,11 @@ entries there exist because a reviewer proved the code was wrong about the real 
 - **The panel and the pill's popover are one browser.** `client/browser.tsx` owns the list, the
   search, both detail screens and the invoke; `SkillsPanel` and the popover only frame it and say
   what happens after a send — the panel moves to the agent's tab, the popover calls `close()`. The
-  popover is a host surface that already scrolls and pads (`maxHeight` 440, 280–420 wide), so
-  `frame="popover"` draws a plain `View`; a `ScrollView` inside it would fight the host's for the
-  gesture. Content props carry `close()` but no `openPanel`, so `contributePills` hands the popover
+  popover is a host surface that already scrolls and pads, so `frame="popover"` draws a plain
+  `View`; a `ScrollView` inside it would fight the host's for the gesture. Its size is the host's:
+  280–420 wide and at most 440 tall, hardcoded in the app, with no size field in the button
+  descriptor to raise it. The popover's skill detail also leaves out the path and **Copy path**,
+  which only the tab shows. Content props carry `close()` but no `openPanel`, so `contributePills` hands the popover
   the call its **Open tab** button makes. Updating the pill's `label` leaves an open popover open;
   changing `behavior`, hiding or disabling it closes it.
 - **The pill's registration loop *is* the client entry.** Before 0.8 it was a callback handed to

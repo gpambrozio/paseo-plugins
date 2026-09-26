@@ -227,22 +227,27 @@ function SkillDetail({
         <>
           <Text style={styles.name}>{query.data.name}</Text>
           <Text style={styles.description}>{query.data.description}</Text>
-          <Text style={styles.path} selectable>
-            {query.data.path}
-          </Text>
-          <Pressable
-            onPress={() => {
-              // The path is `selectable` above, so a platform that denies
-              // programmatic copying still leaves long-press and OS Copy.
-              const path = query.data.path;
-              void copyText(path).then(
-                () => toast.show("Path copied", { variant: "success" }),
-                () => toast.error("Could not copy. Select the path and use Copy."),
-              );
-            }}
-          >
-            <Text style={styles.copy}>Copy path</Text>
-          </Pressable>
+          {/* The popover is for running a skill, not locating it; the tab keeps the path. */}
+          {frame === "screen" ? (
+            <>
+              <Text style={styles.path} selectable>
+                {query.data.path}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  // The path is `selectable` above, so a platform that denies
+                  // programmatic copying still leaves long-press and OS Copy.
+                  const path = query.data.path;
+                  void copyText(path).then(
+                    () => toast.show("Path copied", { variant: "success" }),
+                    () => toast.error("Could not copy. Select the path and use Copy."),
+                  );
+                }}
+              >
+                <Text style={styles.copy}>Copy path</Text>
+              </Pressable>
+            </>
+          ) : null}
           {userInvocable ? (
             <InvokeControls
               styles={styles}
