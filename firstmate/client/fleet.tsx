@@ -549,7 +549,6 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       mate={mate}
       theme={theme}
       compact={compact}
-      onOpen={openMate}
       onChanged={refresh}
       onOpenFile={openFile}
     />

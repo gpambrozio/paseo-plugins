@@ -7,6 +7,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.2.1] — 2026-09-26
+
+### Removed
+
+- **The chat no longer has an "Open in Paseo" button next to "Ahoy".** The first mate can still be
+  opened in Paseo from the button at the top of the panel.
+
 ## [0.2.0] — 2026-09-26
 
 ### Added

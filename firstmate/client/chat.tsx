@@ -96,15 +96,12 @@ export function MateChat({
   mate,
   theme,
   compact,
-  onOpen,
   onChanged,
   onOpenFile,
 }: {
   mate: AgentSummary;
   theme: PluginTheme;
   compact: boolean;
-  /** Opens the first mate in Paseo; absent where the host gives no navigation. */
-  onOpen: (() => void) | null;
   /** After a compact or a restart, so the board catches up without waiting for its poll. */
   onChanged: () => void;
   /** Opens a home file in the Files view, the same way a watch's name does. */
@@ -437,9 +434,6 @@ export function MateChat({
               disabled={sending}
               onPress={() => sendCommand("ahoy")}
             />
-            {onOpen === null ? null : (
-              <IconButton icon="ExternalLink" label="Open in Paseo" showLabel theme={theme} onPress={onOpen} />
-            )}
             <MateControls
               theme={theme}
               compact={compact}
