@@ -6,10 +6,12 @@
 # it. The contributing guide asked for a typecheck and a test run by hand, and a human who forgets
 # is a human, not a process.
 #
-# Three jobs, and the third is the one branch protection names:
+# Four jobs, and the last is the one branch protection names:
 #
 # - **Manifests agree** reads the files inside each plugin that have to be kept in step by hand.
 #   No `npm ci` first, because it needs no dependencies and should report before a slower job does.
+# - **Changelog has a version** fails a pull request that edits a plugin's `CHANGELOG.md` without
+#   bumping its version, because such an entry merges and is never released.
 # - **One job per plugin**, typechecking and testing it against the tree the lockfile pins.
 # - **Checks passed** exists only so that protection can require a single status whose name never
 #   changes. Requiring the matrix jobs directly would mean editing the branch protection rule every
@@ -49,6 +51,30 @@ jobs:
       - name: Check every plugin's declarations against each other
         run: node .github/scripts/check-plugin-consistency.mjs skills github-board launchd-jobs herald model-pricing firstmate
 
+  changelog:
+    name: Changelog has a version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # The whole history, because the check reads the base commit's `package.json`, and a shallow
+      # clone of the merge commit does not have it.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The base is empty on `workflow_dispatch`, which the script treats as nothing to compare —
+      # skipping the job instead would fail `Checks passed`.
+      - name: Check every changed changelog comes with a version bump
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node .github/scripts/check-changelog-bump.mjs "$BASE_SHA" skills github-board launchd-jobs herald model-pricing firstmate
+
   plugin:
     name: ${{ matrix.plugin }}
     runs-on: ubuntu-latest
@@ -60,7 +86,8 @@ jobs:
       fail-fast: false
       matrix:
         # Spelled out rather than read from an `env`, because a matrix is evaluated before workflow
-        # env exists. Adding a plugin means editing this list and `publish.yml`'s.
+        # env exists. Adding a plugin means editing this list, the two script invocations above, and
+        # `publish.yml`'s.
         plugin: [skills, github-board, launchd-jobs, herald, model-pricing, firstmate]
     defaults:
       run:
@@ -87,7 +114,7 @@ jobs:
 
   checks:
     name: Checks passed
-    needs: [consistency, plugin]
+    needs: [consistency, changelog, plugin]
     # Without this the job is skipped when something it needs fails, and a skipped required check
     # leaves the pull request waiting for an answer that will never come.
     if: always()

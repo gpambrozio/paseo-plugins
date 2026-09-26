@@ -402,6 +402,13 @@ only asks whether the locked tree *satisfies* `package.json`, which a resolved `
 exact `0.9.0`. #32 shipped five drifted lockfiles through every gate in this repository exactly
 that way; #33 is both the fix and the check.
 
+**A pull request that changes a plugin's `CHANGELOG.md` has to change its version too.**
+`.github/scripts/check-changelog-bump.mjs` compares each changed changelog's plugin version with the
+base's and fails when it did not move, because an entry that merges without a bump is never
+released — #54 did exactly that and needed a second pull request. That includes an `[Unreleased]`
+entry and a typo fix in an old section: land either alongside the next bump. The reverse is the
+consistency check's job, which wants a section for whatever version is declared.
+
 Branch protection requires one status, **`Checks passed`** — an aggregating job that fails if any
 matrix job failed, was cancelled *or* was skipped. Requiring the per-plugin jobs directly would mean
 editing the rule whenever a plugin is added, and a rule naming a job that no longer runs blocks
