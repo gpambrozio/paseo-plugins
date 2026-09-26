@@ -65,7 +65,16 @@ entries there exist because a reviewer proved the code was wrong about the real 
   `View`; a `ScrollView` inside it would fight the host's for the gesture. Its size is the host's:
   280–420 wide and at most 440 tall, hardcoded in the app, with no size field in the button
   descriptor to raise it. The popover's skill detail also leaves out the path and **Copy path**,
-  which only the tab shows. Content props carry `close()` but no `openPanel`, so `contributePills` hands the popover
+  which only the tab shows.
+- **The popover's pages share the host's one scroll offset**, and no plugin API moves it. A detail
+  opened from far down the list would keep the list's offset and open with its back link and
+  Invoke out of view, so `detailLines` caps the popover's detail (description and `SKILL.md`
+  excerpt) to fit inside the 440-point surface: with nothing left to scroll, the offset falls back
+  to the top. Anything added to that detail has to keep it under that height.
+- **A send outlives the screen that started it.** The user can go back, pick another skill, or
+  close and reopen the popover before `send` answers, and the popover's `close()` is not scoped to
+  one opening. `sendInvocation` (`client/invoke.ts`) reports success only while the detail that
+  sent it is still mounted, and a failure nobody can see any more goes to a toast. Content props carry `close()` but no `openPanel`, so `contributePills` hands the popover
   the call its **Open tab** button makes. Updating the pill's `label` leaves an open popover open;
   changing `behavior`, hiding or disabling it closes it.
 - **The pill's registration loop *is* the client entry.** Before 0.8 it was a callback handed to

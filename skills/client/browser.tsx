@@ -1,7 +1,7 @@
 import { type PluginHostProps, useAgent, usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import type { z } from "zod";
 
+import { invocationText, sendInvocation } from "./invoke";
 import { useSkillsQuery } from "./skills-query";
 import { readSkill, ReportedSkillSchema, SkillEntrySchema } from "../shared/skills";
 
@@ -58,6 +59,23 @@ function groupBySource(skills: Skill[]): Array<{ label: string; skills: Skill[] 
  * a second scroll view inside the host's would fight it for the gesture.
  */
 export type SkillBrowserFrame = "screen" | "popover";
+
+/**
+ * How many lines a detail screen's long texts get in each frame; `undefined` is
+ * all of them.
+ *
+ * The popover's pages share the host's one scroll view, and nothing in the
+ * plugin API can move its offset — so a detail opened from far down a long list
+ * would keep that offset and open with its back link, arguments and Invoke out
+ * of view. Capping the detail keeps it within the popover's height, which leaves
+ * the host no room to scroll: the offset falls back to the top, and the list
+ * returned to from there starts at the top too. The Skills tab shows it all.
+ */
+function detailLines(frame: SkillBrowserFrame) {
+  return frame === "popover"
+    ? { description: 4, body: 6 }
+    : { description: undefined, body: undefined };
+}
 
 function Frame({
   frame,
@@ -128,22 +146,38 @@ type DetailStyles = ReturnType<typeof detailStyles>;
  */
 function useInvoke(agentId: string, onInvoked: () => void) {
   const paseo = usePaseo();
+  const toast = useToast();
   const [args, setArgs] = useState("");
   const [invokeError, setInvokeError] = useState<string | null>(null);
   const [isInvoking, setIsInvoking] = useState(false);
+
+  // Whether this detail screen is still the one on show; a send outlives it when
+  // the user goes back or the popover closes. See `sendInvocation`.
+  const showing = useRef(false);
+  useEffect(() => {
+    showing.current = true;
+    return () => {
+      showing.current = false;
+    };
+  }, []);
 
   async function invoke(name: string) {
     if (isInvoking) return;
     setIsInvoking(true);
     setInvokeError(null);
-    const trimmed = args.trim();
-    try {
-      await paseo.agents.ref(agentId).send(trimmed ? `/${name} ${trimmed}` : `/${name}`);
-      onInvoked();
-    } catch (error) {
-      setInvokeError(error instanceof Error ? error.message : String(error));
-      setIsInvoking(false);
-    }
+    await sendInvocation({
+      send: (text) => paseo.agents.ref(agentId).send(text),
+      text: invocationText(name, args),
+      isShowing: () => showing.current,
+      onSent: onInvoked,
+      onFailure(message) {
+        setInvokeError(message);
+        setIsInvoking(false);
+      },
+      onUnseenFailure(message) {
+        toast.error(`Could not invoke /${name}: ${message}`);
+      },
+    });
   }
 
   return { args, setArgs, invoke, invokeError, isInvoking };
@@ -213,6 +247,7 @@ function SkillDetail({
   });
 
   const styles = useMemo(() => detailStyles(theme, padding), [theme, padding]);
+  const lines = detailLines(frame);
 
   return (
     <Frame frame={frame} theme={theme} padding={padding}>
@@ -226,7 +261,9 @@ function SkillDetail({
       ) : (
         <>
           <Text style={styles.name}>{query.data.name}</Text>
-          <Text style={styles.description}>{query.data.description}</Text>
+          <Text style={styles.description} numberOfLines={lines.description}>
+            {query.data.description}
+          </Text>
           {/* The popover is for running a skill, not locating it; the tab keeps the path. */}
           {frame === "screen" ? (
             <>
@@ -261,7 +298,9 @@ function SkillDetail({
               command.
             </Text>
           )}
-          <Text style={styles.body}>{query.data.body}</Text>
+          <Text style={styles.body} numberOfLines={lines.body}>
+            {query.data.body}
+          </Text>
         </>
       )}
     </Frame>
@@ -301,7 +340,11 @@ function ReportedDetail({
       </Pressable>
       <Text style={styles.name}>{entry.name}</Text>
       {entry.argumentHint ? <Text style={styles.path}>{entry.argumentHint}</Text> : null}
-      <Text style={[styles.description, { marginTop: 8 }]} selectable>
+      <Text
+        style={[styles.description, { marginTop: 8 }]}
+        numberOfLines={detailLines(frame).description}
+        selectable
+      >
         {entry.description}
       </Text>
       <InvokeControls styles={styles} theme={theme} name={entry.name} controls={controls} />

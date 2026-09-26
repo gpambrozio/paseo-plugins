@@ -12,10 +12,11 @@ read before you move.
 ### Changed
 
 - **The Skills pill opens a popover above the composer instead of a new tab.** It lists the same
-  skills the Skills tab does, with the same search. Pick one to see its details, type any arguments
-  and press **Invoke** — it is sent exactly as it is from the tab, and the popover closes so you can
-  watch the agent start. **← All skills** goes back to the list, and **Open tab** at the top right
-  opens the full Skills tab as the pill used to. The pill still shows how many skills there are.
+  skills the Skills tab does, with the same search. Pick one to see a short summary of it, type any
+  arguments and press **Invoke** — it is sent exactly as it is from the tab, and the popover closes
+  so you can watch the agent start. **← All skills** goes back to the list, and **Open tab** at the
+  top right opens the full Skills tab as the pill used to, where the whole skill is shown. The pill
+  still shows how many skills there are.
 
 ## [0.2.1] — 2026-09-23
 
