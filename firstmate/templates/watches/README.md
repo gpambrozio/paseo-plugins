@@ -57,6 +57,10 @@ words those are and what to do.
 ## Limits
 
 - A run has two minutes; stdout past 16,000 characters is cut.
+- Runs that wait while the first mate is busy arrive together in one message of at most 32,000
+  characters. When they would not fit, the oldest are dropped whole — never cut in the middle — and the
+  message starts with a count of them; the card shows those watches as dropped. The newest always
+  arrives.
 - A run that exits non-zero or runs out of time is reported to the first mate once, with the end of
   its stderr, and not again until a run succeeds.
 - A watch still running when it is due again is not started twice.

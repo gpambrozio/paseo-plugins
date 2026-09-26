@@ -312,7 +312,11 @@ while the first mate is `running` or `initializing`, or absent, and asks Paseo a
 never assumes, since a note sent into a newer turn can replace that turn where the provider cannot steer.
 The first mate's own `agent.turn_ended` tries the queue 1, 5 and 15 seconds later (`flushAfterTurn`: its
 snapshot can still say running for a moment, and a crewmate's finish note may start a turn at once), and
-every tick tries again. The queue holds `MAX_QUEUED` and counts what it drops. **A run is one block**,
+every tick tries again. The queue holds `MAX_QUEUED` and counts what it drops, and one message holds at
+most `MAX_MESSAGE_CHARS` (32,000), tags included: `fitWatchNote` keeps the newest blocks that fit and drops
+the oldest whole, counting them in the same `<firstmate-watch-dropped>` tag and marking their watches
+`dropped` on the card. The newest block always goes — two blocks at the 16,000 cap come to a little over
+32,000 with their tags and marker, so only one is certain. **A run is one block**,
 everything it printed, never a turn per line, and **a message carries nothing of the plugin's** — just
 `<firstmate-watch name=… ran=…>` blocks one after another, oldest first, with the plugin's own facts
 (a `failed=` block, a leading `<firstmate-watch-dropped count="N"/>`). How output is to be

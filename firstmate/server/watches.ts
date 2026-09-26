@@ -47,6 +47,11 @@ export const MAX_OUTPUT_CHARS = 16000;
 export const MAX_ERROR_CHARS = 1500;
 /** Outputs waiting for the first mate; past this the oldest go. */
 export const MAX_QUEUED = 20;
+/**
+ * The most one catch-up message may hold, tags and all. Past it the oldest blocks go whole — never one
+ * cut in the middle — and are counted in the dropped tag; the newest block always goes.
+ */
+export const MAX_MESSAGE_CHARS = 32000;
 const MINUTE_MS = 60 * 1000;
 /**
  * After the first mate's turn ends, when to try the queue: its snapshot can still say running for a
@@ -149,21 +154,44 @@ export function quoted(text: string): string {
  * `<firstmate-watch-dropped count="N"/>` first when older ones were dropped (`templates/messages/watch-*.md`).
  */
 export async function watchNote(notes: readonly QueuedNote[], dropped: number): Promise<string> {
-  const blocks = await Promise.all(
-    notes.map((note) =>
-      note.kind === "output"
-        ? message(TEMPLATES.watchOutput, { name: note.name, ran: note.ran, output: quoted(note.text) })
-        : message(TEMPLATES.watchFailed, {
-            name: note.name,
-            ran: note.ran,
-            // An attribute's value, so it cannot hold the quote that ends it.
-            reason: (note.reason ?? "it failed").replace(/"/g, "'"),
-            stderr: note.text === "" ? "(nothing on stderr)" : quoted(note.text),
-          }),
-    ),
-  );
-  if (dropped > 0) blocks.unshift(await message(TEMPLATES.watchDropped, { count: String(dropped) }));
-  return blocks.join("\n\n");
+  return compose(await Promise.all(notes.map(block)), dropped);
+}
+
+/** One note as its block. */
+function block(note: QueuedNote): Promise<string> {
+  return note.kind === "output"
+    ? message(TEMPLATES.watchOutput, { name: note.name, ran: note.ran, output: quoted(note.text) })
+    : message(TEMPLATES.watchFailed, {
+        name: note.name,
+        ran: note.ran,
+        // An attribute's value, so it cannot hold the quote that ends it.
+        reason: (note.reason ?? "it failed").replace(/"/g, "'"),
+        stderr: note.text === "" ? "(nothing on stderr)" : quoted(note.text),
+      });
+}
+
+async function compose(blocks: readonly string[], dropped: number): Promise<string> {
+  const head = dropped > 0 ? [await message(TEMPLATES.watchDropped, { count: String(dropped) })] : [];
+  return [...head, ...blocks].join("\n\n");
+}
+
+/**
+ * The message for a batch within `max` characters: as many of the newest blocks as fit, oldest dropped
+ * first and counted with `dropped` in the tag. The newest block always goes, so a message is never empty.
+ */
+export async function fitWatchNote(
+  notes: readonly QueuedNote[],
+  dropped: number,
+  max: number = MAX_MESSAGE_CHARS,
+): Promise<{ text: string; sent: QueuedNote[]; cut: QueuedNote[] }> {
+  const blocks = await Promise.all(notes.map(block));
+  for (let cut = 0; cut < notes.length; cut += 1) {
+    const text = await compose(blocks.slice(cut), dropped + cut);
+    if (text.length <= max || cut === notes.length - 1) {
+      return { text, sent: notes.slice(cut), cut: notes.slice(0, cut) };
+    }
+  }
+  return { text: await compose([], dropped), sent: [], cut: [] };
 }
 
 /** What went wrong with a run, in a few words, or null when it succeeded. */
@@ -340,22 +368,26 @@ export class WatchRunner {
     if (state.queue.length === 0 && state.dropped === 0) return;
     const batch = [...state.queue];
     const dropped = state.dropped;
+    const note = await fitWatchNote(batch, dropped);
     let outcome: DeliveryOutcome;
     try {
-      outcome = await this.options.deliver(await watchNote(batch, dropped));
+      outcome = await this.options.deliver(note.text);
     } catch (error) {
       console.error("[firstmate] could not send the watches' output to the first mate:", error);
       return;
     }
     if (outcome !== "sent") return;
-    state.queue = state.queue.filter((note) => !batch.includes(note));
+    // What was cut to fit is gone too: counted in this message's tag, not tried again.
+    state.queue = state.queue.filter((queued) => !batch.includes(queued));
     state.dropped -= dropped;
-    for (const note of batch) {
-      const record = state.watches[note.name];
-      if (note.kind === "output" && record?.lastResult === "queued" && record.lastOutputAt === note.ran) {
-        state.watches[note.name] = { ...record, lastResult: "delivered" };
+    const settle = (queued: QueuedNote, result: WatchResult) => {
+      const record = state.watches[queued.name];
+      if (queued.kind === "output" && record?.lastResult === "queued" && record.lastOutputAt === queued.ran) {
+        state.watches[queued.name] = { ...record, lastResult: result };
       }
-    }
+    };
+    note.cut.forEach((queued) => settle(queued, "dropped"));
+    note.sent.forEach((queued) => settle(queued, "delivered"));
     await this.persist();
   }
 

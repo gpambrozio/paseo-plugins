@@ -4,7 +4,16 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runWatchScript, type RunOptions, type RunResult } from "./watch-run";
-import { MAX_OUTPUT_CHARS, MAX_QUEUED, WatchRunner, clip, quoted, watchNote, type DeliveryOutcome, type WatchRunnerOptions } from "./watches";
+import {
+  MAX_MESSAGE_CHARS,
+  MAX_OUTPUT_CHARS,
+  MAX_QUEUED,
+  WatchRunner,
+  clip,
+  fitWatchNote,
+  quoted,
+  watchNote,
+  type QueuedNote, type DeliveryOutcome, type WatchRunnerOptions } from "./watches";
 
 const tempDirs: string[] = [];
 afterEach(async () => {
@@ -96,14 +105,16 @@ describe("WatchRunner", () => {
   it("sends up to 16,000 characters of a run's output, and marks what it cut", async () => {
     expect(MAX_OUTPUT_CHARS).toBe(16000);
     const paths = await setup();
-    await script(paths.home, "long", "true");
-    await script(paths.home, "longer", "true");
+    // A minute apart, so each is a message of its own: two blocks this long do not fit in one.
+    await script(paths.home, "long", "true", "5 * * * *");
+    await script(paths.home, "longer", "true", "6 * * * *");
     const fits = "a".repeat(16000);
     const { instance, sent } = runner(paths, { long: () => ok(fits), longer: () => ok("b".repeat(20000)) });
     await instance.tick(MINUTE);
-    expect(sent).toHaveLength(1);
+    await instance.tick(new Date(2026, 8, 25, 10, 6));
+    expect(sent).toHaveLength(2);
     expect(sent[0]).toContain(`\n${fits}\n</firstmate-watch>`);
-    expect(sent[0]).toContain(`\n${"b".repeat(16000)}\n[output truncated; 4000 more characters]\n</firstmate-watch>`);
+    expect(sent[1]).toContain(`\n${"b".repeat(16000)}\n[output truncated; 4000 more characters]\n</firstmate-watch>`);
   });
 
   it("gives a script the home, the backlog and a state directory of its own", async () => {
@@ -269,6 +280,50 @@ describe("WatchRunner", () => {
     await instance.tick(MINUTE);
     expect(runs).toEqual([]);
     expect(signal).toBeUndefined();
+  });
+
+  it("keeps a catch-up message within 32,000 characters, dropping the oldest whole blocks and counting them", async () => {
+    expect(MAX_MESSAGE_CHARS).toBe(32000);
+    const paths = await setup();
+    await script(paths.home, "first", "true", "0 * * * *");
+    await script(paths.home, "second", "true", "1 * * * *");
+    await script(paths.home, "third", "true", "2 * * * *");
+    await script(paths.home, "fourth", "true", "3 * * * *");
+    // Twelve thousand each: the newest two fit, a third would not.
+    const out = (letter: string) => () => ok(letter.repeat(12000));
+    const { instance, sent, mate } = runner(paths, { first: out("a"), second: out("b"), third: out("c"), fourth: out("d") });
+    mate.state = "busy";
+    for (let minute = 0; minute < 4; minute += 1) await instance.tick(new Date(2026, 8, 25, 10, minute));
+
+    mate.state = "idle";
+    await instance.flush();
+    expect(sent).toHaveLength(1);
+    const note = sent[0] ?? "";
+    expect(note.length).toBeLessThanOrEqual(32000);
+    // The two oldest went, whole: counted first, and no piece of either is left.
+    expect(note.startsWith('<firstmate-watch-dropped count="2"/>\n\n<firstmate-watch name="third"')).toBe(true);
+    expect(note).not.toContain("aaa");
+    expect(note).not.toContain("bbb");
+    expect(note).toContain(`${"c".repeat(12000)}\n</firstmate-watch>`);
+    expect(note).toContain(`${"d".repeat(12000)}\n</firstmate-watch>`);
+
+    const results = Object.fromEntries((await instance.summaries()).map((watch) => [watch.name, watch.lastResult]));
+    expect(results).toMatchObject({ first: "dropped", second: "dropped", third: "delivered", fourth: "delivered" });
+    // Nothing cut is tried again.
+    await instance.flush();
+    expect(sent).toHaveLength(1);
+  });
+
+  it("adds what is cut to fit to what a full queue dropped, and always sends the newest block", async () => {
+    const big = (name: string): QueuedNote => ({ name, ran: "2026-09-25T10:05:00Z", kind: "output", text: "x".repeat(16000) });
+    const fitted = await fitWatchNote([big("a"), big("b"), big("c")], 4);
+    expect(fitted.cut.map((note) => note.name)).toEqual(["a", "b"]);
+    expect(fitted.sent.map((note) => note.name)).toEqual(["c"]);
+    expect(fitted.text.startsWith('<firstmate-watch-dropped count="6"/>')).toBe(true);
+    // Too long even alone, the newest still goes rather than nothing.
+    const alone = await fitWatchNote([big("only")], 0, 100);
+    expect(alone.sent.map((note) => note.name)).toEqual(["only"]);
+    expect(alone.cut).toEqual([]);
   });
 
   it("keeps at most MAX_QUEUED outputs, saying how many older ones it dropped", async () => {
