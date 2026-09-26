@@ -10,11 +10,11 @@
  */
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useMemo, useReducer, useRef } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import type { Suggestion } from "../shared/fleet";
-import { createRemovalGate, type RemovalGate } from "./suggestion-removals";
+import { suggestionRemovals } from "./suggestion-removals";
 
 export const SUGGESTIONS_TITLE = "Suggestions";
 export const SUGGESTIONS_ICON = "Lightbulb";
@@ -35,11 +35,9 @@ export function SuggestionList({
   /** Takes the suggestion out of the first mate's file; settles once the board has the new list. */
   onRemove: (suggestion: Suggestion) => Promise<void>;
 }) {
-  const [, redraw] = useReducer((count: number) => count + 1, 0);
-  /** Suggestions whose removal is on its way, by label and prompt; see `./suggestion-removals`. */
-  const removals = useRef<RemovalGate | null>(null);
-  if (removals.current === null) removals.current = createRemovalGate(redraw);
-  const gate = removals.current;
+  /** Suggestions whose removal is on its way, kept across this list's unmounts; see `./suggestion-removals`. */
+  const gate = suggestionRemovals;
+  useSyncExternalStore(gate.subscribe, gate.version);
   const styles = useMemo(() => {
     const { colors } = theme;
     return {

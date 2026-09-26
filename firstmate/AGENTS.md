@@ -407,7 +407,9 @@ with the list left, which the board puts in the fleet query at once.
 On the card, the trash is a sibling of the send `Pressable` rather than inside it, so pressing it can
 never press the card. A removal on its way shuts that card by label and prompt, not position
 (`client/suggestion-removals.ts`), since a poll can move it; identical twins wait together, and the gate
-is checked synchronously, so two presses before a redraw start one removal.
+is checked synchronously, so two presses before a redraw start one removal. The gate is in module scope,
+like the send gate, because the list unmounts on a phone's tab switch and on the wide layout's board/Files
+switch while a request can still be out.
 
 A button sends its prompt to the first mate at once, and brings the chat into view to show it go out:
 the First mate tab on a phone, the chat unfolded on a wide layout. The draft is not touched. The send is
