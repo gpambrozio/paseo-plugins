@@ -5,6 +5,12 @@ import { contributePills } from "./pill";
 
 vi.mock("@getpaseo/plugin/client/react-native", () => ({ Icon: () => null }));
 vi.mock("./skills-query", () => ({ useSkillsQuery: () => ({}), countEntries: () => 0 }));
+// The popover draws with react-native, which does not load under node. The stand-in
+// keeps the one thing the pill wires into it: the call that opens the Skills tab.
+vi.mock("./popover", () => ({
+  createSkillsPopover: (openTab: (target: unknown) => void) =>
+    Object.assign(() => null, { openTab }),
+}));
 
 type Agent = { id: string; workspaceId?: string | null };
 type Observer = {
@@ -27,8 +33,15 @@ function listOf(agents: Agent[]) {
  * the feed comes from `list({ subscribe })` and a bare `agents.subscribe()`
  * would hear nothing; without it, a 0.8 client that only has the listener.
  */
+type Button = {
+  title: string;
+  label?: string;
+  behavior: { kind: string; Content?: { openTab(target: unknown): void } };
+};
+
 function fakeClient(options: { observing: boolean; agents: () => Agent[] }) {
-  const pills: { agentId: string; workspaceId: string; removed: boolean }[] = [];
+  const pills: { agentId: string; workspaceId: string; button: Button; removed: boolean }[] = [];
+  const openedPanels: unknown[][] = [];
   const lists: Record<string, unknown>[] = [];
   let observer: Observer | null = null;
   let listener: ((update: unknown) => void) | null = null;
@@ -61,9 +74,16 @@ function fakeClient(options: { observing: boolean; agents: () => Agent[] }) {
   };
   const client = {
     paseo: options.observing ? { observeEvents() {}, agents } : { agents },
-    openPanel() {},
-    addComposerPill(pill: { agentId: string; workspaceId: string }) {
-      const entry = { agentId: pill.agentId, workspaceId: pill.workspaceId, removed: false };
+    openPanel(...args: unknown[]) {
+      openedPanels.push(args);
+    },
+    addComposerPill(pill: { agentId: string; workspaceId: string; button: Button }) {
+      const entry = {
+        agentId: pill.agentId,
+        workspaceId: pill.workspaceId,
+        button: pill.button,
+        removed: false,
+      };
       pills.push(entry);
       return {
         update() {},
@@ -77,6 +97,7 @@ function fakeClient(options: { observing: boolean; agents: () => Agent[] }) {
     client: client as unknown as PluginClientContext,
     pills,
     lists,
+    openedPanels,
     live: () =>
       pills
         .filter((pill) => !pill.removed)
@@ -193,5 +214,29 @@ describe("composer pills on a 0.8 client", () => {
     cleanup();
     expect(fake.listening).toBe(false);
     expect(fake.live()).toEqual([]);
+  });
+});
+
+describe("the composer pill's button", () => {
+  it("opens a popover, and the popover's tab button opens that agent's Skills tab", async () => {
+    const fake = fakeClient({
+      observing: false,
+      agents: () => [{ id: "a1", workspaceId: "w1" }],
+    });
+    const cleanup = contributePills(fake.client);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const button = fake.pills[0]?.button;
+    expect(button?.title).toBe("Skills");
+    expect(button?.label).toBe("Skills");
+    expect(button?.behavior.kind).toBe("popover");
+    // Pressing the pill no longer opens the tab by itself.
+    expect(fake.openedPanels).toEqual([]);
+
+    button?.behavior.Content?.openTab({ workspaceId: "w1", agentId: "a1" });
+    expect(fake.openedPanels).toEqual([["skills", { workspaceId: "w1", agentId: "a1" }]]);
+
+    cleanup();
   });
 });

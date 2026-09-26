@@ -7,6 +7,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect } from "react";
 
 import { followAgents, type AgentList, type AgentUpdate } from "./agents";
+import { createSkillsPopover } from "./popover";
 import { countEntries, useSkillsQuery } from "./skills-query";
 
 /** What the pill reads before the count is known, and the accessible name throughout. */
@@ -43,7 +44,8 @@ function createPillIcon(agentId: string, pill: { current?: PluginButtonRegistrat
 }
 
 /**
- * One pill per agent, opening that agent's Skills panel.
+ * One pill per agent, opening a popover over that agent's composer that lists
+ * its skills and runs one; a button in the popover opens the full Skills tab.
  *
  * The client entry runs once per installation per connected app, so this owns
  * the whole set: it seeds from the agents that already exist, follows the update
@@ -52,6 +54,7 @@ function createPillIcon(agentId: string, pill: { current?: PluginButtonRegistrat
 export function contributePills(client: PluginClientContext) {
   const pills = new Map<string, { workspaceId: string; registration: PluginButtonRegistration }>();
   let stopped = false;
+  const Popover = createSkillsPopover((target) => client.openPanel("skills", target));
 
   function addPill(agentId: string, workspaceId: string) {
     if (stopped) return;
@@ -74,12 +77,7 @@ export function contributePills(client: PluginClientContext) {
         title: TITLE,
         label: TITLE,
         icon: createPillIcon(agentId, pill),
-        behavior: {
-          kind: "action",
-          onPress() {
-            client.openPanel("skills", { workspaceId, agentId });
-          },
-        },
+        behavior: { kind: "popover", Content: Popover },
       },
     });
     pills.set(agentId, { workspaceId, registration: pill.current });

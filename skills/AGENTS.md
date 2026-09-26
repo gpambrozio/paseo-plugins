@@ -41,7 +41,7 @@ entries there exist because a reviewer proved the code was wrong about the real 
   sync writes there and older builds read it. Paseo's own `listCodexSkills` is stale on this; do
   not "fix" the resolver back to matching it.
 - **A source kind lives in three files.** `SkillSourceKind` (`server/resolve/skill-entry.ts`), the
-  zod enum (`shared/skills.ts`), and `SOURCE_ORDER` (`client/panel.tsx`). The first two disagreeing
+  zod enum (`shared/skills.ts`), and `SOURCE_ORDER` (`client/browser.tsx`). The first two disagreeing
   fails validation at runtime; a kind missing from the third sorts to the top of the panel, since
   `indexOf` returns `-1`.
 - **Claude plugin scoping keys on `projectPath`, not on `scope`.** Real manifests carry
@@ -56,8 +56,27 @@ entries there exist because a reviewer proved the code was wrong about the real 
   `server/resolve/reported.ts` is belt and braces rather than load-bearing — but it costs one
   `typeof` and it documents that the boundary is a runtime one. Keep it.
 - **Nothing in Paseo enumerates registered panels.** `addWorkspacePanel` registers the tab type
-  only; the panel is reachable because the Command Center item and the composer pill both call
-  `openPanel`. Remove both and the panel exists but cannot be opened.
+  only; the panel is reachable because the Command Center item and the pill's popover (its **Open
+  tab** button) both call `openPanel`. Remove both and the panel exists but cannot be opened.
+- **The panel and the pill's popover are one browser.** `client/browser.tsx` owns the list, the
+  search, both detail screens and the invoke; `SkillsPanel` and the popover only frame it and say
+  what happens after a send — the panel moves to the agent's tab, the popover calls `close()`. The
+  popover is a host surface that already scrolls and pads, so `frame="popover"` draws a plain
+  `View`; a `ScrollView` inside it would fight the host's for the gesture. Its size is the host's:
+  280–420 wide and at most 440 tall, hardcoded in the app, with no size field in the button
+  descriptor to raise it. The popover's skill detail also leaves out the path and **Copy path**,
+  which only the tab shows.
+- **The popover's pages share the host's one scroll offset**, and no plugin API moves it. A detail
+  opened from far down the list would keep the list's offset and open with its back link and
+  Invoke out of view, so `detailLines` caps the popover's detail (description and `SKILL.md`
+  excerpt) to fit inside the 440-point surface: with nothing left to scroll, the offset falls back
+  to the top. Anything added to that detail has to keep it under that height.
+- **A send outlives the screen that started it.** The user can go back, pick another skill, or
+  close and reopen the popover before `send` answers, and the popover's `close()` is not scoped to
+  one opening. `sendInvocation` (`client/invoke.ts`) reports success only while the detail that
+  sent it is still mounted, and a failure nobody can see any more goes to a toast. Content props carry `close()` but no `openPanel`, so `contributePills` hands the popover
+  the call its **Open tab** button makes. Updating the pill's `label` leaves an open popover open;
+  changing `behavior`, hiding or disabling it closes it.
 - **The pill's registration loop *is* the client entry.** Before 0.8 it was a callback handed to
   `addClientSide`; now `index.client.tsx` runs in the app directly and calls `contributePills`,
   returning its cleanup as the entry's. The `paseo-plugin.d.ts` shim that used to type all of this

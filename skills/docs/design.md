@@ -18,7 +18,8 @@ leaving Paseo and finding the file by hand.
 - Show the absolute `SKILL.md` path for each skill.
 - Render a skill's full body without leaving the app.
 - Invoke a skill in that agent, with optional arguments.
-- Reach the panel from the workspace tab bar, the Command Center, and a composer pill.
+- Reach the panel from the workspace tab bar, the Command Center, and a composer pill — whose
+  popover lists and invokes the same skills without leaving the composer.
 
 ## Non-goals
 
