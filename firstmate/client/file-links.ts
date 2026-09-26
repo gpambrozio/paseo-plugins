@@ -105,31 +105,37 @@ export function inlineTokens(text: string, lookup: FileLookup): InlineToken[] {
 }
 
 /**
- * Every path `source` could link, in order of first mention, each once — what
- * to ask the daemon about. Only the text the renderer draws inline is walked,
- * so a path in a fenced code block, which is never linked, is never asked about.
+ * Every path `source` mentions that could be linked, once per mention, in
+ * order. Only the text the renderer draws inline is walked, so a path in a
+ * fenced code block, which is never linked, is never asked about.
  */
-export function fileCandidates(source: string): string[] {
-  const seen = new Set<string>();
+function mentions(source: string): string[] {
+  const found: string[] = [];
   const collect: FileLookup = (candidate) => {
-    seen.add(candidate);
+    found.push(candidate);
     return null;
   };
   for (const text of inlineTexts(parseMarkdown(source))) {
     for (const line of text.split("\n")) inlineTokens(line, collect);
   }
-  return [...seen];
+  return found;
+}
+
+/** Every path `source` could link, in order of first mention, each once — what to ask the daemon about. */
+export function fileCandidates(source: string): string[] {
+  return [...new Set(mentions(source))];
 }
 
 /**
  * The candidates of a whole conversation, oldest message first, each once and
- * at its latest mention, keeping the `max` most recently mentioned — so a file
- * named early and again just now is not the one left out.
+ * at its latest mention — within a reply as much as across replies — keeping
+ * the `max` most recently mentioned, so a file named early and again just now
+ * is not the one left out.
  */
 export function recentCandidates(messages: readonly string[], max: number): string[] {
   const order = new Set<string>();
   for (const message of messages) {
-    for (const candidate of fileCandidates(message)) {
+    for (const candidate of mentions(message)) {
       order.delete(candidate);
       order.add(candidate);
     }

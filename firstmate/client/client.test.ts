@@ -760,6 +760,12 @@ describe("file links", () => {
     const messages = ["data/backlog.md", "a/1.md b/2.md c/3.md", "data/backlog.md again"];
     expect(recentCandidates(messages, 2)).toEqual(["c/3.md", "data/backlog.md"]);
     expect(recentCandidates(messages, 10)).toEqual(["a/1.md", "b/2.md", "c/3.md", "data/backlog.md"]);
+    // A repeat inside one reply counts at its last mention there, not its first.
+    expect(recentCandidates(["data/backlog.md a/1.md b/2.md data/backlog.md"], 2)).toEqual(["b/2.md", "data/backlog.md"]);
+    expect(recentCandidates(["data/backlog.md a/1.md", "b/2.md data/backlog.md c/3.md"], 2)).toEqual([
+      "data/backlog.md",
+      "c/3.md",
+    ]);
   });
 
   it("does not ask about a path longer than the daemon takes, which refuses one", () => {
