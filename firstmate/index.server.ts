@@ -14,7 +14,7 @@ import { registerCrewSeen } from "./server/crew-seen";
 import { ReportCache, loadFleet, readAgentTools } from "./server/fleet";
 import { findFiles, listDirectory, readTextFile, requireHome, writeTextFile } from "./server/files";
 import { CHARTER_FILE, NEW_CHARTER_FILE, acknowledgeCharter, writeNewCharter } from "./server/charter-file";
-import { isHomeReady, prepareHome } from "./server/home";
+import { isHomeReady, prepareHome, removeSuggestion } from "./server/home";
 import {
   adoptMate,
   askMate,
@@ -43,6 +43,7 @@ import {
   readConfig,
   relaunchCrew as relaunchCrewRpc,
   releaseMate as releaseMateRpc,
+  removeSuggestion as removeSuggestionRpc,
   restartMate as restartMateRpc,
   steerCrew as steerCrewRpc,
   toggleWatch,
@@ -134,6 +135,10 @@ export default function contribute(server: PluginServerContext) {
     if (written.path === CHARTER_FILE) await refreshCharter();
     return written;
   });
+
+  server.handle(removeSuggestionRpc, async (suggestion) => ({
+    suggestions: await removeSuggestion(await home(), suggestion),
+  }));
 
   server.handle(compareCharterRpc, async () => ({
     path: (await writeNewCharter(await home())) ? NEW_CHARTER_FILE : null,

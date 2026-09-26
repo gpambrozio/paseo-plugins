@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { readSuggestions } from "./home";
-import { MAX_SUGGESTIONS, parseSuggestions } from "./suggestions";
+import { readSuggestions, removeSuggestion } from "./home";
+import { MAX_SUGGESTIONS, parseSuggestions, withoutSuggestion } from "./suggestions";
 import { TEMPLATES, readTemplate } from "./templates";
 
 describe("parseSuggestions", () => {
@@ -60,6 +60,78 @@ describe("readSuggestions", () => {
       expect(await readSuggestions(home)).toEqual([
         { label: "Land web#42", prompt: "Merge https://github.com/you/web/pull/42" },
       ]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("withoutSuggestion", () => {
+  const land = { label: "Land web#42", prompt: "Merge https://github.com/you/web/pull/42" };
+
+  it("drops only the matching line, keeping every other byte", () => {
+    const markdown = [
+      "# Suggestions",
+      "",
+      "<!-- - Land web#42 :: Merge https://github.com/you/web/pull/42 -->",
+      "- Review loop :: Run a review loop",
+      "- **Land web#42** :: Merge https://github.com/you/web/pull/42",
+      "Not a suggestion",
+      "- Dark mode :: Add a dark mode toggle",
+      "",
+    ].join("\r\n");
+    expect(withoutSuggestion(markdown, land)).toBe(
+      [
+        "# Suggestions",
+        "",
+        "<!-- - Land web#42 :: Merge https://github.com/you/web/pull/42 -->",
+        "- Review loop :: Run a review loop",
+        "Not a suggestion",
+        "- Dark mode :: Add a dark mode toggle",
+        "",
+      ].join("\r\n"),
+    );
+  });
+
+  it("removes the last line, with or without a newline after it", () => {
+    expect(withoutSuggestion("- A :: a\n- Land web#42 :: Merge https://github.com/you/web/pull/42", land)).toBe(
+      "- A :: a\n",
+    );
+    expect(withoutSuggestion("- Land web#42 :: Merge https://github.com/you/web/pull/42\n", land)).toBe("");
+  });
+
+  it("is null when no visible line matches both label and prompt", () => {
+    expect(withoutSuggestion("", land)).toBeNull();
+    expect(withoutSuggestion("- Land web#42 :: Merge it now\n- Land :: Merge https://github.com/you/web/pull/42", land)).toBeNull();
+    expect(
+      withoutSuggestion("<!--\n- Land web#42 :: Merge https://github.com/you/web/pull/42\n-->\n- A :: a", land),
+    ).toBeNull();
+  });
+
+  it("removes one of two identical lines at a time", () => {
+    const line = "- Land web#42 :: Merge https://github.com/you/web/pull/42";
+    const once = withoutSuggestion(`${line}\n- A :: a\n${line}\n`, land);
+    expect(once).toBe(`- A :: a\n${line}\n`);
+    expect(parseSuggestions(once ?? "")).toEqual([{ label: "A", prompt: "a" }, land]);
+    expect(withoutSuggestion(once ?? "", land)).toBe("- A :: a\n");
+  });
+});
+
+describe("removeSuggestion", () => {
+  it("rewrites the home's file without the line and answers with what is left", async () => {
+    const home = await mkdtemp(join(tmpdir(), "firstmate-suggestions-"));
+    try {
+      const target = { label: "Land", prompt: "Merge it" };
+      expect(await removeSuggestion(home, target)).toEqual([]);
+      await mkdir(join(home, "data"));
+      const path = join(home, TEMPLATES.suggestions);
+      await writeFile(path, "# Suggestions\n\n- Land :: Merge it\n- Scout :: Look around\n");
+      expect(await removeSuggestion(home, target)).toEqual([{ label: "Scout", prompt: "Look around" }]);
+      expect(await readFile(path, "utf8")).toBe("# Suggestions\n\n- Scout :: Look around\n");
+
+      // Gone already — the first mate rewrote the list — leaves the file alone.
+      expect(await removeSuggestion(home, target)).toEqual([{ label: "Scout", prompt: "Look around" }]);
+      expect(await readFile(path, "utf8")).toBe("# Suggestions\n\n- Scout :: Look around\n");
     } finally {
       await rm(home, { recursive: true, force: true });
     }

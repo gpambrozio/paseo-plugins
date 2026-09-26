@@ -300,6 +300,16 @@ export const toggleWatch = defineRpc({
 });
 
 /**
+ * Takes one suggestion off the board by removing its line from `data/suggestions.md`, matched by label
+ * and prompt; one the file no longer has is left alone. Answers with the suggestions the file has now.
+ */
+export const removeSuggestion = defineRpc({
+  name: "firstmate.suggestion.remove",
+  input: SuggestionSchema,
+  output: z.object({ suggestions: z.array(SuggestionSchema) }),
+});
+
+/**
  * Turns on `mcp.injectIntoAgents` in the daemon's config. Only agents started
  * or resumed afterwards get the tools, which is why the board asks before the
  * first mate is launched rather than after.

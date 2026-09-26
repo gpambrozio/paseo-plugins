@@ -49,6 +49,8 @@ interface BoardProps {
   suggesting: boolean;
   /** Sends a suggestion's prompt to the first mate. */
   onSuggest: (prompt: string) => void;
+  /** Takes a suggestion off the first mate's list without sending it. */
+  onRemoveSuggestion: (suggestion: Suggestion) => Promise<void>;
   /** The home's watch scripts: a card after the columns, or the list's last section; empty draws neither. */
   watches: readonly WatchSummary[];
   /** Opens a home file in the Files view: the tab on a phone, the right-hand pane on a wide layout. */
@@ -249,6 +251,7 @@ export function Board(props: BoardProps) {
                       theme={theme}
                       disabled={props.suggesting}
                       onPick={props.onSuggest}
+                      onRemove={props.onRemoveSuggestion}
                     />
                   </ScrollView>
                 </View>

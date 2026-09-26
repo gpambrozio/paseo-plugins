@@ -386,6 +386,17 @@ on every poll (`parseSuggestions`): notes are left out, a line without a label a
 of the first `::` is skipped, and at most `MAX_SUGGESTIONS` are kept. Nothing in code writes a
 suggestion; an empty or missing file draws no card and no tab.
 
+The one thing code does to the file is take a line out, for a card's trash button
+(`firstmate.suggestion.remove`, `removeSuggestion` in `server/home.ts`). The line is found by the label
+and prompt the board showed, not by position, because the first mate may have rewritten the list since
+the board loaded it; the first visible line that parses to both goes, byte for byte with its line
+ending, and nothing else changes (`withoutSuggestion`). A suggestion the file no longer has writes
+nothing. The write is the Files view's own `writeTextFile`, so it is confined to the home, atomic, and
+refused over a newer version — which is the first mate writing at the same moment, and the removal
+starts over from its version. The RPC answers with the list left, which the board puts in the fleet
+query at once. The trash is the card's sibling rather than a `Pressable` inside it, so pressing it can
+never press the card.
+
 A button sends its prompt to the first mate at once, and brings the chat into view to show it go out:
 the First mate tab on a phone, the chat unfolded on a wide layout. The draft is not touched. The send is
 the chat's own: `useMateSender` (`client/mate-send.ts`) is what Send, Bearings and Ahoy go through too,

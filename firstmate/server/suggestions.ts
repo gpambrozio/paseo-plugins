@@ -47,3 +47,41 @@ export function parseSuggestions(markdown: string): Suggestion[] {
   }
   return suggestions;
 }
+
+/**
+ * `markdown` without the first line that reads as `target` — the same label and prompt, as the board
+ * shows them — or null when no line does. Every other byte is kept: the header, the notes, the other
+ * suggestions, the line endings. A line inside a note is never a match, since the board never showed
+ * it. Of two identical lines only the first goes, as the board draws one card for each.
+ */
+export function withoutSuggestion(markdown: string, target: Suggestion): string | null {
+  const notes = [...markdown.matchAll(/<!--[\s\S]*?-->/g)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+  }));
+  const visible = (from: number, to: number): string => {
+    let text = "";
+    let at = from;
+    for (const note of notes) {
+      if (note.end <= at || note.start >= to) continue;
+      text += markdown.slice(at, Math.max(at, note.start));
+      at = Math.min(to, Math.max(at, note.end));
+    }
+    return text + markdown.slice(at, to);
+  };
+
+  const breaks = /\r\n?|\n/g;
+  let start = 0;
+  while (start <= markdown.length) {
+    const found = breaks.exec(markdown);
+    const end = found === null ? markdown.length : found.index;
+    const next = found === null ? markdown.length : found.index + found[0].length;
+    const suggestion = parseLine(visible(start, end));
+    if (suggestion !== null && suggestion.label === target.label && suggestion.prompt === target.prompt) {
+      return markdown.slice(0, start) + markdown.slice(next);
+    }
+    if (found === null) break;
+    start = next;
+  }
+  return null;
+}

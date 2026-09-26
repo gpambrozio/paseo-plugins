@@ -29,8 +29,10 @@ import {
   enableAgentTools,
   loadFleet,
   markMateSeen,
+  removeSuggestion,
   type ColumnId,
   type Fleet,
+  type Suggestion,
 } from "../shared/fleet";
 import { displaySettings, type DisplaySettings } from "../shared/settings";
 import { Board } from "./board";
@@ -89,6 +91,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
   const enable = useRpc(enableAgentTools);
   const compareCharters = useRpc(compareCharter);
   const acknowledgeCharters = useRpc(acknowledgeCharter);
+  const removeSuggestions = useRpc(removeSuggestion);
   const toast = useToast();
   const queryClient = useQueryClient();
   const display = useSettings(displaySettings);
@@ -285,6 +288,24 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
     if (mate === null || !mateSender.send(captainMessage(prompt, []))) return;
     if (compact) setTab("chat");
     else if (values.chatCollapsed) save({ chatCollapsed: false });
+  }
+
+  /**
+   * A suggestion's trash: its line leaves the first mate's file, and the board takes the list the
+   * daemon answers with at once rather than waiting for the next load.
+   */
+  function dismissSuggestion(suggestion: Suggestion): Promise<void> {
+    return removeSuggestions(suggestion)
+      .then((result) => {
+        queryClient.setQueryData<Fleet>(FLEET_QUERY_KEY, (current) =>
+          current === undefined ? current : { ...current, suggestions: result.suggestions },
+        );
+        refresh();
+      })
+      .catch((caught: unknown) => {
+        toast.error(errorText(caught));
+        refresh();
+      });
   }
 
   function turnOnTools(): void {
@@ -507,6 +528,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
       suggestions={data.suggestions}
       suggesting={mateSender.sending}
       onSuggest={suggest}
+      onRemoveSuggestion={dismissSuggestion}
       watches={data.watches}
       onOpenFile={openFile}
       onWatch={setWatching}
@@ -586,6 +608,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginSurfaceProps) 
                 theme={theme}
                 disabled={mateSender.sending}
                 onPick={suggest}
+                onRemove={dismissSuggestion}
               />
             </ScrollView>
           ) : shownTab === "board" ? (

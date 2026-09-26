@@ -7,7 +7,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
-## [Unreleased]
+## [0.2.0] — 2026-09-26
 
 ### Added
 
@@ -40,6 +40,8 @@ read before you move.
   first mate straight away, as if you had typed it and pressed Send, and shows you the chat; whatever
   you were typing is left in the message box. The card and the tab appear only when there is something
   to suggest. The first mate keeps the list in `data/suggestions.md` in its home, which you can edit too.
+  A suggestion you do not want goes with the trash button beside it, which takes it off the list without
+  sending anything; the rest of the list stays as it was.
 
 - **Images and files can go with a message to the first mate.** The chat has an attach button beside
   the message box, and you can also paste a screenshot or drop files onto the chat. What you attach

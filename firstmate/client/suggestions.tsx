@@ -2,14 +2,15 @@
  * The first mate's suggestions: one button per next step it wrote in
  * `data/suggestions.md`, each showing its label and the start of the words it
  * sends. Pressing one sends them to the first mate straight away; the caller
- * does that and brings the chat into view.
+ * does that and brings the chat into view. Each has a trash button beside it,
+ * which takes that one line out of the file without sending anything.
  *
  * Drawn as a card among the board's columns on a wide layout, and as the
  * Suggestions tab on a phone.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import type { Suggestion } from "../shared/fleet";
@@ -22,6 +23,7 @@ export function SuggestionList({
   theme,
   disabled,
   onPick,
+  onRemove,
 }: {
   suggestions: readonly Suggestion[];
   theme: PluginTheme;
@@ -29,52 +31,92 @@ export function SuggestionList({
   disabled: boolean;
   /** Sends the prompt to the first mate. */
   onPick: (prompt: string) => void;
+  /** Takes the suggestion out of the first mate's file; settles once the board has the new list. */
+  onRemove: (suggestion: Suggestion) => Promise<void>;
 }) {
+  /** Cards whose removal is on its way, by position, so a second press does nothing. */
+  const [removing, setRemoving] = useState<ReadonlySet<number>>(new Set());
   const styles = useMemo(() => {
     const { colors } = theme;
     return {
       list: { gap: 8 },
-      button: {
+      card: {
         flexDirection: "row" as const,
         alignItems: "center" as const,
-        gap: 8,
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: 10,
         backgroundColor: colors.surface2,
-        paddingHorizontal: 10,
+      },
+      button: {
+        flex: 1,
+        minWidth: 0,
+        flexDirection: "row" as const,
+        alignItems: "center" as const,
+        gap: 8,
+        paddingLeft: 10,
+        paddingRight: 4,
         paddingVertical: 8,
         opacity: disabled ? 0.5 : 1,
       },
+      trash: { alignSelf: "stretch" as const, justifyContent: "center" as const, paddingLeft: 6, paddingRight: 10 },
       text: { flex: 1, minWidth: 0, gap: 2 },
       label: { color: colors.foreground, fontSize: 13, fontWeight: "600" as const },
       prompt: { color: colors.foregroundMuted, fontSize: 12 },
     };
   }, [theme, disabled]);
 
+  function remove(suggestion: Suggestion, index: number): void {
+    if (removing.has(index)) return;
+    setRemoving((current) => new Set(current).add(index));
+    void onRemove(suggestion).finally(() => {
+      setRemoving((current) => {
+        const next = new Set(current);
+        next.delete(index);
+        return next;
+      });
+    });
+  }
+
   return (
     <View style={styles.list}>
-      {suggestions.map((suggestion, index) => (
-        <Pressable
-          key={`${index}:${suggestion.label}`}
-          accessibilityRole="button"
-          accessibilityLabel={`${suggestion.label}: send "${suggestion.prompt}" to the first mate`}
-          accessibilityState={{ disabled }}
-          disabled={disabled}
-          style={styles.button}
-          onPress={() => onPick(suggestion.prompt)}
-        >
-          <View style={styles.text}>
-            <Text style={styles.label} numberOfLines={1}>
-              {suggestion.label}
-            </Text>
-            <Text style={styles.prompt} numberOfLines={2}>
-              {suggestion.prompt}
-            </Text>
+      {suggestions.map((suggestion, index) => {
+        const busy = removing.has(index);
+        return (
+          // The trash is the card's sibling, not its child, so pressing it never presses the card.
+          <View key={`${index}:${suggestion.label}`} style={[styles.card, busy ? { opacity: 0.5 } : null]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${suggestion.label}: send "${suggestion.prompt}" to the first mate`}
+              accessibilityState={{ disabled: disabled || busy }}
+              disabled={disabled || busy}
+              style={styles.button}
+              onPress={() => onPick(suggestion.prompt)}
+            >
+              <View style={styles.text}>
+                <Text style={styles.label} numberOfLines={1}>
+                  {suggestion.label}
+                </Text>
+                <Text style={styles.prompt} numberOfLines={2}>
+                  {suggestion.prompt}
+                </Text>
+              </View>
+              <Icon name="Send" size={14} color={theme.colors.foregroundMuted} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Remove suggestion: ${suggestion.label}`}
+              accessibilityState={{ disabled: busy }}
+              disabled={busy}
+              hitSlop={6}
+              style={styles.trash}
+              onPress={() => remove(suggestion, index)}
+            >
+              <Icon name="Trash2" size={14} color={theme.colors.foregroundMuted} />
+            </Pressable>
           </View>
-          <Icon name="Send" size={14} color={theme.colors.foregroundMuted} />
-        </Pressable>
-      ))}
+        );
+      })}
     </View>
   );
 }

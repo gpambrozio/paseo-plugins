@@ -40,7 +40,8 @@ import type { BacklogItem, FirstmateConfig, Project, Suggestion } from "../share
 import { parseBacklog } from "./backlog";
 import { renderCharter } from "./charter";
 import { syncCharter } from "./charter-file";
-import { parseSuggestions } from "./suggestions";
+import { readTextFile, writeTextFile } from "./files";
+import { parseSuggestions, withoutSuggestion } from "./suggestions";
 import { TEMPLATES, readTemplate, withoutNotes, type TemplatePath } from "./templates";
 import { seedWatches } from "./watch-files";
 
@@ -123,6 +124,53 @@ export async function readBacklog(home: string): Promise<BacklogItem[]> {
 export async function readSuggestions(home: string): Promise<Suggestion[]> {
   const markdown = await readOptional(join(home, TEMPLATES.suggestions));
   return markdown === null ? [] : parseSuggestions(markdown);
+}
+
+/** How many times a removal starts over when the first mate rewrites the file under it. */
+const REMOVE_ATTEMPTS = 3;
+
+/**
+ * Takes one suggestion out of `data/suggestions.md`, leaving every other line as it was, and answers
+ * with the suggestions left. One the file no longer has — the first mate rewrote it since the board
+ * looked — is not an error: nothing is written.
+ *
+ * The write goes through the Files view's own (`files.ts`): confined to the home, a temporary file
+ * renamed into place, and refused if the file changed since it was read. That last is the first mate
+ * rewriting its list at the same moment, and the removal starts over from what it wrote.
+ */
+export async function removeSuggestion(home: string, target: Suggestion): Promise<Suggestion[]> {
+  for (let attempt = 1; ; attempt++) {
+    let file: Awaited<ReturnType<typeof readTextFile>>;
+    try {
+      file = await readTextFile(home, TEMPLATES.suggestions);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    if (file.content === null) throw new Error(`${TEMPLATES.suggestions} is not a text file the board can edit.`);
+    const next = withoutSuggestion(file.content, target);
+    if (next === null) return parseSuggestions(file.content);
+    try {
+      await writeTextFile(home, {
+        path: TEMPLATES.suggestions,
+        content: next,
+        expectedModifiedMs: file.modifiedMs,
+        force: false,
+      });
+      return parseSuggestions(next);
+    } catch (error) {
+      if (attempt >= REMOVE_ATTEMPTS || !(await changedSince(home, file.modifiedMs))) throw error;
+    }
+  }
+}
+
+async function changedSince(home: string, modifiedMs: number): Promise<boolean> {
+  try {
+    return Math.floor((await stat(join(home, TEMPLATES.suggestions))).mtimeMs) !== modifiedMs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw error;
+  }
 }
 
 /**
