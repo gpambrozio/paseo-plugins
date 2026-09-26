@@ -91,6 +91,9 @@ read before you move.
 
 ### Fixed
 
+- **Saving a file in the Files view keeps its permissions.** A script you could run — a watch, say —
+  used to lose that after an edit and save, so the Watches card called it "not executable". It now stays
+  as it was; a new file is created as before.
 - **Changing a FirstMate setting no longer lets go of the first mate.** Saving one setting — the crew's
   model, say — quietly reset the others, including which agent is the first mate and where its home is,
   so the board could lose track of a first mate that was still running. A save now changes only the
