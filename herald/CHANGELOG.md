@@ -7,7 +7,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
-## [Unreleased]
+## [0.5.1] — 2026-09-27
 
 ### Changed
 
@@ -17,6 +17,10 @@ read before you move.
 
 ### Fixed
 
+- **Herald cleans up its summary helpers again on a password-protected Paseo.** Herald removes the
+  helper agents it uses to write each announcement, and it did that with whichever `paseo` command
+  it found first, which could be an older copy unable to reach Paseo 0.10. The helpers then piled
+  up in your agent list. Herald now uses the command that came with the running Paseo first.
 - **Herald notices an agent waiting for you within a moment again.** Since Paseo 0.9, Herald had
   stopped hearing Paseo's live agent updates, so it only found out on its regular check every ten
   seconds: announcements came up to ten seconds late, and the Herald panel was just as slow to add

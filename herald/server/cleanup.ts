@@ -49,10 +49,20 @@ export interface CliResult {
 
 let cliLookup: Promise<string | null> | null = null;
 
-async function findCli(): Promise<string | null> {
-  const onPath = (process.env.PATH ?? "").split(delimiter).filter((dir) => dir !== "");
-  for (const dir of [...onPath, join(homedir(), ".local", "bin"), ...EXTRA_CLI_DIRS]) {
-    const candidate = join(dir, "paseo");
+/**
+ * The daemon hands its plugins `PASEO_CLI`, the CLI it shipped with, which is
+ * the one that surely speaks its protocol — an older standalone `paseo` first
+ * on `PATH` may not reach a password-protected daemon at all. `PATH` and the
+ * usual install directories are the fallback for a daemon that does not.
+ */
+export async function findCli(env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  const onPath = (env.PATH ?? "").split(delimiter).filter((dir) => dir !== "");
+  const shipped = env.PASEO_CLI?.trim();
+  const candidates = [
+    ...(shipped === undefined || shipped === "" ? [] : [shipped]),
+    ...[...onPath, join(homedir(), ".local", "bin"), ...EXTRA_CLI_DIRS].map((dir) => join(dir, "paseo")),
+  ];
+  for (const candidate of candidates) {
     try {
       await access(candidate, constants.X_OK);
       return candidate;

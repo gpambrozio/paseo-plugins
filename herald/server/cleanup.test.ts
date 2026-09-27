@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { cliError, helperIdsIn, sweepHelpers, MAX_SWEEP_PASSES } from "./cleanup";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { cliError, findCli, helperIdsIn, sweepHelpers, MAX_SWEEP_PASSES } from "./cleanup";
 
 describe("helperIdsIn", () => {
   it("reads the ids out of a page, ignoring anything without one", () => {
@@ -85,5 +89,45 @@ describe("sweepHelpers", () => {
     const remove = vi.fn(async () => {});
     const result = await sweepHelpers({ list, remove });
     expect(result.deleted).toBe(MAX_SWEEP_PASSES);
+  });
+});
+
+describe("findCli", () => {
+  let root: string;
+  let pathDir: string;
+  let shipped: string;
+
+  async function executable(path: string): Promise<void> {
+    await writeFile(path, "#!/bin/sh\n");
+    await chmod(path, 0o755);
+  }
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "herald-cli-"));
+    pathDir = join(root, "bin");
+    await mkdir(pathDir);
+    await executable(join(pathDir, "paseo"));
+    shipped = join(root, "bundled-paseo");
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("prefers the daemon's PASEO_CLI over the paseo on PATH", async () => {
+    await executable(shipped);
+    expect(await findCli({ PATH: pathDir, PASEO_CLI: shipped })).toBe(shipped);
+  });
+
+  it("falls back to PATH when PASEO_CLI is unset or blank", async () => {
+    expect(await findCli({ PATH: pathDir })).toBe(join(pathDir, "paseo"));
+    expect(await findCli({ PATH: pathDir, PASEO_CLI: "  " })).toBe(join(pathDir, "paseo"));
+  });
+
+  it("falls back to PATH when PASEO_CLI is missing or not executable", async () => {
+    expect(await findCli({ PATH: pathDir, PASEO_CLI: shipped })).toBe(join(pathDir, "paseo"));
+    await writeFile(shipped, "not executable");
+    await chmod(shipped, 0o644);
+    expect(await findCli({ PATH: pathDir, PASEO_CLI: shipped })).toBe(join(pathDir, "paseo"));
   });
 });
