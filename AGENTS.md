@@ -323,8 +323,8 @@ cost per plugin, not per release.
 
 ### The SDK dependency
 
-All six plugins now depend on the real published `@getpaseo/plugin`, pinned to the exact version
-the daemon runs — `0.9.0` at the time of writing. Pin it *exactly*: `npm install --save-dev` writes
+All six plugins now depend on the real published `@getpaseo/plugin`, pinned to an exact
+version — `0.9.0` at the time of writing. Pin it *exactly*: `npm install --save-dev` writes
 a caret, and a range here is the same bet on an unreleased shape that the prerelease trap below
 describes. `skills` used to ship a hand-written
 `paseo-plugin.d.ts` shim instead; it was deleted in the 0.8 migration, because every new host API
@@ -332,15 +332,21 @@ had to be hand-declared into it before it could be used.
 
 `@getpaseo/plugin` peer-depends on the *exact* `@getpaseo/client` and `@getpaseo/protocol` it ships
 against, so all three move together: `npm install @getpaseo/plugin@<v> @getpaseo/client@<v>
-@getpaseo/protocol@<v>` in one command. Bumping one alone fails `ERESOLVE`. Track the daemon's
-version — `paseo daemon status` prints it.
+@getpaseo/protocol@<v>` in one command. Bumping one alone fails `ERESOLVE`.
+
+**Re-pin only when a plugin needs a newer API, never to track the daemon.** The pins stay where
+they are until a plugin needs something only a newer SDK provides; then all three move, exactly, to
+the release that provides it, and that plugin's `requirements.paseo` in `paseo-plugin.json` rises to
+match if the new API needs that daemon. A new Paseo release alone is not a reason to re-pin: it
+buys nothing, and raising the floor with it restricts the plugins to a Paseo version for no reason.
 
 **A prerelease of the SDK is not the release, and nothing tells you when it stops matching.** The
 semver range in `paseo-plugin.json` is satisfied either way, the daemon loads the plugin, and
 `tsc` type-checks happily against whatever shape the pinned types happen to declare — so a
 contribution the shipped app has since redefined compiles clean and is rejected at runtime, in the
 app, where no log here shows it. `skills` sat on `0.8.0-beta.1` past the 0.8.0 release and lost its
-composer pill exactly that way. When `paseo daemon status` prints a version, pin that version.
+composer pill exactly that way. Pin a release, never a prerelease, and once the release of a
+prerelease you are on ships, move to it.
 
 Because `skipLibCheck: true` is set everywhere, an unresolvable `@getpaseo/client` import is
 swallowed silently and the entire Paseo API types as `any` — and `tsc` still exits 0, so a clean
