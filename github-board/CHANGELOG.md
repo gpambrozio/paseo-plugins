@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-github-board` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [0.9.2] — 2026-09-29
+
+### Changed
+
+- **Images from outside GitHub wait until you ask for them.** A picture in an issue, pull request or
+  comment that is hosted anywhere but GitHub now shows a placeholder naming the site it comes from,
+  with its description if it has one; tap it to load the image. Until you do, nothing is requested
+  from that site, so an image dropped into a comment can no longer tell its owner that you opened
+  it, or from where. Images hosted on GitHub still load on their own, as before.
+
 ## [0.9.1] — 2026-09-29
 
 ### Security

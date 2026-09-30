@@ -25,6 +25,7 @@ compile time. This file covers only what is specific to `github-board`.
 | `client/board.tsx`         | The surface: columns, cards, the detail panel, the repository filter, the send dialog, and the client cache. |
 | `client/settings-screen.tsx` | The Settings → Plugins frame around the same editor the gear button opens. |
 | `client/markdown.tsx`      | The renderer for an item's Markdown body; only the detail panel uses it.    |
+| `client/image-gate.ts`     | Whether an image in a body may be requested yet, and the host its placeholder names. |
 | `client/html.tsx`          | Rewrites the HTML in a body into Markdown before the renderer parses it.    |
 | `client/timeline.tsx`      | The card rendering the row a send appends to the new agent's transcript.    |
 | `client/link.ts`           | Which links the board hands to the opener: http and https only.            |
@@ -33,9 +34,9 @@ compile time. This file covers only what is specific to `github-board`.
 
 ## Checking a `gh` query against reality
 
-There is no UI harness here, and the tests cover the import graph, the branch-status parsing and
-the image fetch only, so a clean `npm run typecheck` plus a clean `paseo plugin reload github-board` prove the code
-compiles and loads, nothing more.
+There is no UI harness here, and the tests cover the import graph, the branch-status parsing,
+the image fetch and the image gate only, so a clean `npm run typecheck` plus a clean
+`paseo plugin reload github-board` prove the code compiles and loads, nothing more.
 
 The server half is checkable on its own, though: everything it imports from `shared/board` is an
 `import type`, so it transpiles to a module with no runtime dependency beyond Node built-ins.
@@ -379,7 +380,7 @@ no token, so `board.image` fetches the bytes on the daemon with `gh auth token` 
 URL. The server keeps the last 24 by URL. **Only GitHub hosts**, decided by `isGitHubImageHost` in
 `shared/image-host.ts` and checked again on the server rather than trusted from the client: this is
 the daemon, holding the token, fetching a URL a comment's author chose, so anything else is loaded
-by `Image` directly, the way a browser would. A release-asset download URL is not an attachment
+by `Image` directly, the way a browser would — once the user taps it (below). A release-asset download URL is not an attachment
 and answers 404 even with the token; it is left as the text it was.
 
 **Decide on what `new URL` parses, never on the text.** The check used to match the host out of the
@@ -411,6 +412,15 @@ newer than some react-native-web builds and returns nothing there — before ren
 frame is sized by `aspectRatio` before the bitmap paints and the thread does not jump. Capped at
 480pt tall. A press opens the original on GitHub; a failure falls back to the `[image: alt]` link
 the panel used to show. The client keeps its own 24-entry cache of fetched images at module scope.
+
+**An image from any other host waits for a tap.** Loading it tells that host the viewer's address and
+when they opened the item, so a comment could be a tracking pixel. `client/image-gate.ts` decides:
+`imageOrigin` sorts a URL into GitHub-hosted (by `isGitHubImageHost`, the one test for that),
+another host — named in the placeholder from the parsed URL — or unknown, which never loads; and
+`startImageLoad` returns null rather than a request until the user has tapped. It is a pure module
+with the two loaders injected, which is what lets `client/image-gate.test.ts` prove nothing is
+requested before the tap without a UI harness. The tap lasts for that mount only, but the image then
+sits in the module-scope cache, so reopening the panel shows it without asking again.
 
 `client/markdown.tsx` renders the body and every comment. It renders pipe tables as rows of
 equal-width cells, and a cell that is only an image goes through `renderImage` too: a table of
