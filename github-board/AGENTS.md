@@ -393,7 +393,7 @@ goes **only to `github.com`**: that is where a private attachment lives, and eve
 followed by hand (`redirect: "manual"`, at most five): each hop must be https on the default port and
 is fetched with the token only if it is `github.com` again, so the S3 hop an attachment redirects to
 gets none. `fetch`'s own rule would be "drop it across origins", which is not the same as "GitHub
-only". The whole fetch has a 20-second timeout, and the body is read in chunks and abandoned at 4 MiB
+only". The whole fetch — `gh auth token` included, killed if it is still running — has a 20-second timeout, and the body is read in chunks and abandoned at 4 MiB
 whatever its `content-length` claimed. `server/image.test.ts` runs the real handler against a stubbed
 `fetch` and `gh`, so no request leaves the machine.
 

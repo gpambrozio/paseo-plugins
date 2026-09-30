@@ -3,7 +3,7 @@ import { gitHubImageUrl, isGitHubTokenHost, redirectHopUrl } from "../shared/ima
 /** Checked while the body streams in, not after it has all arrived. */
 const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
 
-/** The whole fetch, every hop and the body included. */
+/** The whole fetch: `gh auth token`, every hop and the body. */
 const IMAGE_TIMEOUT_MS = 20_000;
 
 /** GitHub's attachment redirect is one hop; five is room for a moved repository. */
@@ -26,7 +26,7 @@ const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
  */
 export async function fetchGitHubImage(
   url: string,
-  token: () => Promise<string>,
+  token: (signal: AbortSignal) => Promise<string>,
 ): Promise<string> {
   const first = gitHubImageUrl(url);
   if (first === null) {
@@ -49,13 +49,13 @@ export async function fetchGitHubImage(
 
 async function follow(
   start: URL,
-  token: () => Promise<string>,
+  token: (signal: AbortSignal) => Promise<string>,
   signal: AbortSignal,
 ): Promise<Response> {
   let url = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     const headers: Record<string, string> = isGitHubTokenHost(url)
-      ? { Authorization: `token ${await token()}` }
+      ? { Authorization: `token ${await token(signal)}` }
       : {};
     const response = await fetch(url.href, { headers, redirect: "manual", signal });
     if (!REDIRECT_STATUSES.has(response.status)) return response;

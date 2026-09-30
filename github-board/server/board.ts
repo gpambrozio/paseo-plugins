@@ -256,9 +256,13 @@ function describeGhFailure(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function gh(args: readonly string[]): Promise<string> {
+/** `signal` kills the subprocess when it fires, for a caller with a deadline. */
+async function gh(args: readonly string[], signal?: AbortSignal): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("gh", [...args], { maxBuffer: MAX_OUTPUT_BYTES });
+    const { stdout } = await execFileAsync("gh", [...args], {
+      maxBuffer: MAX_OUTPUT_BYTES,
+      signal,
+    });
     return stdout;
   } catch (error) {
     throw new Error(describeGhFailure(error));
@@ -1574,11 +1578,11 @@ const IMAGE_CACHE_ENTRIES = 24;
  */
 let cachedToken: { token: string; storedAt: number } | null = null;
 
-async function ghToken(): Promise<string> {
+async function ghToken(signal: AbortSignal): Promise<string> {
   if (cachedToken !== null && Date.now() - cachedToken.storedAt < DETAILS_TTL_MS) {
     return cachedToken.token;
   }
-  const token = (await gh(["auth", "token"])).trim();
+  const token = (await gh(["auth", "token"], signal)).trim();
   if (token === "") throw new Error("GitHub CLI has no token for this account.");
   cachedToken = { token, storedAt: Date.now() };
   return token;

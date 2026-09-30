@@ -9,14 +9,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const FAKE_TOKEN = "gho_test_not_a_real_token";
 
+/** Set to make `gh auth token` hang until its signal fires, the way a stuck subprocess would. */
+const ghState = vi.hoisted(() => ({ stall: false, killed: 0 }));
+
 vi.mock("node:child_process", () => ({
   execFile: (
     _file: string,
     args: readonly string[],
-    _options: unknown,
+    options: { signal?: AbortSignal },
     callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
   ) => {
     if (args[0] === "auth" && args[1] === "token") {
+      if (ghState.stall) {
+        // What `execFile` does with its `signal` option: kill the child, fail the call.
+        options.signal?.addEventListener("abort", () => {
+          ghState.killed += 1;
+          callback(new Error("The operation was aborted"), { stdout: "", stderr: "" });
+        });
+        return;
+      }
       callback(null, { stdout: `${FAKE_TOKEN}\n`, stderr: "" });
       return;
     }
@@ -78,22 +89,11 @@ describe("board.image never hands the gh token to a host that is not GitHub", ()
     ["a fragment before the GitHub suffix", "https://attacker.example#.githubusercontent.com/x.png"],
   ] as const;
 
-  it.each(smuggled)("%s", async (_name, raw) => {
+  it.each(smuggled)("refuses %s without a request", async (_name, raw) => {
     const seen = stubFetch(() => image());
-    await loadImageHandler({ url: fresh(raw) }).catch(() => undefined);
-    for (const request of seen) {
-      const host = new URL(request.url).hostname;
-      const isGitHub = host === "github.com" || host.endsWith(".githubusercontent.com");
-      expect({ host, isGitHub }).toEqual({ host, isGitHub: true });
-    }
-    expect(seen.every((request) => request.authorization === null)).toBe(true);
-  });
-
-  it("refuses a backslash URL outright", async () => {
-    const seen = stubFetch(() => image());
-    await expect(
-      loadImageHandler({ url: fresh("https://attacker.example\\.githubusercontent.com/x.png") }),
-    ).rejects.toThrow(/Only images hosted on GitHub/);
+    await expect(loadImageHandler({ url: fresh(raw) })).rejects.toThrow(
+      /Only images hosted on GitHub/,
+    );
     expect(seen).toEqual([]);
   });
 
@@ -211,6 +211,26 @@ describe("board.image limits", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await settled;
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("kills a gh auth token that never answers, and gives up without fetching", async () => {
+    vi.useFakeTimers();
+    // Past the five minutes the token is remembered for, so this test asks gh again.
+    vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+    ghState.stall = true;
+    ghState.killed = 0;
+    try {
+      const seen = stubFetch(() => image());
+      const pending = loadImageHandler({ url: fresh("https://github.com/stalled-gh.png") });
+      const settled = expect(pending).rejects.toThrow(/too long/);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await settled;
+      expect(ghState.killed).toBe(1);
+      expect(seen).toEqual([]);
+    } finally {
+      ghState.stall = false;
       vi.useRealTimers();
     }
   });
