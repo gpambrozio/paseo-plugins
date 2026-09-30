@@ -7,7 +7,26 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-github-board` and tagged here, so a version is something to install and a line
 to read before you move.
 
-## [Unreleased]
+## [0.9.1] — 2026-09-29
+
+### Security
+
+- **Your GitHub sign-in now goes only to GitHub.** To show a screenshot from a private repository,
+  the board fetches it with your GitHub CLI login. A carefully written image link in an issue, pull
+  request or comment could make the board send that login to a website that is not GitHub. The board
+  now reads every image address exactly the way the download will, fetches only pictures that really
+  are on GitHub, and attaches your login only for github.com itself — not for GitHub's image servers,
+  which never needed it, and not for wherever GitHub sends the download on to. If people you do not
+  know can comment on a repository the board shows, consider revoking the GitHub CLI's access under
+  **Settings → Applications** on GitHub and signing in again with `gh auth login`.
+
+### Fixed
+
+- **A slow or oversized image can no longer tie up the board.** An image that takes too long to
+  arrive now gives up with a message instead of waiting forever, and one that is too large stops
+  downloading as soon as it is, instead of after the whole file has arrived.
+- **Links in an issue or a comment open only if they are ordinary web links.** Anything else is left
+  alone when you click it.
 
 ### Changed
 

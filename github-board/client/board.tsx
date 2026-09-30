@@ -77,6 +77,7 @@ import {
   normalizePrompts,
   promptSettings,
 } from "../shared/settings";
+import { isOpenableLink } from "./link";
 import { trackPointerOnDocument } from "./web";
 
 /**
@@ -87,9 +88,11 @@ import { trackPointerOnDocument } from "./web";
  * anything back. Wrapping once keeps the `void` in one place instead of at five
  * call sites, and keeps every one of them a plain arrow rather than an async
  * one — Hermes evaluates an async arrow in the eval'd client bundle to
- * `undefined`.
+ * `undefined`. A link a body's author wrote may carry any scheme, so only
+ * http and https get as far as the opener.
  */
 function openLink(url: string): void {
+  if (!isOpenableLink(url)) return;
   void openExternalUrl(url);
 }
 /**

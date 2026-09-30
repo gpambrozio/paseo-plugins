@@ -16,38 +16,41 @@ compile time. This file covers only what is specific to `github-board`.
 | `index.server.ts`          | Server wiring — every RPC contract and the two settings documents.          |
 | `shared/board.ts`          | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `shared/settings.ts`       | The two host-stored settings documents, the default prompts, and `normalizePrompts`. |
-| `shared/image-host.ts`     | Which image hosts the daemon fetches for the app; used by both halves.      |
+| `shared/image-host.ts`     | Which image URLs the daemon fetches for the app, and which get the token; used by both halves. |
 | `shared/timeline.ts`       | The `kind`/`version` keying the timeline row; a *runtime* import on both sides. |
 | `shared/launch.ts`         | A card's repository id and its workspace title, for both launch paths; a *runtime* import on both sides. |
 | `server/board.ts`          | Every `gh` subprocess, the daemon's own settings file, and the server-side board cache. |
+| `server/image.ts`          | The daemon's image fetch: redirects by hand, the token only to `github.com`, a timeout and a size cap. |
 | `server/data-dir.ts`       | `$PASEO_HOME/plugin-data/github-board/`, and moving the settings file out of `plugins/`. |
 | `client/board.tsx`         | The surface: columns, cards, the detail panel, the repository filter, the send dialog, and the client cache. |
 | `client/settings-screen.tsx` | The Settings → Plugins frame around the same editor the gear button opens. |
 | `client/markdown.tsx`      | The renderer for an item's Markdown body; only the detail panel uses it.    |
 | `client/html.tsx`          | Rewrites the HTML in a body into Markdown before the renderer parses it.    |
 | `client/timeline.tsx`      | The card rendering the row a send appends to the new agent's transcript.    |
+| `client/link.ts`           | Which links the board hands to the opener: http and https only.            |
 | `client/web.ts`            | The one browser global this plugin touches: the drag's document listeners. |
 | `README.md`                | What the board shows a user, and which query backs each column.             |
 
 ## Checking a `gh` query against reality
 
-There is no UI harness here, and the tests cover the import graph and the branch-status parsing
-only, so a clean `npm run typecheck` plus a clean `paseo plugin reload github-board` prove the code
+There is no UI harness here, and the tests cover the import graph, the branch-status parsing and
+the image fetch only, so a clean `npm run typecheck` plus a clean `paseo plugin reload github-board` prove the code
 compiles and loads, nothing more.
 
 The server half is checkable on its own, though: everything it imports from `shared/board` is an
 `import type`, so it transpiles to a module with no runtime dependency beyond Node built-ins.
 
 ```bash
-npx tsc server/board.ts server/data-dir.ts shared/image-host.ts shared/timeline.ts shared/launch.ts --module esnext \
+npx tsc server/board.ts server/data-dir.ts server/image.ts shared/image-host.ts shared/timeline.ts shared/launch.ts --module esnext \
   --target es2022 --moduleResolution bundler --outDir /tmp/gbcheck --skipLibCheck --types node \
   --ignoreConfig
 # then call loadBoardHandler from a throwaway .mjs in that directory, and delete it after
 ```
 
-`server/board.ts` imports `./data-dir`, `../shared/image-host`, `../shared/timeline` and
-`../shared/launch` at runtime, which is why those files are passed to `tsc` too; add the `.js`
-extension to those four imports in the emitted `server/board.js` before running it — the bundler resolves extensionless
+`server/board.ts` imports `./data-dir`, `./image`, `../shared/timeline` and `../shared/launch` at
+runtime, and `server/image.ts` imports `../shared/image-host`, which is why those files are passed to
+`tsc` too; add the `.js` extension to those five imports in the emitted `server/board.js` and
+`server/image.js` before running it — the bundler resolves extensionless
 imports, plain Node does not.
 
 Run it with `PASEO_HOME` pointed at a scratch directory so a throwaway never writes the real
@@ -373,12 +376,30 @@ panel's Refresh re-requests them with `force` only once they have been asked for
 attachment on a private repository — `github.com/user-attachments/assets/…` — answers 404 to
 anyone without the token and, with it, a 302 to a signed S3 URL good for five minutes. The app holds
 no token, so `board.image` fetches the bytes on the daemon with `gh auth token` and answers a data
-URL; `fetch` follows the redirect and drops `Authorization` across origins as the spec says. The
-size cap is 4 MB and the server keeps the last 24 by URL. **Only GitHub hosts**, decided by
-`isGitHubImageHost` in `shared/image-host.ts` and checked again on the server rather than trusted from
-the client: this is the daemon fetching a URL a comment's author chose, so anything else is loaded
+URL. The server keeps the last 24 by URL. **Only GitHub hosts**, decided by `isGitHubImageHost` in
+`shared/image-host.ts` and checked again on the server rather than trusted from the client: this is
+the daemon, holding the token, fetching a URL a comment's author chose, so anything else is loaded
 by `Image` directly, the way a browser would. A release-asset download URL is not an attachment
 and answers 404 even with the token; it is left as the text it was.
+
+**Decide on what `new URL` parses, never on the text.** The check used to match the host out of the
+string with a regex, which read `https://evil.example\.githubusercontent.com/x` as a GitHub host while
+`fetch` — WHATWG parsing, where `\` is `/` in an https URL — requested `evil.example`, token and
+all. `shared/image-host.ts` now refuses a backslash, whitespace or a control character anywhere,
+userinfo, and any port but the default, then compares the parsed `hostname` exactly (`github.com`)
+or by suffix (`.githubusercontent.com`), and `server/image.ts` fetches the *parsed* URL. The token
+goes **only to `github.com`**: that is where a private attachment lives, and every
+`*.githubusercontent.com` URL in a body is either public or signed in its own query. Redirects are
+followed by hand (`redirect: "manual"`, at most five): each hop must be https on the default port and
+is fetched with the token only if it is `github.com` again, so the S3 hop an attachment redirects to
+gets none. `fetch`'s own rule would be "drop it across origins", which is not the same as "GitHub
+only". The whole fetch has a 20-second timeout, and the body is read in chunks and abandoned at 4 MiB
+whatever its `content-length` claimed. `server/image.test.ts` runs the real handler against a stubbed
+`fetch` and `gh`, so no request leaves the machine.
+
+Links in a body go to the opener only when they are http or https (`client/link.ts`). Paseo's own
+`openExternalUrl` refuses anything else since 0.9 as well; the plugin says so itself rather than
+relying on it.
 
 `shared/image-host.ts` has no Node imports on purpose: it is in both bundles, which is what
 `shared/` means. It is kept out of `shared/board.ts` so that file stays type-only to the server,

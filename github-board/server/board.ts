@@ -31,13 +31,13 @@ import type {
   toggleLabel,
   updateBranch,
 } from "../shared/board";
-import { isGitHubImageHost } from "../shared/image-host";
 import { repositoryIdFor, workspaceTitle } from "../shared/launch";
 // A value import, unlike everything taken from `../shared/board`: the row this
 // module writes has to carry the same key the client renderer registers, and
 // `shared/timeline` imports nothing, so the standalone transpile still runs.
 import { BOARD_ITEM_TIMELINE_KIND, BOARD_ITEM_TIMELINE_VERSION } from "../shared/timeline";
 import { dataPath } from "./data-dir";
+import { fetchGitHubImage } from "./image";
 
 const execFileAsync = promisify(execFile);
 
@@ -1566,21 +1566,12 @@ export async function loadCommentsHandler({
   return result;
 }
 
-/**
- * An image out of a comment, fetched here because the app cannot: a
- * `github.com/user-attachments/assets/…` URL on a private repository answers
- * 404 to anyone without the token, and with it answers a 302 to a signed S3
- * URL good for five minutes. `fetch` follows that redirect, and drops the
- * Authorization header on the way across origins as the spec says — the S3
- * URL is signed and needs none.
- *
- * Only GitHub hosts, checked again here rather than trusted from the client,
- * because this is the daemon fetching a URL that a comment's author chose.
- */
-const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
 const IMAGE_CACHE_ENTRIES = 24;
 
-/** `gh auth token`, remembered for the same five minutes everything else is. */
+/**
+ * `gh auth token`, remembered for the same five minutes everything else is.
+ * Only `server/image.ts` asks, and only for a request to `github.com` itself.
+ */
 let cachedToken: { token: string; storedAt: number } | null = null;
 
 async function ghToken(): Promise<string> {
@@ -1591,32 +1582,6 @@ async function ghToken(): Promise<string> {
   if (token === "") throw new Error("GitHub CLI has no token for this account.");
   cachedToken = { token, storedAt: Date.now() };
   return token;
-}
-
-async function fetchImage(url: string): Promise<string> {
-  if (!isGitHubImageHost(url)) {
-    throw new Error("Only images hosted on GitHub are fetched through the daemon.");
-  }
-  const response = await fetch(url, {
-    headers: { Authorization: `token ${await ghToken()}` },
-    redirect: "follow",
-  });
-  if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for this image.`);
-  }
-  const type = response.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
-  if (!type.startsWith("image/")) {
-    throw new Error(`Not an image: GitHub answered with ${type || "no content type"}.`);
-  }
-  const declared = Number(response.headers.get("content-length") ?? "0");
-  if (declared > IMAGE_MAX_BYTES) {
-    throw new Error("This image is too large to show here.");
-  }
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.byteLength > IMAGE_MAX_BYTES) {
-    throw new Error("This image is too large to show here.");
-  }
-  return `data:${type};base64,${bytes.toString("base64")}`;
 }
 
 /**
@@ -1631,7 +1596,7 @@ export async function loadImageHandler({
 }: z.output<typeof loadImage.input>): Promise<z.input<typeof loadImage.output>> {
   const hit = cachedImages.get(url);
   if (hit !== undefined) return { dataUrl: hit };
-  const dataUrl = await fetchImage(url);
+  const dataUrl = await fetchGitHubImage(url, ghToken);
   cachedImages.set(url, dataUrl);
   if (cachedImages.size > IMAGE_CACHE_ENTRIES) {
     const oldest = cachedImages.keys().next().value;
