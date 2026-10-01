@@ -6,11 +6,13 @@ import type { SkillEntry } from "./skill-entry";
 
 export interface HermesResolveOptions {
   /**
-   * `$HERMES_HOME` or `~/.hermes`. The live agent's profile decides where its
-   * skills are, and a daemon-side plugin cannot see which profile the agent
-   * runs with, so this is the home an unprofiled `hermes acp` reads — the
-   * common case for a Paseo-launched agent. A daemon that wants a profile's
-   * skills sets `HERMES_HOME` in the provider's `env`.
+   * `$HERMES_HOME` or `~/.hermes`. Which profile a Hermes agent runs with
+   * decides where its skills are, and nothing the plugin can see says which
+   * profile an agent uses — the plugin subprocess reads the environment the
+   * daemon passed it, not a provider's `env`. The resolver reads the home an
+   * unprofiled `hermes acp` reads, the common case for a Paseo-launched agent;
+   * `HERMES_HOME` moves it only when the daemon itself was started with that
+   * variable in its environment. See design.md for the limitation.
    */
   hermesHome: string;
 }
@@ -91,12 +93,20 @@ export async function resolveHermesSkills(options: HermesResolveOptions): Promis
   );
   const categories = children.filter((_, index) => !holdsSkillMd[index]);
 
+  // The predicate rides every candidate, not only the category walk: an
+  // excluded name can appear as a child of the skills directory itself or of
+  // any category, and `readSkillCandidates` reads children unfiltered unless
+  // the candidate carries `includeEntry`.
+  const notExcluded = (name: string): boolean =>
+    !EXCLUDED_DIRS.has(name) && name !== ORG_MIRROR_DIR;
+
   const candidates: SkillDirectoryCandidate[] = [
-    { dir: skillsDir, kind: "personal", label: "Personal" },
+    { dir: skillsDir, kind: "personal", label: "Personal", includeEntry: notExcluded },
     ...categories.map((entry) => ({
       dir: path.join(skillsDir, entry.name),
       kind: "personal" as const,
       label: "Personal",
+      includeEntry: notExcluded,
     })),
   ];
 

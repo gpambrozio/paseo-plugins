@@ -149,6 +149,44 @@ describe("resolveHermesSkills", () => {
     expect(names).toEqual(["live"]);
   });
 
+  test("does not list an excluded directory posing as a flat skill", async () => {
+    // An excluded name with a SKILL.md directly inside it — skills/.hub/SKILL.md
+    // — is filtered at the flat level too, not only as a category.
+    const skillsDir = path.join(root, "hermes-home", "skills");
+    await writeSkill(skillsDir, "live", "A live skill");
+    await writeSkill(skillsDir, ".hub", "Poses as a flat skill");
+
+    const names = (await resolve()).map((skill) => skill.name);
+
+    expect(names).toEqual(["live"]);
+  });
+
+  test("does not list an excluded directory inside a category", async () => {
+    // Excluded names apply wherever they appear, a category's children included.
+    const skillsDir = path.join(root, "hermes-home", "skills");
+    await writeSkill(path.join(skillsDir, "productivity"), "docx", "Word files");
+    await writeSkill(
+      path.join(skillsDir, "productivity", "node_modules"),
+      "vendored",
+      "A vendored skill",
+    );
+
+    const names = (await resolve()).map((skill) => skill.name);
+
+    expect(names).toEqual(["docx"]);
+  });
+
+  test("does not let an excluded flat entry shadow a live skill", async () => {
+    // An excluded name must never take a live skill's place through first-wins.
+    const skillsDir = path.join(root, "hermes-home", "skills");
+    await writeSkill(skillsDir, ".archive", "Poses as a flat skill");
+    await writeSkill(path.join(skillsDir, "productivity"), "archive", "The live one");
+
+    const names = (await resolve()).map((skill) => skill.name);
+
+    expect(names).toEqual(["archive"]);
+  });
+
   test("does not list token-gated _org mirror skills", async () => {
     // _org/<org>/<skill> mirrors load only for the active org, which is not
     // visible on disk; none of them are listed.

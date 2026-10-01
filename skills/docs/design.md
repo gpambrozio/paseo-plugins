@@ -77,6 +77,15 @@ alone. It also loads extra directories configured through `skills.external_dirs`
 plugin does not parse. Both stay unread: the panel shows the profile home's skills, which is
 what a Paseo-launched, unprofiled `hermes acp` loads by default.
 
+**A Hermes agent running with `--profile` gets its profile's skills usable but not listed.**
+`defaultSkillRoots` reads the plugin subprocess's own `process.env` — what the daemon passed it,
+not a provider's `env` — so the resolver reads the unprofiled `~/.hermes` home, and
+`HERMES_HOME` on a Hermes provider entry changes nothing. Only a daemon started with
+`HERMES_HOME` in its environment moves the scan root, and that moves it for every Hermes agent
+on the host. Resolving the effective home per agent would mean reading the provider
+configuration and per-agent launch environment through the daemon API, which is the seam a
+future version plugs.
+
 **Hermes's `_org` mirrors and deeper nesting are not read.** Hermes walks its skills tree without
 a depth limit, while the plugin reads two levels, so an `_org/<org>/<skill>` mirror or a skill
 nested below a category-in-a-category is invisible here. The two-level bound keeps the scan
@@ -321,9 +330,11 @@ scan lists none of them rather than skills that may not load.
 
 The profile caveat: a Hermes agent launched with `--profile <name>` reads
 `~/.hermes/profiles/<name>/skills`, and nothing the plugin can see says which profile an agent
-uses. The resolver reads the unprofiled home, which is what a Paseo-launched `hermes acp` runs
-with; a daemon that wants a profile's skills sets `HERMES_HOME` in the provider's `env`, which
-`defaultSkillRoots` honors.
+uses. `defaultSkillRoots` reads the plugin subprocess's `process.env` — the environment the
+daemon passed it, not any provider's `env` — so `HERMES_HOME` moves the scan root only when the
+daemon itself was started with it, which applies to every Hermes agent on that host alike. The
+resolver reads the unprofiled home, which is what a Paseo-launched `hermes acp` runs with;
+agents that run with a profile get their profile's skills usable but not listed.
 
 ### Providers with no scannable path
 

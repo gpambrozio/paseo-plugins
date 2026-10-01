@@ -379,3 +379,16 @@ behind (deeper nesting, project scopes under trusted-project roots, `skills.exte
 recorded in design.md's Limitations. Cost if wrong: a skill a user nested below a
 category-in-a-category, or one installed through a config path the resolver does not read, is
 invisible in the panel while remaining usable by the agent.
+
+Ruling 54 (2026-10-01, upstream review of the Hermes resolver): the exclusion predicate must
+gate the READS, not only the category detection. The first version filtered `EXCLUDED_DIRS`
+while classifying the skills directory's children, then handed the flat directory and each
+category to `readSkillsFromDirectory`, which enumerated every child unfiltered — so
+`skills/.archive/SKILL.md` listed as a flat skill and could shadow a live skill through
+first-wins, and `productivity/node_modules/SKILL.md` listed inside a category. The fix threads
+an optional `includeEntry(name)` predicate through `SkillDirectoryCandidate` and
+`readSkillsFromDirectory`, and the Hermes resolver attaches it to every candidate it builds;
+Claude and Codex pass no predicate and read exactly what they did before. Regression fixtures
+cover both levels: an excluded name posing as a flat skill, an excluded name inside a category,
+and an excluded flat entry no longer shadowing a live one. Cost if wrong (before the fix): the
+panel listed skills the agent cannot load and could hide a live skill behind one.

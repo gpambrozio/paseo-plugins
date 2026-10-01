@@ -7,7 +7,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-skills` and tagged here, so a version is something to install and a line to
 read before you move.
 
-## [Unreleased]
+## [0.4.0] — 2026-10-01
 
 ### Added
 
@@ -16,8 +16,9 @@ read before you move.
   its path, and its full text — the same treatment Claude and Codex already had — instead of only
   the session commands Hermes reports over ACP. Hermes keeps skills in category folders as well
   as flat ones (`productivity/docx` alongside a linked `paseo`), so the scan reads both levels,
-  skipping the directories Hermes itself excludes. The skills were always usable by the agent;
-  this only makes them visible in the panel.
+  skipping the directories Hermes itself excludes — at both levels, so an excluded name posing
+  as a flat skill never lists and never shadows a live one. The skills were always usable by the
+  agent; this only makes them visible in the panel.
 
 ## [0.3.0] — 2026-09-26
 

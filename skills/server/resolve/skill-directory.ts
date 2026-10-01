@@ -10,6 +10,13 @@ export interface SkillDirectoryCandidate {
   label: string;
   /** Plugin skills are invoked as `plugin:skill`; everything else keeps its name. */
   nameFor?: (frontmatterName: string) => string;
+  /**
+   * Gates which direct children of `dir` are read, by entry name. Used by the
+   * Hermes resolver, which must not read the directories Hermes itself prunes
+   * (`.archive`, `_org`, and friends) wherever they appear. Optional because
+   * Claude and Codex read every child their search paths define.
+   */
+  includeEntry?: (name: string) => boolean;
 }
 
 /**
@@ -34,7 +41,13 @@ export async function readSkillCandidates(
 
   const groups = await Promise.all(
     unique.map((candidate) =>
-      readSkillsFromDirectory(candidate.dir, candidate.kind, candidate.label, candidate.nameFor),
+      readSkillsFromDirectory(
+        candidate.dir,
+        candidate.kind,
+        candidate.label,
+        candidate.nameFor,
+        candidate.includeEntry,
+      ),
     ),
   );
   return dedupeByName(groups.flat()).sort((a, b) => a.name.localeCompare(b.name));
@@ -51,6 +64,7 @@ export async function readSkillsFromDirectory(
   kind: SkillSourceKind,
   label: string,
   nameFor: (frontmatterName: string) => string = (name) => name,
+  includeEntry?: (name: string) => boolean,
 ): Promise<SkillEntry[]> {
   let dirEntries;
   try {
@@ -59,7 +73,11 @@ export async function readSkillsFromDirectory(
     return [];
   }
 
-  const candidates = dirEntries.filter((entry) => entry.isDirectory() || entry.isSymbolicLink());
+  const candidates = dirEntries.filter(
+    (entry) =>
+      (entry.isDirectory() || entry.isSymbolicLink()) &&
+      (includeEntry === undefined || includeEntry(entry.name)),
+  );
   const results = await Promise.all(
     candidates.map(async (entry): Promise<SkillEntry | null> => {
       const skillPath = path.join(dir, entry.name, "SKILL.md");
