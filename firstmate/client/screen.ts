@@ -17,15 +17,56 @@ export const CREW_PARAM = "crew";
 const TITLE = "FirstMate";
 
 /**
- * The screen header: "FirstMate", or the crewmate it was opened on beside it. Paseo calls this when the
- * screen opens and when its params change, never later, so a crewmate the last fleet does not have — the
- * app has just started, say — reads "FirstMate" until the screen is opened on it again.
+ * The longest crew row label, in characters. Paseo's sidebar row draws its label as a plain `Text` with no
+ * line limit and `SidebarRow` takes only a string, so a long one wraps into a paragraph; this keeps it to
+ * one line in the default 320-point sidebar, beside the icon and the permission mark. A sidebar dragged
+ * narrower can still wrap it.
+ */
+export const CREW_LABEL_MAX = 30;
+
+/**
+ * What a crewmate is called: its agent's own title, or else the card's — the backlog line's title — with
+ * the notes the first mate keeps in parentheses taken out. Whitespace, line breaks included, is one space.
+ */
+export function crewName(card: FleetCard): string {
+  const agentTitle = oneLine(card.agent?.title ?? "");
+  if (agentTitle !== "") return agentTitle;
+  const title = oneLine(card.title);
+  let stripped = title;
+  for (let previous = ""; previous !== stripped; ) {
+    previous = stripped;
+    stripped = stripped.replace(/\s*\([^()]*\)/g, "");
+  }
+  stripped = oneLine(stripped);
+  return stripped === "" ? title : stripped;
+}
+
+/** `text` cut to `max` characters, an ellipsis in the last, never splitting a character in two. */
+export function truncateLabel(text: string, max: number = CREW_LABEL_MAX): string {
+  const characters = Array.from(text);
+  if (characters.length <= max) return text;
+  return `${characters.slice(0, max - 1).join("").trimEnd()}…`;
+}
+
+/** A crewmate's sidebar row label: its name, on one line. */
+export function crewRowLabel(card: FleetCard): string {
+  return truncateLabel(crewName(card));
+}
+
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The screen header: "FirstMate", or the name of the crewmate it was opened on beside it. Paseo calls
+ * this when the screen opens and when its params change, never later, so a crewmate the last fleet does
+ * not have — the app has just started, say — reads "FirstMate" until the screen is opened on it again.
  */
 export function fleetTitle(params: Readonly<Record<string, string>>, fleet: Fleet | null): string {
   const crew = params[CREW_PARAM];
   if (crew === undefined || crew === "") return TITLE;
   const card = fleet?.cards.find((candidate) => candidate.agent?.id === crew);
-  return card === undefined ? TITLE : `${TITLE} · ${card.title}`;
+  return card === undefined ? TITLE : `${TITLE} · ${crewName(card)}`;
 }
 
 /** The crewmates the sidebar lists: every card with an agent Paseo still runs, in the board's order. */

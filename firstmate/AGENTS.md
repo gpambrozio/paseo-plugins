@@ -490,9 +490,13 @@ differently for a non-legacy item, and nothing here can change: the screen heade
 Settings › Sidebar shows a generic plugin icon.
 
 The item (`client/sidebar.tsx`) is the FirstMate row, a separator, and a row per crewmate Paseo still
-runs (`sidebarCrew`: a card with an agent that is not closed), labelled with the card's title, its icon
-the card's column (`crewIcon`) and a warning-coloured shield in `trailing` while it has a pending
-permission. It reads **the board's own fleet query** (`useFleet`) rather than an agent observation of its
+runs (`sidebarCrew`: a card with an agent that is not closed), its icon the card's column (`crewIcon`)
+and a warning-coloured shield in `trailing` while it has a pending permission. The label is
+`crewRowLabel`: the agent's own title, or else the card's with its parenthesized notes taken out
+(`crewName`, which the header uses too), cut to `CREW_LABEL_MAX` characters with an ellipsis. Paseo's
+row draws a label as a plain `Text` with no line limit and `SidebarRow` takes only a string, so a whole
+backlog title wrapped into a paragraph; the cut is the plugin's, sized for the default 320-point
+sidebar, and a sidebar dragged narrower can still wrap one. It reads **the board's own fleet query** (`useFleet`) rather than an agent observation of its
 own: the screen, the panels and the item share one cache and one poll, and the rows agree with the
 board's columns. The cost is that the poll now runs whenever the app shows this host — before, only
 while the screen or a panel was open. A sidebar item gets no `navigation`, so a row cannot open the
@@ -510,7 +514,7 @@ row then pushes the route the screen already has, which changes nothing it can s
 tells the mounted screen directly (`sidebarRowPressed`, a module-scope set of listeners the screen
 joins while mounted), and the FirstMate row pressed on the screen goes back to the board.
 
-The title (`fleetTitle`) is "FirstMate · <card title>" for a `crew` the last fleet has, else
+The title (`fleetTitle`) is "FirstMate · <crewmate's name>" for a `crew` the last fleet has, else
 "FirstMate". Paseo calls it when the screen opens and when its params change, and never again, so on a
 fresh start — module scope empty, the fleet not loaded yet — a screen opened from a link reads
 "FirstMate" until it is reopened.

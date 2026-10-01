@@ -14,8 +14,9 @@ update Paseo.
 
 ### Added
 
-- **Your crew is in the sidebar.** Under the FirstMate row, every worker has a row of its own, with an
-  icon showing which column its card is in and a mark while it is waiting on your permission. Pressing
+- **Your crew is in the sidebar.** Under the FirstMate row, every worker has a row of its own, named in
+  one short line, with an icon showing which column its card is in and a mark while it is waiting on your
+  permission. Pressing
   one opens FirstMate with that worker shown in the board's place, and the title at the top names it.
   A link to it, a reload, and back and forward all come back to the same worker.
 

@@ -15,7 +15,7 @@ import { SidebarRow, SidebarSeparator } from "@getpaseo/plugin/client/ui";
 
 import { displaySettings } from "../shared/settings";
 import { sidebarRowPressed, useFleet } from "./fleet";
-import { CREW_PARAM, FLEET_SCREEN_ID, crewIcon, sidebarCrew } from "./screen";
+import { CREW_PARAM, FLEET_SCREEN_ID, crewIcon, crewRowLabel, sidebarCrew } from "./screen";
 
 export function FleetSidebarItem({ theme, currentScreen, openScreen }: PluginSidebarItemProps) {
   const display = useSettings(displaySettings);
@@ -40,7 +40,7 @@ export function FleetSidebarItem({ theme, currentScreen, openScreen }: PluginSid
           key={card.key}
           id={card.agent.id}
           icon={crewIcon(card.column)}
-          label={card.title}
+          label={crewRowLabel(card)}
           active={openCrew === card.agent.id}
           trailing={
             card.agent.pendingPermissions > 0 ? (
