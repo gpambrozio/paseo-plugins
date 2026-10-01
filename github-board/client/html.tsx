@@ -60,8 +60,8 @@ const NAMED_ENTITIES: Record<string, string> = {
 
 /**
  * A numeric reference as the character it names. Zero, a surrogate or anything
- * past U+10FFFF is U+FFFD, as HTML decodes it — `String.fromCodePoint` would
- * throw on the last two, and a body is text anyone can write.
+ * past U+10FFFF is U+FFFD, as HTML decodes it. `String.fromCodePoint` throws on
+ * the last, and a body is text anyone can write.
  */
 function codePoint(value: number): string {
   if (!Number.isInteger(value) || value <= 0 || value > 0x10ffff) return "\uFFFD";
