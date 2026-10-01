@@ -44,8 +44,8 @@ import {
   watchStatusText,
   watchTone,
 } from "./format";
-import { watchPath, type AgentSummary, type Fleet, type FleetCard, type WatchSummary } from "../shared/fleet";
-import { CREW_LABEL_MAX, crewIcon, crewName, crewRowLabel, fleetTitle, sidebarCrew, truncateLabel } from "./screen";
+import { watchPath, type AgentSummary, type FleetCard, type WatchSummary } from "../shared/fleet";
+import { activeCrewCount } from "./screen";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
@@ -960,55 +960,21 @@ function crewCard(key: string, agent: Partial<AgentSummary> | null, column: Flee
   };
 }
 
-describe("the screen and its sidebar rows", () => {
-  it("lists every crewmate Paseo still runs, in the board's order, and no backlog line without one", () => {
+describe("the sidebar row's badge", () => {
+  it("counts the live crewmates in the Working and Idle columns, and nothing else", () => {
+    expect(activeCrewCount([])).toBe(0);
     const cards = [
-      crewCard("a", { status: "idle" }),
+      crewCard("working", { status: "running" }, "working"),
+      crewCard("idle", { status: "idle" }, "idle"),
+      crewCard("reported-done", { status: "idle" }, "idle"),
+      crewCard("blocked", { status: "idle", pendingPermissions: 1 }, "blocked"),
+      crewCard("failed", { status: "error" }, "failed"),
+      crewCard("parked", { status: "idle" }, "parked"),
+      crewCard("landed", { status: "idle" }, "done"),
       crewCard("queued", null, "queued"),
-      crewCard("gone", { status: "closed" }),
-      crewCard("b", { status: "error" }, "failed"),
+      crewCard("backlog-only", null, "working"),
+      crewCard("closed", { status: "closed" }, "idle"),
     ];
-    expect(sidebarCrew(cards).map((card) => card.key)).toEqual(["a", "b"]);
-  });
-
-  it("calls a crewmate by its agent's title, else by the card's without its parenthesized notes", () => {
-    expect(crewName(crewCard("a", { title: "  Fix the\nlogin  " }))).toBe("Fix the login");
-    const noted = { ...crewCard("b", { title: null }), title: "Dark mode toggle (since 2026-09-30) (hold: land after #12)" };
-    expect(crewName(noted)).toBe("Dark mode toggle");
-    const nested = { ...crewCard("c", { title: "" }), title: "Speed fix (waiting (on CI)) for km/h" };
-    expect(crewName(nested)).toBe("Speed fix for km/h");
-    const onlyNotes = { ...crewCard("d", { title: null }), title: "(untitled)" };
-    expect(crewName(onlyNotes)).toBe("(untitled)");
-  });
-
-  it("keeps a crew row to one short line, cutting with an ellipsis and never inside a character", () => {
-    expect(truncateLabel("Short")).toBe("Short");
-    expect(truncateLabel("x".repeat(CREW_LABEL_MAX))).toBe("x".repeat(CREW_LABEL_MAX));
-    const cut = truncateLabel("Add a dark mode toggle to the settings page and remember it");
-    expect(Array.from(cut)).toHaveLength(CREW_LABEL_MAX);
-    expect(cut).toBe("Add a dark mode toggle to the…");
-    expect(truncateLabel("ab cd", 4)).toBe("ab…");
-    expect(truncateLabel("🚢🚢🚢🚢🚢", 3)).toBe("🚢🚢…");
-    const paragraph = {
-      ...crewCard("e", { title: null }),
-      title: "Investigate the flaky upload test (it fails one run in five on CI, and only on Linux; see the notes)",
-    };
-    expect(crewRowLabel(paragraph)).toBe("Investigate the flaky upload…");
-  });
-
-  it("names the crewmate the screen was opened on, and only one the last fleet has", () => {
-    const fleet = { cards: [crewCard("a", {})] } as unknown as Fleet;
-    expect(fleetTitle({}, fleet)).toBe("FirstMate");
-    expect(fleetTitle({ crew: "" }, fleet)).toBe("FirstMate");
-    expect(fleetTitle({ crew: "a" }, fleet)).toBe("FirstMate · Task a");
-    const titled = { cards: [crewCard("a", { title: "Fix login" })] } as unknown as Fleet;
-    expect(fleetTitle({ crew: "a" }, titled)).toBe("FirstMate · Fix login");
-    expect(fleetTitle({ crew: "missing" }, fleet)).toBe("FirstMate");
-    expect(fleetTitle({ crew: "a" }, null)).toBe("FirstMate");
-  });
-
-  it("gives every column its own icon", () => {
-    const icons = (["queued", "working", "blocked", "parked", "done", "failed", "idle"] as const).map(crewIcon);
-    expect(new Set(icons).size).toBe(icons.length);
+    expect(activeCrewCount(cards)).toBe(3);
   });
 });

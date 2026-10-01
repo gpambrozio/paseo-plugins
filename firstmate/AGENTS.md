@@ -1,8 +1,7 @@
 # AGENTS.md
 
 A Paseo plugin that adds a **FirstMate** screen: a conversation with one "first mate" agent
-beside a board of the "crew" of agents it runs, each in its own git worktree, with the crew listed under
-it in the sidebar. A Paseo-native port of
+beside a board of the "crew" of agents it runs, each in its own git worktree. A Paseo-native port of
 [kunchenguid/firstmate](https://github.com/kunchenguid/firstmate) — the agent distro — by way of
 [ABorakati/paseo-firstmate](https://github.com/ABorakati/paseo-firstmate), which was a dashboard over
 that distro's bash scripts and does not install on Paseo 0.9.
@@ -47,8 +46,8 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/serialize.ts`         | Runs the config update and each home file's save one at a time, per file.                  |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
 | `client/fleet.tsx`            | The screen: header, banners, chat/board split, compact tabs, the shared fleet query.       |
-| `client/screen.ts`            | The screen's id, its `crew` param, its title, and which crewmates the sidebar lists. Pure. |
-| `client/sidebar.tsx`          | The sidebar item: the FirstMate row, then a row per crewmate.                              |
+| `client/screen.ts`            | The screen's id, and the count of working and idle crewmates on its sidebar row. Pure.     |
+| `client/sidebar.tsx`          | The sidebar item: the FirstMate row and its badge.                                         |
 | `client/chat.tsx`             | The first mate's conversation, folded to the words, and the composer.                      |
 | `client/draft.ts`, `attachments.ts` | The unsent message and what is attached to it, kept on `globalThis` across reloads.  |
 | `shared/files.ts`, `server/files.ts` | The home as files: list, read, write — confined to the home, saved against the version opened. |
@@ -479,45 +478,27 @@ only when the chat is out of sight — folded, or behind the Crew tab — with a
 Checked on a throwaway 0.9.1 daemon: a Claude agent's AskUserQuestion arrived in the timeline page's
 snapshot with `allowOther` set, and answering it with `buildAnswers` got "I picked Blue." back.
 
-## The screen, and the crew in the sidebar
+## The screen and its sidebar row
 
 Paseo 0.11 replaced the static sidebar row and the bare surface with `addScreen` and
 `addSidebarHeaderItem`, and both keep the old id, `fleet` (`FLEET_SCREEN_ID`): the sidebar item's id is
 the key Settings › Sidebar keeps its order and hidden state under, and a saved
-`/plugin/firstmate/sidebar/fleet` link resolves to a screen of that id. Every way in — the sidebar,
-"Open FirstMate", "FirstMate: bearings", `/bearings`, `/ahoy` — is `openScreen`. Two things Paseo draws
-differently for a non-legacy item, and nothing here can change: the screen header has no ship, and
-Settings › Sidebar shows a generic plugin icon.
+`/plugin/firstmate/sidebar/fleet` link resolves to a screen of that id. The screen is titled
+"FirstMate" — the old surface's header read "fleet" — and every way in — the sidebar, "Open FirstMate",
+"FirstMate: bearings", `/bearings`, `/ahoy` — is `openScreen`. Two things Paseo draws differently for a
+non-legacy item, and nothing here can change: the screen header has no ship, and Settings › Sidebar
+shows a generic plugin icon.
 
-The item (`client/sidebar.tsx`) is the FirstMate row, a separator, and a row per crewmate Paseo still
-runs (`sidebarCrew`: a card with an agent that is not closed), its icon the card's column (`crewIcon`)
-and a warning-coloured shield in `trailing` while it has a pending permission. The label is
-`crewRowLabel`: the agent's own title, or else the card's with its parenthesized notes taken out
-(`crewName`, which the header uses too), cut to `CREW_LABEL_MAX` characters with an ellipsis. Paseo's
-row draws a label as a plain `Text` with no line limit and `SidebarRow` takes only a string, so a whole
-backlog title wrapped into a paragraph; the cut is the plugin's, sized for the default 320-point
-sidebar, and a sidebar dragged narrower can still wrap one. It reads **the board's own fleet query** (`useFleet`) rather than an agent observation of its
-own: the screen, the panels and the item share one cache and one poll, and the rows agree with the
+The item (`client/sidebar.tsx`) is the one FirstMate row, with a badge in `trailing`: how many crewmates
+Paseo still runs have their card in the Working or the Idle column (`activeCrewCount`), and no badge at
+zero. It reads **the board's own fleet query** (`useFleet`) rather than an agent observation of its own:
+the screen, the panels and the item share one cache and one poll, and the count agrees with the
 board's columns. The cost is that the poll now runs whenever the app shows this host — before, only
-while the screen or a panel was open. A sidebar item gets no `navigation`, so a row cannot open the
-agent in Paseo; it opens the screen on it.
+while the screen or a panel was open.
 
-A crewmate's row opens the screen with `params: { crew: <agent id> }`. Params are the route's query, so
-a reload, back and forward and a link keep them. The param **seeds** what is watched (see below): the
-screen starts on that crewmate, and since Paseo keeps the screen mounted when only its params change, an
-effect follows a new `crew` and shows it — the Crew tab on a phone, the right-hand pane unhidden on a
-wide layout. The FirstMate row opens the screen without one, which goes back to the board. Going back to
-the board *inside* the screen leaves the route alone: a screen has no `openScreen`, and the sidebar's
-pushes a history entry, so syncing the route on every Watch would fill the back stack. Until the screen
-is opened again, the header still names the crewmate and its row stays highlighted — and pressing that
-row then pushes the route the screen already has, which changes nothing it can see. So a press also
-tells the mounted screen directly (`sidebarRowPressed`, a module-scope set of listeners the screen
-joins while mounted), and the FirstMate row pressed on the screen goes back to the board.
-
-The title (`fleetTitle`) is "FirstMate · <crewmate's name>" for a `crew` the last fleet has, else
-"FirstMate". Paseo calls it when the screen opens and when its params change, and never again, so on a
-fresh start — module scope empty, the fleet not loaded yet — a screen opened from a link reads
-"FirstMate" until it is reopened.
+A row per crewmate was tried and dropped after the captain used it: a backlog title is a sentence with
+notes, and Paseo's row draws its label with no line limit, so the rows were paragraphs; one count says
+what the sidebar needs to.
 
 ## Watching a crewmate
 
@@ -770,5 +751,5 @@ the user's):
    a scratch `local-only` repository in `data/projects.md`, ask for a one-line change, and watch a
    crewmate appear on the board in its own worktree, report `done: ready in branch fm/<id>`, and the
    first mate relay it.
-4. Then look at the screen and the sidebar's crew rows, wide and compact, in two themes — there is no
+4. Then look at the screen and the sidebar row's badge, wide and compact, in two themes — there is no
    harness for plugin UI.

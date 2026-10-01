@@ -1,6 +1,6 @@
 import type { PluginClientContext, PluginWorkspaceCommandContext } from "@getpaseo/plugin/client";
 
-import { FleetSurface, bindSettingsOpener, fleetScreenTitle } from "./client/fleet";
+import { FleetSurface, bindSettingsOpener } from "./client/fleet";
 import { AgentPanel, WorkspacePanel } from "./client/panels";
 import { FLEET_SCREEN_ID } from "./client/screen";
 import { SettingsScreen } from "./client/settings-screen";
@@ -26,7 +26,7 @@ async function askFirstMate(rpc: CommandRpc, command: MateCommand, args: string)
 }
 
 export default function contribute(client: PluginClientContext) {
-  client.addScreen({ id: FLEET_SCREEN_ID, title: fleetScreenTitle, Component: FleetSurface });
+  client.addScreen({ id: FLEET_SCREEN_ID, title: "FirstMate", Component: FleetSurface });
   // The board's gear. A surface is given no way to open a settings screen, so
   // the capability is lent to it from here.
   bindSettingsOpener((id) => {

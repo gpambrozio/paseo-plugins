@@ -10,9 +10,7 @@ the captain.
 
 A **FirstMate** panel in the sidebar puts the conversation with the first mate beside a board of its
 crew — Queued, Working, Blocked, Parked, Done, Failed and Idle — with each worker's last word on what
-it is doing and a link to its pull request. Under it in the sidebar, every worker has a row of its own,
-with an icon for where its card is and a mark while it waits on your permission; pressing one opens
-FirstMate on that worker.
+it is doing and a link to its pull request. The sidebar row shows how many workers are working or idle.
 
 ![A 30-second loop of FirstMate at work, zooming in on each step: one message to the first mate asks
 for a dark mode toggle and a speed-conversion fix in a small web app; two cards appear in Queued and

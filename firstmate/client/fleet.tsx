@@ -15,12 +15,8 @@
  * A surface is unmounted whenever the captain opens a workspace, so the last
  * fleet, the compact tab and the crewmate being watched live in module scope
  * and the board comes back drawn rather than empty.
- *
- * Opened with a `crew` param — a crewmate's row in the sidebar — it shows that
- * crewmate in the board's place, as Watch does. The param only seeds what is
- * watched: going back to the board from there leaves the route as it was.
  */
-import type { PluginScreenParams, PluginScreenProps } from "@getpaseo/plugin/client";
+import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -48,7 +44,6 @@ import { agentStatusLabel, agentStatusTone, groupCards, orderedColumns, revealFi
 import { LaunchPanel } from "./launch";
 import { useMateSender } from "./mate-send";
 import { ResizeHandle, clampShare } from "./resize-handle";
-import { CREW_PARAM, fleetTitle } from "./screen";
 import { SuggestionList } from "./suggestions";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 
@@ -75,21 +70,6 @@ export function bindSettingsOpener(opener: ((id: string) => void) | null): void 
 const DEFAULT_DISPLAY: DisplaySettings = displaySettings.schema.parse({});
 const SAVE_DELAY_MS = 400;
 
-/** The screen's header, from the last fleet any view of it loaded. */
-export function fleetScreenTitle(params: PluginScreenParams): string {
-  return fleetTitle(params, cachedFleet);
-}
-
-/**
- * The mounted screen, told when a sidebar row is pressed: a crewmate's id, or null for the FirstMate
- * row. Opening the screen on the params it already has changes nothing it can see, so without this a
- * crewmate's row pressed again — after going back to the board inside the screen — would do nothing.
- */
-const rowListeners = new Set<(crew: string | null) => void>();
-export function sidebarRowPressed(crew: string | null): void {
-  rowListeners.forEach((listener) => listener(crew));
-}
-
 /**
  * The fleet query, shared by the screen, the workspace panels and the sidebar item so they poll once
  * between them.
@@ -109,7 +89,7 @@ export function useFleet(pollSeconds: number) {
   });
 }
 
-export function FleetSurface({ theme, layout, navigation, params }: PluginScreenProps) {
+export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
   const compact = layout.compact;
   const enable = useRpc(enableAgentTools);
   const compareCharters = useRpc(compareCharter);
@@ -125,12 +105,9 @@ export function FleetSurface({ theme, layout, navigation, params }: PluginScreen
   const values: DisplaySettings = { ...saved, ...override };
   const [share, setShare] = useState<number | null>(null);
   const [width, setWidth] = useState(0);
-  const crewParam = params[CREW_PARAM] || null;
-  // A screen opened on a crewmate starts on it rather than drawing the board first; the effect that
-  // follows the param below keeps module scope in step.
-  const [tab, setTabState] = useState<Tab>(() => (crewParam !== null && compact ? "board" : cachedTab));
-  const [rightPane, setRightPaneState] = useState(() => (crewParam !== null && !compact ? "board" : cachedRightPane));
-  const [watching, setWatchingState] = useState(() => crewParam ?? cachedWatching);
+  const [tab, setTabState] = useState<Tab>(cachedTab);
+  const [rightPane, setRightPaneState] = useState(cachedRightPane);
+  const [watching, setWatchingState] = useState(cachedWatching);
   const [enabling, setEnabling] = useState(false);
   const [charterBusy, setCharterBusy] = useState(false);
   /** A file the Files view should open; not kept across a remount, or it would open again on return. */
@@ -220,45 +197,6 @@ export function FleetSurface({ theme, layout, navigation, params }: PluginScreen
     cachedWatching = next;
     setWatchingState(next);
   }
-
-  /**
-   * A crewmate's sidebar row: that crewmate in the board's place, with the right-hand pane unhidden on a
-   * wide layout. The FirstMate row: back to the board.
-   */
-  function followRow(crew: string | null): void {
-    setWatching(crew);
-    if (crew === null) return;
-    if (compact) {
-      cachedTab = "board";
-      setTabState("board");
-    } else {
-      cachedRightPane = "board";
-      setRightPaneState("board");
-      if (values.boardCollapsed) save({ boardCollapsed: false });
-    }
-  }
-  const followRowRef = useRef(followRow);
-  followRowRef.current = followRow;
-  useEffect(() => {
-    const listener = (crew: string | null) => followRowRef.current(crew);
-    rowListeners.add(listener);
-    return () => {
-      rowListeners.delete(listener);
-    };
-  }, []);
-
-  /**
-   * The route's `crew`, followed the same way: Paseo keeps the screen mounted when only its params
-   * change — back and forward among them included. A screen mounted without one keeps whatever was
-   * watched when it was left.
-   */
-  const seenCrewParam = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
-    const previous = seenCrewParam.current;
-    seenCrewParam.current = crewParam;
-    if (crewParam === previous || (crewParam === null && previous === undefined)) return;
-    followRow(crewParam);
-  }, [crewParam]);
 
   const order = orderedColumns(values.columnOrder);
   const counts = useMemo(() => {
