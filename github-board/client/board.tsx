@@ -67,8 +67,8 @@ import {
   toggleLabel,
   updateBranch,
 } from "../shared/board";
-import { isGitHubImageHost } from "../shared/image-host";
 import { repositoryIdFor, workspaceTitle } from "../shared/launch";
+import { imageOrigin, startImageLoad } from "./image-gate";
 import { MarkdownBody } from "./markdown";
 import {
   completePrompts,
@@ -201,9 +201,11 @@ let cachedColumnId: ColumnId = COLUMN_IDS[0];
  */
 const cachedRepositoryLabels = new Map<string, { labels: RepositoryLabel[]; storedAt: number }>();
 /**
- * Images already fetched through the daemon, by URL, with the size the client
- * measured. Comments are re-rendered every time the panel reopens on the same
- * card, and a screenshot is the one thing in it worth not asking for twice.
+ * Images already loaded, by URL, with the size the client measured. Comments
+ * are re-rendered every time the panel reopens on the same card, and a
+ * screenshot is the one thing in it worth not asking for twice. An image from
+ * another host is only here once the user asked for it, so reopening the panel
+ * shows it again rather than asking twice.
  */
 const cachedImages = new Map<string, { uri: string; width: number; height: number }>();
 const IMAGE_CACHE_ENTRIES = 24;
@@ -1108,6 +1110,21 @@ export function useStyles({ theme, layout }: PluginSurfaceProps) {
         justifyContent: "center" as const,
       },
       imageCaption: { color: colors.foregroundMuted, fontSize: 11, marginTop: 4 },
+      /**
+       * An image the panel will not load on its own: the frame's band, taller
+       * than the spinner's so the host name, the alt text and the action fit.
+       */
+      imageBlocked: {
+        minHeight: 96,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+        gap: 4,
+        padding: 12,
+      },
+      /** Twice the frame's tint: `cardPressed` is the frame's own colour. */
+      imageBlockedPressed: { backgroundColor: withAlpha(colors.foregroundMuted, "33") },
+      imageBlockedTitle: { color: colors.foreground, fontSize: 12, textAlign: "center" as const },
+      imageBlockedAction: { color: colors.accent, fontSize: 12, fontWeight: "600" as const },
       /**
        * One pill per state, spelled in the tokens the theme has: accent for
        * open, danger for closed, and muted for a draft or a merge — both of
@@ -3110,9 +3127,11 @@ export function PromptSettingsView({
 /**
  * One image on its own line of Markdown. A GitHub-hosted one goes through
  * `board.image` — a private repository's attachments answer 404 to the app,
- * which holds no token — and any other host is loaded by `Image` directly,
- * the way a browser would. Either way the size is measured first, so the
- * frame is right before the bitmap paints. A press opens the original.
+ * which holds no token — as soon as it renders. Any other host waits behind a
+ * placeholder naming it until the user taps, because loading it tells that
+ * host who opened the item and when; then `Image` loads it directly, the way a
+ * browser would. Either way the size is measured first, so the frame is right
+ * before the bitmap paints. A press on the image opens the original.
  *
  * Failure falls back to the link the panel used to show, named after the
  * alt text, so nothing that was readable before is lost.
@@ -3129,17 +3148,17 @@ function RemoteImage({
   accentColor: string;
 }) {
   const fetchImage = useRpc(loadImage);
+  const origin = useMemo(() => imageOrigin(url), [url]);
   const [image, setImage] = useState(() => cachedImages.get(url) ?? null);
   const [error, setError] = useState<string | null>(null);
+  /** Whether the user asked for an external image. Kept for this mount only. */
+  const [requested, setRequested] = useState(false);
 
   useEffect(() => {
     if (image !== null) return;
-    let live = true;
-    const source = isGitHubImageHost(url)
-      ? fetchImage({ url }).then((result) => result.dataUrl)
-      : Promise.resolve(url);
-    source
-      .then(function measure(uri) {
+    const loading = startImageLoad(url, origin, requested, {
+      viaDaemon: (target) => fetchImage({ url: target }).then((result) => result.dataUrl),
+      measure: function measure(uri) {
         // The callback form: the promise form is newer than some react-native-web
         // builds the app has shipped on, and returns nothing there.
         return new Promise<{ uri: string; width: number; height: number }>((resolve, reject) => {
@@ -3149,7 +3168,11 @@ function RemoteImage({
             (cause: unknown) => reject(cause instanceof Error ? cause : new Error(String(cause))),
           );
         });
-      })
+      },
+    });
+    if (loading === null) return;
+    let live = true;
+    loading
       .then((loaded) => {
         cachedImages.set(url, loaded);
         if (cachedImages.size > IMAGE_CACHE_ENTRIES) {
@@ -3164,7 +3187,7 @@ function RemoteImage({
     return () => {
       live = false;
     };
-  }, [fetchImage, image, url]);
+  }, [fetchImage, image, origin, requested, url]);
 
   const label = alt.trim() === "" ? "image" : alt;
 
@@ -3176,6 +3199,37 @@ function RemoteImage({
         </Text>
         <Text style={styles.imageCaption}> — {error}</Text>
       </Text>
+    );
+  }
+
+  if (image === null && origin.kind === "unknown") {
+    return (
+      <View style={[styles.imageFrame, styles.imageBlocked]}>
+        <Icon name="ImageOff" size={16} color={accentColor} />
+        <Text style={styles.imageBlockedTitle}>Image not shown: its address could not be read</Text>
+        {alt.trim() === "" ? null : <Text style={styles.imageCaption}>{alt}</Text>}
+      </View>
+    );
+  }
+
+  if (image === null && origin.kind === "external" && !requested) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Load image from ${origin.host}${alt.trim() === "" ? "" : `: ${alt}`}`}
+        accessibilityHint={`Nothing is requested from ${origin.host} until you do.`}
+        style={({ pressed }) => [
+          styles.imageFrame,
+          styles.imageBlocked,
+          pressed ? styles.imageBlockedPressed : null,
+        ]}
+        onPress={() => setRequested(true)}
+      >
+        <Icon name="ImageOff" size={16} color={accentColor} />
+        <Text style={styles.imageBlockedTitle}>Image from {origin.host}</Text>
+        {alt.trim() === "" ? null : <Text style={styles.imageCaption}>{alt}</Text>}
+        <Text style={styles.imageBlockedAction}>Load image</Text>
+      </Pressable>
     );
   }
 
