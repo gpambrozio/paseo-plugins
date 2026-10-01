@@ -44,7 +44,8 @@ import {
   watchStatusText,
   watchTone,
 } from "./format";
-import { watchPath, type WatchSummary } from "../shared/fleet";
+import { watchPath, type AgentSummary, type Fleet, type FleetCard, type WatchSummary } from "../shared/fleet";
+import { crewIcon, fleetTitle, sidebarCrew } from "./screen";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
@@ -924,5 +925,63 @@ describe("suggestionRemovals", () => {
     expect(suggestionRemovals.pending(pair)).toBe(false);
     expect(seen).toHaveLength(1);
     unsubscribeNext();
+  });
+});
+
+function crewCard(key: string, agent: Partial<AgentSummary> | null, column: FleetCard["column"] = "working"): FleetCard {
+  return {
+    key,
+    column,
+    taskId: null,
+    title: `Task ${key}`,
+    project: null,
+    kind: null,
+    backlog: null,
+    agent:
+      agent === null
+        ? null
+        : {
+            id: key,
+            workspaceId: null,
+            title: null,
+            provider: "claude",
+            model: null,
+            status: "running",
+            cwd: "/tmp",
+            pendingPermissions: 0,
+            requiresAttention: false,
+            lastError: null,
+            updatedAt: "2026-10-01T10:00:00.000Z",
+            labels: {},
+            ...agent,
+          },
+    report: null,
+    url: null,
+  };
+}
+
+describe("the screen and its sidebar rows", () => {
+  it("lists every crewmate Paseo still runs, in the board's order, and no backlog line without one", () => {
+    const cards = [
+      crewCard("a", { status: "idle" }),
+      crewCard("queued", null, "queued"),
+      crewCard("gone", { status: "closed" }),
+      crewCard("b", { status: "error" }, "failed"),
+    ];
+    expect(sidebarCrew(cards).map((card) => card.key)).toEqual(["a", "b"]);
+  });
+
+  it("names the crewmate the screen was opened on, and only one the last fleet has", () => {
+    const fleet = { cards: [crewCard("a", {})] } as unknown as Fleet;
+    expect(fleetTitle({}, fleet)).toBe("FirstMate");
+    expect(fleetTitle({ crew: "" }, fleet)).toBe("FirstMate");
+    expect(fleetTitle({ crew: "a" }, fleet)).toBe("FirstMate · Task a");
+    expect(fleetTitle({ crew: "missing" }, fleet)).toBe("FirstMate");
+    expect(fleetTitle({ crew: "a" }, null)).toBe("FirstMate");
+  });
+
+  it("gives every column its own icon", () => {
+    const icons = (["queued", "working", "blocked", "parked", "done", "failed", "idle"] as const).map(crewIcon);
+    expect(new Set(icons).size).toBe(icons.length);
   });
 });

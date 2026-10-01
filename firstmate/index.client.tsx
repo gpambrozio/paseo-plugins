@@ -1,8 +1,10 @@
 import type { PluginClientContext, PluginWorkspaceCommandContext } from "@getpaseo/plugin/client";
 
-import { FleetSurface, bindSettingsOpener } from "./client/fleet";
+import { FleetSurface, bindSettingsOpener, fleetScreenTitle } from "./client/fleet";
 import { AgentPanel, WorkspacePanel } from "./client/panels";
+import { FLEET_SCREEN_ID } from "./client/screen";
 import { SettingsScreen } from "./client/settings-screen";
+import { FleetSidebarItem } from "./client/sidebar";
 import { askMate, askMateCommand, type MateCommand } from "./shared/fleet";
 
 type CommandRpc = PluginWorkspaceCommandContext["rpc"];
@@ -24,13 +26,13 @@ async function askFirstMate(rpc: CommandRpc, command: MateCommand, args: string)
 }
 
 export default function contribute(client: PluginClientContext) {
-  client.addSurface("fleet", FleetSurface);
+  client.addScreen({ id: FLEET_SCREEN_ID, title: fleetScreenTitle, Component: FleetSurface });
   // The board's gear. A surface is given no way to open a settings screen, so
   // the capability is lent to it from here.
   bindSettingsOpener((id) => {
     client.openSettings(id);
   });
-  client.addSidebarItem({ id: "fleet", title: "FirstMate", icon: "Ship", surface: "fleet" });
+  client.addSidebarHeaderItem({ id: FLEET_SCREEN_ID, title: "FirstMate", Component: FleetSidebarItem });
   client.addSettingsScreen({ id: "firstmate", title: "FirstMate", icon: "Ship", Component: SettingsScreen });
 
   client.addWorkspacePanel({
@@ -56,8 +58,8 @@ export default function contribute(client: PluginClientContext) {
     icon: "Ship",
     keywords: ["firstmate", "first mate", "fleet", "crew", "captain", "board"],
     context: "global",
-    onSelect({ openSurface }) {
-      openSurface("fleet");
+    onSelect({ openScreen }) {
+      openScreen({ screenId: FLEET_SCREEN_ID });
     },
   });
   client.addCommandCenterItem({
@@ -66,8 +68,8 @@ export default function contribute(client: PluginClientContext) {
     icon: "Compass",
     keywords: ["firstmate", "bearings", "status", "catch up", "digest"],
     context: "global",
-    onSelect({ rpc, openSurface }) {
-      openSurface("fleet");
+    onSelect({ rpc, openScreen }) {
+      openScreen({ screenId: FLEET_SCREEN_ID });
       void rpc(askMateCommand, { command: "bearings", args: "" }).catch((caught: unknown) => {
         console.warn("[firstmate] bearings could not be asked for:", caught);
       });
@@ -98,8 +100,8 @@ export default function contribute(client: PluginClientContext) {
     description: "FirstMate: where everything stands",
     argumentHint: "[file] [include PRs]",
     context: "workspace",
-    onSubmit({ args, rpc, openSurface }) {
-      openSurface("fleet");
+    onSubmit({ args, rpc, openScreen }) {
+      openScreen({ screenId: FLEET_SCREEN_ID });
       return askFirstMate(rpc, "bearings", args);
     },
   });
@@ -108,8 +110,8 @@ export default function contribute(client: PluginClientContext) {
     description: "FirstMate: what happened, and what needs your call",
     argumentHint: "",
     context: "workspace",
-    onSubmit({ args, rpc, openSurface }) {
-      openSurface("fleet");
+    onSubmit({ args, rpc, openScreen }) {
+      openScreen({ screenId: FLEET_SCREEN_ID });
       return askFirstMate(rpc, "ahoy", args);
     },
   });

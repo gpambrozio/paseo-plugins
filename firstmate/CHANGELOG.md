@@ -7,6 +7,26 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.3.0] — 2026-10-01
+
+**Requires Paseo 0.11.** This version does not load on Paseo 0.10 or older; stay on 0.2.1 until you
+update Paseo.
+
+### Added
+
+- **Your crew is in the sidebar.** Under the FirstMate row, every worker has a row of its own, with an
+  icon showing which column its card is in and a mark while it is waiting on your permission. Pressing
+  one opens FirstMate with that worker shown in the board's place, and the title at the top names it.
+  A link to it, a reload, and back and forward all come back to the same worker.
+
+### Changed
+
+- **The FirstMate page is titled "FirstMate".** Opened from the Command Center, `/bearings` or `/ahoy`,
+  its title read "fleet"; only the sidebar row said FirstMate. Your sidebar order, a hidden FirstMate
+  row and saved links to it all carry over.
+- Settings › Sidebar now shows a generic plugin icon for FirstMate instead of the ship, and the page's
+  title no longer has the ship beside it. Paseo draws both that way for every plugin on its new sidebar.
+
 ## [0.2.1] — 2026-09-26
 
 ### Removed
