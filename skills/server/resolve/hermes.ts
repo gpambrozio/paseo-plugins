@@ -45,9 +45,11 @@ const EXCLUDED_DIRS = new Set([
 
 /**
  * Hermes also walks an `_org` directory of token-gated organization skill
- * mirrors, which load only for the org whose marker the sync client wrote.
- * Whether a mirror is active is not visible from the filesystem, so the
- * plugin reads none of them rather than listing skills that may not load.
+ * mirrors: `_org/<org>/` loads only for the org named by the
+ * `skills/_org/.active_org` marker, which Hermes's `read_active_org_id()`
+ * reads back. The marker and mirror layout are deliberately out of scope
+ * here — an intentional omission rather than an impossibility — so the
+ * resolver lists no org skills rather than half-supporting them.
  */
 const ORG_MIRROR_DIR = "_org";
 

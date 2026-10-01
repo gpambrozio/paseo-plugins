@@ -163,11 +163,14 @@ describe("resolveHermesSkills", () => {
 
   test("does not list an excluded directory inside a category", async () => {
     // Excluded names apply wherever they appear, a category's children included.
+    // The SKILL.md sits directly in productivity/node_modules/ — the exact path
+    // the category reader enumerates — so this fails if that reader loses its
+    // predicate, and passes only while the exclusion rides the category read.
     const skillsDir = path.join(root, "hermes-home", "skills");
     await writeSkill(path.join(skillsDir, "productivity"), "docx", "Word files");
     await writeSkill(
-      path.join(skillsDir, "productivity", "node_modules"),
-      "vendored",
+      path.join(skillsDir, "productivity"),
+      "node_modules",
       "A vendored skill",
     );
 
@@ -196,8 +199,9 @@ describe("resolveHermesSkills", () => {
   });
 
   test("does not list token-gated _org mirror skills", async () => {
-    // _org/<org>/<skill> mirrors load only for the active org, which is not
-    // visible on disk; none of them are listed.
+    // _org/<org>/<skill> mirrors load only for the org named by the
+    // .active_org marker; the marker and mirror layout are out of scope here,
+    // so none of them are listed.
     const skillsDir = path.join(root, "hermes-home", "skills");
     await writeSkill(skillsDir, "personal", "A personal skill");
     await writeSkill(path.join(skillsDir, "_org", "acme"), "org-only", "An org mirror skill");

@@ -324,9 +324,11 @@ folder as a skill rather than a container.
 Hermes prunes `.git`, `.hub`, `.archive`, `.curator_backups`, and other environment directories
 from its own walk wherever they appear (`EXCLUDED_SKILL_DIRS` in its `agent/skill_utils.py`), so
 the scan excludes the same names — without that, retired skills in `.archive` would list as
-live ones. It skips `_org` too: Hermes walks `_org/<org>/` as token-gated organization mirrors
-that load only for the active org, and whether a mirror is active is not visible on disk, so the
-scan lists none of them rather than skills that may not load.
+It skips `_org` too: Hermes walks `_org/<org>/` as token-gated organization mirrors that load
+only for the org named by the `skills/_org/.active_org` marker, which its `read_active_org_id()`
+reads back. Reading that marker and the mirror layout is deliberately out of scope here — an
+intentional omission rather than an impossibility — so the scan lists no org skills rather than
+half-supporting them.
 
 The profile caveat: a Hermes agent launched with `--profile <name>` reads
 `~/.hermes/profiles/<name>/skills`, and nothing the plugin can see says which profile an agent
