@@ -86,11 +86,13 @@ on the host. Resolving the effective home per agent would mean reading the provi
 configuration and per-agent launch environment through the daemon API, which is the seam a
 future version plugs.
 
-**Hermes's `_org` mirrors and deeper nesting are not read.** Hermes walks its skills tree without
-a depth limit, while the plugin reads two levels, so an `_org/<org>/<skill>` mirror or a skill
-nested below a category-in-a-category is invisible here. The two-level bound keeps the scan
-cheap on a home that can hold caches and plugin checkouts, and no bundled skill sits deeper than
-two; the cost is the mirrors above, which are token-gated and may not load for this agent anyway.
+**Hermes's `_org` mirrors and deeper nesting are not read.** `_org` mirrors are skipped by
+name at both levels — the same intentional omission the Hermes section describes, since reading
+the `.active_org` marker and mirror layout is out of scope. Hermes also walks its skills tree
+without a depth limit, while the plugin reads two levels, so a skill nested below a
+category-in-a-category is invisible here. The two-level bound keeps the scan cheap on a home
+that can hold caches and plugin checkouts, and no bundled skill sits deeper than two; the cost
+is the nesting above, which no bundled install uses anyway.
 
 ## Constraints that shaped this
 
@@ -324,11 +326,11 @@ folder as a skill rather than a container.
 Hermes prunes `.git`, `.hub`, `.archive`, `.curator_backups`, and other environment directories
 from its own walk wherever they appear (`EXCLUDED_SKILL_DIRS` in its `agent/skill_utils.py`), so
 the scan excludes the same names — without that, retired skills in `.archive` would list as
-It skips `_org` too: Hermes walks `_org/<org>/` as token-gated organization mirrors that load
-only for the org named by the `skills/_org/.active_org` marker, which its `read_active_org_id()`
-reads back. Reading that marker and the mirror layout is deliberately out of scope here — an
-intentional omission rather than an impossibility — so the scan lists no org skills rather than
-half-supporting them.
+live ones. It skips `_org` too: Hermes walks `_org/<org>/` as token-gated organization mirrors
+that load only for the org named by the `skills/_org/.active_org` marker, which its
+`read_active_org_id()` reads back. Reading that marker and the mirror layout is deliberately
+out of scope here — an intentional omission rather than an impossibility — so the scan lists no
+org skills rather than half-supporting them.
 
 The profile caveat: a Hermes agent launched with `--profile <name>` reads
 `~/.hermes/profiles/<name>/skills`, and nothing the plugin can see says which profile an agent

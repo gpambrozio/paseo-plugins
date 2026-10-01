@@ -201,10 +201,18 @@ describe("resolveHermesSkills", () => {
   test("does not list token-gated _org mirror skills", async () => {
     // _org/<org>/<skill> mirrors load only for the org named by the
     // .active_org marker; the marker and mirror layout are out of scope here,
-    // so none of them are listed.
+    // so none of them are listed. The mirror skill sits directly in
+    // _org/SKILL.md — the exact path the flat reader enumerates — so the
+    // test fails if the `_org` exclusion is dropped, rather than passing
+    // vacuously below the depth limit.
     const skillsDir = path.join(root, "hermes-home", "skills");
     await writeSkill(skillsDir, "personal", "A personal skill");
-    await writeSkill(path.join(skillsDir, "_org", "acme"), "org-only", "An org mirror skill");
+    await mkdir(path.join(skillsDir, "_org"), { recursive: true });
+    await writeFile(
+      path.join(skillsDir, "_org", "SKILL.md"),
+      "---\nname: org-only\ndescription: An org mirror skill\n---\n\nBody.\n",
+      "utf8",
+    );
 
     const names = (await resolve()).map((skill) => skill.name);
 
