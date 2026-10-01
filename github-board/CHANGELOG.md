@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-github-board` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [0.9.3] — 2026-09-30
+
+### Fixed
+
+- **A strange character code no longer breaks an issue.** An issue, pull request or comment that
+  spelled out a character which does not exist — `&#x110000;`, say — stopped its whole panel from
+  showing. That character now shows as the replacement mark (�), the way a browser shows it, and
+  the rest of the text appears as usual.
+
 ## [0.9.2] — 2026-09-29
 
 ### Changed

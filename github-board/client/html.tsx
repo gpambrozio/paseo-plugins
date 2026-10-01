@@ -58,12 +58,23 @@ const NAMED_ENTITIES: Record<string, string> = {
   trade: "™",
 };
 
+/**
+ * A numeric reference as the character it names. Zero, a surrogate or anything
+ * past U+10FFFF is U+FFFD, as HTML decodes it — `String.fromCodePoint` would
+ * throw on the last two, and a body is text anyone can write.
+ */
+function codePoint(value: number): string {
+  if (!Number.isInteger(value) || value <= 0 || value > 0x10ffff) return "\uFFFD";
+  if (value >= 0xd800 && value <= 0xdfff) return "\uFFFD";
+  return String.fromCodePoint(value);
+}
+
 export function decodeEntities(text: string): string {
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, body: string) => {
     if (body.startsWith("#x") || body.startsWith("#X")) {
-      return String.fromCodePoint(parseInt(body.slice(2), 16));
+      return codePoint(parseInt(body.slice(2), 16));
     }
-    if (body.startsWith("#")) return String.fromCodePoint(parseInt(body.slice(1), 10));
+    if (body.startsWith("#")) return codePoint(parseInt(body.slice(1), 10));
     return NAMED_ENTITIES[body.toLowerCase()] ?? entity;
   });
 }
