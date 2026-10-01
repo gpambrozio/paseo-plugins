@@ -177,14 +177,22 @@ describe("resolveHermesSkills", () => {
   });
 
   test("does not let an excluded flat entry shadow a live skill", async () => {
-    // An excluded name must never take a live skill's place through first-wins.
+    // The excluded folder claims the SAME name as the live category skill, so
+    // without the flat-level predicate first-wins would read the excluded copy
+    // and hide the live one behind it.
     const skillsDir = path.join(root, "hermes-home", "skills");
-    await writeSkill(skillsDir, ".archive", "Poses as a flat skill");
+    await mkdir(path.join(skillsDir, ".archive"), { recursive: true });
+    await writeFile(
+      path.join(skillsDir, ".archive", "SKILL.md"),
+      "---\nname: archive\ndescription: The excluded copy\n---\n\nBody.\n",
+      "utf8",
+    );
     await writeSkill(path.join(skillsDir, "productivity"), "archive", "The live one");
 
-    const names = (await resolve()).map((skill) => skill.name);
+    const skills = await resolve();
 
-    expect(names).toEqual(["archive"]);
+    expect(skills.map((skill) => skill.name)).toEqual(["archive"]);
+    expect(skills[0]!.description).toBe("The live one");
   });
 
   test("does not list token-gated _org mirror skills", async () => {

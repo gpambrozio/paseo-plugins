@@ -427,10 +427,12 @@ fixtures in the plugin project:
 - outside a repository the walk does not climb past `cwd`
 - a directory named by two scopes at once (a repo rooted at `$HOME`) is read once
 - first-wins on a name collision across directories
-- Hermes: flat skills and category skills side by side, an archived skill in `.archive` stays
-  hidden, `_org` mirrors stay hidden, a symlinked skill and a symlinked category both resolve,
-  a `SKILL.md` that fails frontmatter still marks its folder as a skill rather than a category,
-  and a category holds no skill below the second level
+- Hermes: flat skills and category skills side by side; an excluded name stays hidden at both
+  levels — posing as a flat skill, inside a category, and as an archived skill in `.archive` —
+  and cannot take a live skill's name through first-wins; `_org` mirrors stay hidden; a
+  symlinked skill and a symlinked category both resolve; a `SKILL.md` that fails frontmatter
+  still marks its folder as a skill rather than a category; and a category holds no skill below
+  the second level
 - entries missing `name` or `description` are skipped
 - absent directories do not fail the scan
 - stale plugin-cache versions are excluded by the manifest
