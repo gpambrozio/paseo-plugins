@@ -3,9 +3,9 @@
 A Paseo plugin that lists the agent skills available to an agent session, shows where each one
 comes from, renders its `SKILL.md`, and invokes it.
 
-Works with every provider. Claude and Codex additionally get their skill files scanned off disk,
-which is what gives a skill a source, a path, and a rendered body; every other provider shows what
-its running session reports.
+Works with every provider. Claude, Codex, and Hermes additionally get their skill files scanned
+off disk, which is what gives a skill a source, a path, and a rendered body; every other provider
+shows what its running session reports.
 
 ## Install
 

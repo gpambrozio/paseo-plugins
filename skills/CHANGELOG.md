@@ -7,6 +7,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-skills` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [Unreleased]
+
+### Added
+
+- **Hermes agents get their skill files scanned off disk.** A Hermes agent's Skills tab and pill
+  popover now list every skill in `~/.hermes/skills` (or `$HERMES_HOME/skills`) with its origin,
+  its path, and its full text — the same treatment Claude and Codex already had — instead of only
+  the session commands Hermes reports over ACP. Hermes keeps skills in category folders as well
+  as flat ones (`productivity/docx` alongside a linked `paseo`), so the scan reads both levels,
+  skipping the directories Hermes itself excludes. The skills were always usable by the agent;
+  this only makes them visible in the panel.
+
 ## [0.3.0] — 2026-09-26
 
 ### Changed

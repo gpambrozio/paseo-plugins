@@ -366,3 +366,16 @@ popover closes over a composer that is already that agent's. The panel stays rea
 **Open tab** button in the popover's header and from the Command Center. Cost if wrong: the full
 `SKILL.md` body renders inside a 440-point-tall popover, and a skill list long enough to need the
 search is scrolled there rather than in a whole tab.
+
+Ruling 53 (2026-10-01, Hermes resolver): the Hermes scan EXCLUDES the directories Hermes itself
+prunes and reads only two levels. Hermes walks its skills tree with no depth bound but prunes
+`EXCLUDED_SKILL_DIRS` (`.archive`, `.hub`, `.curator_backups`, and environment folders) wherever
+they appear and gates `_org/<org>/` mirrors on a token marker; a plugin scan that ignored those
+would list retired skills as live ones and org mirrors the agent cannot load. The resolver
+therefore filters the same names, skips `_org` outright, and stops at two levels — flat skills
+and one category level — instead of mirroring the unbounded walk, because nothing bundled sits
+deeper than two and a bounded scan cannot wander into caches or plugin checkouts. The gaps left
+behind (deeper nesting, project scopes under trusted-project roots, `skills.external_dirs`) are
+recorded in design.md's Limitations. Cost if wrong: a skill a user nested below a
+category-in-a-category, or one installed through a config path the resolver does not read, is
+invisible in the panel while remaining usable by the agent.

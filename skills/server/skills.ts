@@ -7,6 +7,7 @@ import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { parseFrontmatter } from "./resolve/frontmatter";
 import { resolveClaudeSkills } from "./resolve/claude";
 import { resolveCodexSkills } from "./resolve/codex";
+import { resolveHermesSkills } from "./resolve/hermes";
 import { selectReported, supportsCommands } from "./resolve/reported";
 import type { ReportedSkill } from "./resolve/reported";
 import type { SkillEntry } from "./resolve/skill-entry";
@@ -16,6 +17,8 @@ export interface SkillRoots {
   codexHome: string;
   agentsHome: string;
   adminSkillsDir: string;
+  /** `$HERMES_HOME` or `~/.hermes`. */
+  hermesHome: string;
 }
 
 /**
@@ -30,6 +33,7 @@ export function defaultSkillRoots(env: NodeJS.ProcessEnv = process.env): SkillRo
     codexHome: env.CODEX_HOME ?? path.join(home, ".codex"),
     agentsHome: path.join(home, ".agents"),
     adminSkillsDir: path.join(path.sep, "etc", "codex", "skills"),
+    hermesHome: env.HERMES_HOME ?? path.join(home, ".hermes"),
   };
 }
 
@@ -104,15 +108,18 @@ async function resolveForAgent(agent: ResolvedAgent, roots: SkillRoots): Promise
       adminSkillsDir: roots.adminSkillsDir,
     });
   }
+  if (agent.provider === "hermes") {
+    return resolveHermesSkills({ hermesHome: roots.hermesHome });
+  }
   return [];
 }
 
 /**
- * Only Claude and Codex have documented skill directories to walk. Every other
- * provider still reaches the panel through what its session reports.
+ * Claude, Codex, and Hermes have documented skill directories to walk. Every
+ * other provider still reaches the panel through what its session reports.
  */
 function scansSkillFiles(provider: string): boolean {
-  return provider === "claude" || provider === "codex";
+  return provider === "claude" || provider === "codex" || provider === "hermes";
 }
 
 export function createListSkillsHandler(roots: SkillRoots = defaultSkillRoots()) {

@@ -24,9 +24,9 @@ leaving Paseo and finding the file by hand.
 ## Non-goals
 
 - Editing, creating, installing, or deleting skills.
-- Scanning skill files for providers other than Claude and Codex. Nobody has documented where
-  Copilot, OpenCode, or Pi keep theirs. Those agents still get a panel, listing what their session
-  reports.
+- Scanning skill files for providers other than Claude, Codex, and Hermes. Nobody has documented
+  where Copilot, OpenCode, or Pi keep theirs. Those agents still get a panel, listing what their
+  session reports.
 - Displaying shadowed duplicate copies of a name. Collisions resolve first-wins, silently.
 - Verifying against the live session what it actually loaded. See "Future seams".
 - Any change to the Paseo repository beyond `agent.commands()`, which the panel cannot work around.
@@ -69,6 +69,19 @@ the cheapest way to close this and is not done yet.
 skills share the same `name`, Codex doesn't merge them; both can appear in skill selectors." This
 panel resolves collisions first-wins and shows one row. Across five scopes that silently drops
 real rows — see "Future seams".
+
+**Hermes scopes beyond the home are not read.** Hermes loads project skills from
+`<root>/.hermes/skills` and `<root>/.agents/skills` — but only when the repository root is on the
+session's trusted-project list, so which of them apply is not decidable from the filesystem
+alone. It also loads extra directories configured through `skills.external_dirs`, which the
+plugin does not parse. Both stay unread: the panel shows the profile home's skills, which is
+what a Paseo-launched, unprofiled `hermes acp` loads by default.
+
+**Hermes's `_org` mirrors and deeper nesting are not read.** Hermes walks its skills tree without
+a depth limit, while the plugin reads two levels, so an `_org/<org>/<skill>` mirror or a skill
+nested below a category-in-a-category is invisible here. The two-level bound keeps the scan
+cheap on a home that can hold caches and plugin checkouts, and no bundled skill sits deeper than
+two; the cost is the mirrors above, which are token-gated and may not load for this agent anyway.
 
 ## Constraints that shaped this
 
@@ -284,6 +297,34 @@ collapses same-named entries, so nothing doubles — verified against the real d
 hold byte-identical copies of the same seven skills. And the sync only mirrors the skills Paseo
 ships; anything else in `~/.agents/skills` is mirrored nowhere and was invisible.
 
+### Hermes
+
+`$HERMES_HOME/skills` or `~/.hermes/skills`, scope `personal`. The resolver reads that one
+directory; the scopes Hermes layers on top of it are out of scope for v1 and listed under
+Limitations below.
+
+The layout itself is the difference: a Hermes skills directory holds flat skills *and* category
+folders, side by side. `skills/<skill>/SKILL.md` and `skills/<category>/<skill>/SKILL.md` are both
+real — the bundled install ships every skill inside a category (`productivity/docx`,
+`research/arxiv`), and flat entries come from user and cross-agent installs, whose skill folders
+may be symlinks into `~/.agents`. The scan reads both levels: every direct child that is a skill,
+and one level down inside every child that is not. A child with no `SKILL.md` is a category; the
+test is file existence, not a parse, because a `SKILL.md` that fails frontmatter still marks its
+folder as a skill rather than a container.
+
+Hermes prunes `.git`, `.hub`, `.archive`, `.curator_backups`, and other environment directories
+from its own walk wherever they appear (`EXCLUDED_SKILL_DIRS` in its `agent/skill_utils.py`), so
+the scan excludes the same names — without that, retired skills in `.archive` would list as
+live ones. It skips `_org` too: Hermes walks `_org/<org>/` as token-gated organization mirrors
+that load only for the active org, and whether a mirror is active is not visible on disk, so the
+scan lists none of them rather than skills that may not load.
+
+The profile caveat: a Hermes agent launched with `--profile <name>` reads
+`~/.hermes/profiles/<name>/skills`, and nothing the plugin can see says which profile an agent
+uses. The resolver reads the unprofiled home, which is what a Paseo-launched `hermes acp` runs
+with; a daemon that wants a profile's skills sets `HERMES_HOME` in the provider's `env`, which
+`defaultSkillRoots` honors.
+
 ### Providers with no scannable path
 
 Return `scanned: false` with an empty discovery list. `scanned` names filesystem discovery, not the
@@ -375,6 +416,10 @@ fixtures in the plugin project:
 - outside a repository the walk does not climb past `cwd`
 - a directory named by two scopes at once (a repo rooted at `$HOME`) is read once
 - first-wins on a name collision across directories
+- Hermes: flat skills and category skills side by side, an archived skill in `.archive` stays
+  hidden, `_org` mirrors stay hidden, a symlinked skill and a symlinked category both resolve,
+  a `SKILL.md` that fails frontmatter still marks its folder as a skill rather than a category,
+  and a category holds no skill below the second level
 - entries missing `name` or `description` are skipped
 - absent directories do not fail the scan
 - stale plugin-cache versions are excluded by the manifest

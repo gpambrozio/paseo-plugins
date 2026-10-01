@@ -539,7 +539,7 @@ export function SkillBrowser({
       />
       {scanned ? null : (
         <Text style={styles.groupNote}>
-          Skill files are only scanned for Claude and Codex. Everything below is what the{" "}
+          Skill files are only scanned for Claude, Codex, and Hermes. Everything below is what the{" "}
           {query.data?.provider ?? "provider"} session reported.
         </Text>
       )}

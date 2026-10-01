@@ -73,6 +73,7 @@ beforeEach(async () => {
     codexHome: path.join(root, "codex-home"),
     agentsHome: path.join(root, "agents-home"),
     adminSkillsDir: path.join(root, "etc", "codex", "skills"),
+    hermesHome: path.join(root, "hermes-home"),
   };
 });
 
@@ -104,6 +105,33 @@ describe("createListSkillsHandler", () => {
     );
 
     expect(result.skills.map((skill) => skill.name)).toEqual(["deploy"]);
+  });
+
+  test("lists hermes skills for a hermes agent, flat and in categories", async () => {
+    const skillsDir = path.join(roots.hermesHome, "skills");
+    await writeSkill(skillsDir, "paseo", "Paseo reference");
+    await writeSkill(path.join(skillsDir, "productivity"), "docx", "Word files");
+    const handler = createListSkillsHandler(roots);
+
+    const result = await handler(
+      { agentId: "agent-1" },
+      contextFor({ id: "agent-1", provider: "hermes", cwd: root }),
+    );
+
+    expect(result.scanned).toBe(true);
+    expect(result.skills.map((skill) => skill.name)).toEqual(["docx", "paseo"]);
+  });
+
+  test("reads a hermes skill body through skills.read", async () => {
+    await writeSkill(path.join(roots.hermesHome, "skills"), "paseo", "Paseo reference");
+    const context = contextFor({ id: "agent-1", provider: "hermes", cwd: root });
+    const listed = await createListSkillsHandler(roots)({ agentId: "agent-1" }, context);
+    const skillId = listed.skills[0]!.id;
+
+    const result = await createReadSkillHandler(roots)({ agentId: "agent-1", skillId }, context);
+
+    expect(result.name).toBe("paseo");
+    expect(result.body).toBe("Body for paseo.\n");
   });
 
   test("reports an unscanned provider instead of an empty list", async () => {
@@ -229,11 +257,17 @@ describe("defaultSkillRoots", () => {
     expect(roots.codexHome).toBe("/custom/codex");
   });
 
+  test("honors HERMES_HOME", () => {
+    const roots = defaultSkillRoots({ HERMES_HOME: "/custom/hermes" } as NodeJS.ProcessEnv);
+    expect(roots.hermesHome).toBe("/custom/hermes");
+  });
+
   test("falls back to ~/.codex and always uses ~/.claude and ~/.agents", () => {
     const roots = defaultSkillRoots({} as NodeJS.ProcessEnv);
     expect(roots.codexHome).toBe(path.join(os.homedir(), ".codex"));
     expect(roots.claudeHome).toBe(path.join(os.homedir(), ".claude"));
     expect(roots.agentsHome).toBe(path.join(os.homedir(), ".agents"));
+    expect(roots.hermesHome).toBe(path.join(os.homedir(), ".hermes"));
   });
 });
 
