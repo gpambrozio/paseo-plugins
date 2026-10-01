@@ -76,7 +76,7 @@ export default function contribute(server: PluginServerContext) {
 ```tsx
 // index.client.tsx — runs inside the Paseo app, once per connected client
 export default function contribute(client: PluginClientContext) {
-  client.addSurface("board", GitHubBoard);            // github-board: global sidebar surface
+  client.addScreen({ id: "board", ... });             // github-board: global screen
   client.addWorkspacePanel({ context: "agent", ... }); // skills: per-agent workspace tab
   client.addSettingsScreen({ ... });
   client.addCommandCenterItem({ ... });

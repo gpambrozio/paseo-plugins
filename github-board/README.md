@@ -1,6 +1,6 @@
 # paseo-github-board
 
-A Paseo plugin that adds a **GitHub** sidebar surface showing your work — and the
+A Paseo plugin that adds a **GitHub** sidebar screen showing your work — and the
 work waiting on you — in four columns:
 
 | Column | Source |
@@ -170,11 +170,12 @@ filtered out.
 
 ## Reading a card
 
-**Click a card** and it opens in a panel beside the board — the right half of the surface, or the
-whole of it on a phone. The panel shows the title, who opened it, the comment count, the labels,
-a pull request's branches, and the description rendered the way GitHub renders it — including
-the HTML a bot like Dependabot writes, whose release notes show as collapsible sections — followed
-by the assignees. A pill in the panel's header says whether the item is still open, or has been closed or
+**Click a card** and it opens in a panel beside the board — the right half of the screen, or the
+whole of it on a phone. The open card is part of the screen's address, and the header names it,
+so reloading, going back and forward, and a saved link all bring the same card back. The panel
+shows the title, who opened it, the comment count, the labels, a pull request's branches, and the
+description rendered the way GitHub renders it — including the HTML a bot like Dependabot writes,
+whose release notes show as collapsible sections — followed by the assignees. A pill in the panel's header says whether the item is still open, or has been closed or
 merged since the board was fetched.
 
 **Open on GitHub** is in the panel, next to **Send to chat**, so nothing the card used to do is
@@ -285,7 +286,7 @@ hit.
 
 ## Requirements
 
-- **Paseo 0.9.0 or newer**, for the daemon *and* the app that shows the board.
+- **Paseo 0.11.0 or newer**, for the daemon *and* the app that shows the board.
   Both check the version themselves, so an older one reports the plugin as
   incompatible rather than loading part of it.
 - `gh` installed and authenticated **on the daemon machine**, not the device
@@ -297,8 +298,9 @@ hit.
 paseo plugin install npm:@gpambrozio/paseo-github-board
 ```
 
-That is the shortest route on **Paseo 0.9 or newer**, which installs plugins straight from npm; add
-`@<version>` to pin one. On 0.8, install the last release that supported it from this repository instead:
+That is the shortest route on **Paseo 0.11 or newer**, which installs plugins straight from npm; add
+`@<version>` to pin one. On Paseo 0.9 or 0.10, install the last release that supports them:
+`paseo plugin install npm:@gpambrozio/paseo-github-board@0.9.3`. On 0.8, install the last release that supported it from this repository instead:
 
 ```bash
 paseo plugin add gpambrozio/paseo-plugins --path github-board

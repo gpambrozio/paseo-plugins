@@ -1,6 +1,6 @@
 # AGENTS.md
 
-A Paseo plugin that adds a **GitHub** sidebar surface: open issues, draft pull requests, open pull
+A Paseo plugin that adds a **GitHub** sidebar screen: open issues, draft pull requests, open pull
 requests, and discussions, in four columns — what the signed-in user wrote, plus what is open on the
 repositories they own, plus what is assigned to them anywhere.
 
@@ -12,7 +12,7 @@ compile time. This file covers only what is specific to `github-board`.
 
 | File                       | What it owns                                                                |
 | -------------------------- | --------------------------------------------------------------------------- |
-| `index.client.tsx`         | Client wiring — the surface, the sidebar item, the settings screen, two Command Center items, the timeline renderer. |
+| `index.client.tsx`         | Client wiring — the screen, the sidebar row, the settings screen, two Command Center items, the timeline renderer. |
 | `index.server.ts`          | Server wiring — every RPC contract and the two settings documents.          |
 | `shared/board.ts`          | The zod contracts, and the `BoardItem` shape both halves agree on.          |
 | `shared/settings.ts`       | The two host-stored settings documents, the default prompts, and `normalizePrompts`. |
@@ -22,7 +22,9 @@ compile time. This file covers only what is specific to `github-board`.
 | `server/board.ts`          | Every `gh` subprocess, the daemon's own settings file, and the server-side board cache. |
 | `server/image.ts`          | The daemon's image fetch: redirects by hand, the token only to `github.com`, a timeout and a size cap. |
 | `server/data-dir.ts`       | `$PASEO_HOME/plugin-data/github-board/`, and moving the settings file out of `plugins/`. |
-| `client/board.tsx`         | The surface: columns, cards, the detail panel, the repository filter, the send dialog, and the client cache. |
+| `client/board.tsx`         | The screen: columns, cards, the detail panel, the repository filter, the send dialog, and the client cache. |
+| `client/screen.ts`         | The screen and sidebar id, the open card as a screen param, the header title, and the lent `openScreen`. |
+| `client/sidebar-item.tsx`  | The sidebar header row.                                                     |
 | `client/settings-screen.tsx` | The Settings → Plugins frame around the same editor the gear button opens. |
 | `client/markdown.tsx`      | The renderer for an item's Markdown body; only the detail panel uses it.    |
 | `client/image-gate.ts`     | Whether an image in a body may be requested yet, and the host its placeholder names. |
@@ -31,6 +33,35 @@ compile time. This file covers only what is specific to `github-board`.
 | `client/link.ts`           | Which links the board hands to the opener: http and https only.            |
 | `client/web.ts`            | The one browser global this plugin touches: the drag's document listeners. |
 | `README.md`                | What the board shows a user, and which query backs each column.             |
+
+## The screen, the sidebar row, and the open card
+
+Paseo 0.11 replaced `addSurface` and the static `addSidebarItem` with `addScreen` and a live
+`addSidebarHeaderItem`; the old calls are aliases due to be removed after 2027-03-29. The board uses
+the new ones, which is why `requirements.paseo` is a 0.11 floor.
+
+**The id `board` is shared on purpose and must not change.** Settings → Sidebar keys its ordering
+and hidden state on `<plugin>/sidebar/<id>`, the same key for a legacy row and a header item, and a
+saved `/plugin/github-board/sidebar/board` link resolves to the *screen* with the sidebar item's id.
+Rename either and users lose their sidebar placement and their links.
+
+**The open card is a screen param, `item=<owner>/<name>#<number>`**, not component state, so a
+reload, back and forward, and a link all reopen it, and `boardScreenTitle` puts it in the header.
+Pressing a card or closing the panel does not touch the panel's state directly: it calls
+`openScreen` with the new params (`showBoardItem`), and an effect in `GitHubBoard` follows
+`props.params`. Each press and each close is therefore one history entry. `PluginScreenProps`
+carries `params` but no way to change them, so `index.client.tsx` lends `client.openScreen` to a
+module-scope binding in `client/screen.ts` — the same trick herald uses for `openSettings`.
+Each host evaluates its own bundle, so the lent opener navigates on the host the board is drawn for.
+
+The param names a card by repository and number, and the panel needs a `BoardItem` and a column, so
+the effect looks the key up on the loaded board — or uses the card just pressed, which keeps the
+column it was pressed in. A key the board does not show — a link from another host, a card closed
+since — opens nothing, and a panel already open on a card that a refresh drops stays where it is.
+
+Two downgrades came with the move, both Paseo's: the screen header no longer draws the GitHub icon
+(the host draws one only for a legacy row), and Settings → Sidebar shows a generic plugin icon for
+the row.
 
 ## Checking a `gh` query against reality
 
@@ -807,8 +838,8 @@ forgetting.
 **Compact has no Refresh button — it has `RefreshControl`.** That is why the "Updated …" timestamp,
 which used to be hidden on compact, now shows there: it is the only thing left saying how old the
 board is. `refreshing` is bound to `busy`, so a refresh started any other way spins the same
-control. The header also drops its own "GitHub" title, because the surface chrome above it already
-carries the name and the icon. The settings button is a `Settings` gear on both layouts — the row
+control. The header also drops its own "GitHub" title, because the screen header above it already
+carries the name. The settings button is a `Settings` gear on both layouts — the row
 does not wrap, so anything that does not fit is clipped off the right edge rather than moved, and a
 glyph is the one label that always fits.
 

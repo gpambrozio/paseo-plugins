@@ -2,6 +2,7 @@ import {
   getPaseoClient,
   openExternalUrl,
   type PluginHostSummary,
+  type PluginScreenProps,
   type PluginSurfaceProps,
   useHosts,
   useRpc,
@@ -78,6 +79,7 @@ import {
   promptSettings,
 } from "../shared/settings";
 import { isOpenableLink } from "./link";
+import { findBoardItem, itemKey, requestedItemKey, showBoardItem } from "./screen";
 import { trackPointerOnDocument } from "./web";
 
 /**
@@ -3905,7 +3907,7 @@ function ColumnTabs({
   );
 }
 
-export function GitHubBoard(props: PluginSurfaceProps) {
+export function GitHubBoard(props: PluginScreenProps) {
   const styles = useStyles(props);
   const load = useRpc(loadBoard);
   const persistLogin = useRpc(saveLogin);
@@ -4064,7 +4066,44 @@ export function GitHubBoard(props: PluginSurfaceProps) {
     return () => animation.stop();
   }, [detailOpen, detailProgress]);
 
-  const closeDetails = useCallback(() => setDetailOpen(false), []);
+  /**
+   * The card the screen's URL names. Opening and closing the panel go through
+   * the URL rather than straight to state, so a reload, back and forward, and a
+   * link all land on the same card; the effect below is what follows it.
+   */
+  const requestedKey = requestedItemKey(props.params);
+  /**
+   * The card last pressed, with the column it was pressed in. It stands in
+   * for a lookup when the URL catches up, so a card that sits in two columns
+   * opens with the template of the one it was pressed in.
+   */
+  const pressedRef = useRef<{ item: BoardItem; type: ColumnId } | null>(null);
+
+  useEffect(() => {
+    if (requestedKey === null) {
+      setDetailOpen(false);
+      return;
+    }
+    const pressed = pressedRef.current;
+    const target =
+      pressed !== null && itemKey(pressed.item) === requestedKey
+        ? pressed
+        : board === null
+          ? null
+          : findBoardItem(board, requestedKey);
+    if (target === null) {
+      // Not on this board — a link from another host, or a card closed since.
+      // A panel already showing it keeps showing it; anything else closes.
+      if (detailTarget === null || itemKey(detailTarget.item) !== requestedKey) {
+        setDetailOpen(false);
+      }
+      return;
+    }
+    if (detailTarget?.item.id !== target.item.id) setDetailTarget(target);
+    setDetailOpen(true);
+  }, [board, detailTarget, requestedKey]);
+
+  const closeDetails = useCallback(() => showBoardItem(null), []);
   /**
    * The surface's own view, measured when a menu opens. A right-click reports
    * where it happened in the window; the menu is positioned inside this view,
@@ -4334,8 +4373,8 @@ export function GitHubBoard(props: PluginSurfaceProps) {
   );
 
   const openDetails = useCallback((item: BoardItem, type: ColumnId) => {
-    setDetailTarget({ item, type });
-    setDetailOpen(true);
+    pressedRef.current = { item, type };
+    showBoardItem(item);
   }, []);
 
   /**
