@@ -25,6 +25,7 @@ import { MAX_FILE_PATH_LENGTH, findHomeFiles } from "../shared/files";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { createSendGate } from "./mate-send";
+import { chevronLabel, isCut, showsChevron } from "./suggestion-fold";
 import { createRemovalGate, suggestionRemovals } from "./suggestion-removals";
 import { isDirty, markSaved, type OpenFile } from "./open-file";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
@@ -897,6 +898,35 @@ describe("createRemovalGate", () => {
       }),
     ).rejects.toThrow("sync");
     expect(gate.pending(a)).toBe(false);
+  });
+});
+
+describe("folding a suggestion card", () => {
+  it("counts a card as cut until both of its heights are in", () => {
+    expect(isCut(null, null)).toBe(true);
+    expect(isCut(34, null)).toBe(true);
+    expect(isCut(null, 34)).toBe(true);
+  });
+
+  it("offers no chevron when the whole text lays out no taller than the folded one", () => {
+    expect(isCut(34, 34)).toBe(false);
+    // Sub-pixel rounding between the two layouts is not a cut line.
+    expect(isCut(34, 34.6)).toBe(false);
+    expect(showsChevron(false, isCut(34, 34))).toBe(false);
+  });
+
+  it("offers the chevron when the whole text needs more lines than the card shows", () => {
+    expect(isCut(34, 48)).toBe(true);
+    expect(showsChevron(false, isCut(34, 48))).toBe(true);
+  });
+
+  it("keeps the chevron on an open card, so it can always be folded again", () => {
+    expect(showsChevron(true, false)).toBe(true);
+  });
+
+  it("says which way the chevron goes and for which suggestion", () => {
+    expect(chevronLabel(false, "Land web#42")).toBe("Show the whole suggestion: Land web#42");
+    expect(chevronLabel(true, "Land web#42")).toBe("Hide the whole suggestion: Land web#42");
   });
 });
 

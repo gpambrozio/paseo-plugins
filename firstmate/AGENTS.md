@@ -61,6 +61,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
 | `client/suggestions.tsx`      | The first mate's suggestions as buttons: a card on the wide board, a tab on a phone.       |
 | `client/suggestion-removals.ts` | Which suggestions have a removal on its way, by label and prompt. Pure.                  |
+| `client/suggestion-fold.ts`   | Whether a folded suggestion card cuts its text, measured against an invisible twin. Pure. |
 | `client/watches.tsx`          | The Watches card: each watch's schedule, last run and output, and its on/off switch.       |
 | `client/mate-send.ts`         | Sending to the first mate — Send, Bearings, Ahoy, a suggestion — one message at a time.    |
 | `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
@@ -422,6 +423,13 @@ chat's state, because the surface's buttons and the chat both read it, and a pho
 unmounts the chat mid-send; the buttons are disabled while it is shut, and a double press that gets in
 before the re-render is refused by it. A phone left on the Suggestions tab when the list empties shows,
 and then switches to, First mate.
+
+Only a card's main button sends. The chevron that opens the whole suggestion and the trash are its
+siblings, not its children, so neither can press it. The chevron shows only when the folded card cuts
+its label or prompt, and React Native cannot say that portably — `onTextLayout` is absent on the web
+renderer and reports the whole text on iOS — so the card lays the same text out unclamped, invisible
+and at the same width, and compares the two `onLayout` heights (`client/suggestion-fold.ts`). Until both
+are in, the chevron shows.
 
 ## The home is called FirstMate in the sidebar, with a ship for its icon
 

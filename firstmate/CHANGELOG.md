@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.3.1] — 2026-10-04
+
+### Added
+
+- **Read a whole suggestion before sending it.** A suggestion too long for its card now has a chevron
+  beside the trash. Press it to open the full request below the card, wrapped and ready to select and
+  copy; press it again to fold it. Opening a card never sends it, and pressing the card itself sends it
+  as before. It works with the keyboard and on a phone.
+
 ## [0.3.0] — 2026-10-01
 
 **Requires Paseo 0.11.** This version does not load on Paseo 0.10 or older; stay on 0.2.1 until you

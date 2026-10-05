@@ -90,8 +90,9 @@ charter, the records it starts with, the home's icon — is in `templates/`, as 
   loop on web#42"), it shows as a button: on a wide screen in a card before the board's columns, on a
   phone in a Suggestions tab after First mate. Pressing one sends that request to the first mate right
   away, just as if you had typed it and pressed Send, and brings the chat into view so you see it go
-  out; anything you were typing stays in the message box. The trash button beside a suggestion takes it
-  off the list without sending it. With no suggestions there is no card and no tab.
+  out; anything you were typing stays in the message box. A suggestion too long to show whole gets a
+  chevron that opens the full request below it, to read or copy, without sending it. The trash button
+  beside a suggestion takes it off the list without sending it. With no suggestions there is no card and no tab.
 
 ![After the voyage: the first mate's Bearings report in the chat — Captain's Call: nothing needs your
 action; Recently Landed: the knots fix and the dark mode toggle, both landed on main; Underway and
