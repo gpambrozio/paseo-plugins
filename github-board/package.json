@@ -29,9 +29,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
-    "@getpaseo/client": "0.11.0-beta.2",
-    "@getpaseo/plugin": "0.11.0-beta.2",
-    "@getpaseo/protocol": "0.11.0-beta.2",
+    "@getpaseo/client": "0.11.0-beta.3",
+    "@getpaseo/plugin": "0.11.0-beta.3",
+    "@getpaseo/protocol": "0.11.0-beta.3",
     "@types/node": "^26.5.0",
     "@types/react": "~19.2.0",
     "react": "19.1.0",
