@@ -1,6 +1,6 @@
 {
   "name": "@gpambrozio/paseo-launchd-jobs",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Paseo plugin: schedule shell commands on your Mac through launchd, from a sidebar panel",
   "license": "MIT",
   "homepage": "https://github.com/gpambrozio/paseo-plugins/tree/main/launchd-jobs",
@@ -29,9 +29,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
-    "@getpaseo/client": "0.10.2",
-    "@getpaseo/plugin": "0.10.2",
-    "@getpaseo/protocol": "0.10.2",
+    "@getpaseo/client": "0.11.0",
+    "@getpaseo/plugin": "0.11.0",
+    "@getpaseo/protocol": "0.11.0",
     "@types/node": "^26.5.0",
     "@types/react": "~19.2.0",
     "react": "19.1.0",

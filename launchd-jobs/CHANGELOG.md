@@ -7,10 +7,31 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-launchd-jobs` and tagged here, so a version is something to install and a line
 to read before you move.
 
-## [Unreleased]
+## [0.6.0] — 2026-10-07
+
+### Added
+
+- **See which jobs are failing, and open one in a tap.** The red count beside **Scheduled jobs** in
+  the sidebar opens a list of the jobs whose last run failed; tapping one opens it on its last run,
+  which also clears it from the count.
 
 ### Changed
 
+- **Requires Paseo 0.11.** This version uses the new screen and sidebar that Paseo 0.11 introduced,
+  so it does not load on 0.10 or older. Stay on 0.5.0 until you update Paseo.
+- **The failing count is a red badge.** The sidebar row used to read "Scheduled jobs (2 failing)";
+  it now reads "Scheduled jobs" with the count beside it, and still swaps its clock for a crossed-out
+  calendar while anything is failing.
+- **The sidebar row follows the computer you are looking at.** With the plugin on more than one
+  computer, the row and its count now belong to the one the app is showing, rather than to whichever
+  one the app happened to list first — which could hide the count altogether. The row lights up while
+  the jobs are open. Where you placed the row in Settings → Sidebar, and whether you hid it, carry
+  over. The row shows Paseo's generic plugin icon in Settings → Sidebar, and the screen's header no
+  longer shows the calendar icon.
+- **A job can be opened by link.** Opening a failing job from the sidebar puts it in the screen's
+  address, so reloading the app or opening a saved link brings back the same job.
+- **The screen's title reads "Scheduled jobs" however you open it.** Opening it from the Command
+  Center used to title it "jobs".
 - **Removing the plugin no longer breaks your jobs or deletes their history.** The logs, the run
   history and the script every job runs through used to sit inside the folder Paseo installs the
   plugin into, which Paseo deletes when you remove the plugin — and with the script gone, every job

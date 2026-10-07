@@ -1,6 +1,6 @@
 # AGENTS.md
 
-A Paseo plugin that adds a **Scheduled jobs** sidebar surface: shell commands on a cron expression
+A Paseo plugin that adds a **Scheduled jobs** screen and sidebar row: shell commands on a cron expression
 or a fixed interval, written as LaunchAgents and run by launchd on the daemon machine.
 
 The repo root `AGENTS.md` covers what every plugin here shares: the per-folder npm layout, the
@@ -11,13 +11,15 @@ compile time. This file covers only what is specific to `launchd-jobs`.
 
 | File              | What it owns                                                                     |
 | ----------------- | -------------------------------------------------------------------------------- |
-| `index.client.tsx` / `index.server.ts`        | Wiring only — binds the nine RPC contracts and registers the surface.           |
+| `index.client.tsx` / `index.server.ts`        | Wiring only — binds the nine RPC contracts and registers the screen and row.    |
 | `shared/jobs.ts`  | The zod contracts, and the `Job` shape both halves agree on.                     |
 | `server/jobs.ts`  | Every `launchctl` and `plutil` call, the plist writer, the runner, logs, history. |
 | `server/data-dir.ts` | `$PASEO_HOME/plugin-data/launchd-jobs/`, and moving the files out of `plugins/`. |
-| `client/jobs.tsx` | The surface: the list, the detail pane, and the create/edit form.                |
+| `client/jobs.tsx` | The screen: the list, the detail pane, and the create/edit form.                 |
+| `client/screen.ts` | The screen's id, its `job` param, and how that param seeds the pane.            |
+| `client/sidebar-item.tsx` | The sidebar row, its failing-count badge, and the popover listing them.  |
 | `client/log-follow.ts` | Follow mode: the `tail -f` terminal behind the log pane's live view.        |
-| `client/failure-alert.ts` | The sidebar item, and the failing count in its title and icon.           |
+| `client/failure-alert.ts` | The 60-second health poll, and the store of failing jobs the row reads.  |
 | `shared/cron.ts`         | Unsuffixed, in both bundles: cron ⇄ `StartCalendarInterval`, and the sentences.  |
 | `shared/cron.test.ts`    | With `server/data-dir.test.ts` and `server/jobs.test.ts`, the tests. `npm test`. |
 | `README.md`       | What a job is to a user, and what launchd does and does not promise.             |
@@ -25,7 +27,7 @@ compile time. This file covers only what is specific to `launchd-jobs`.
 ## launchd is the scheduler and the store
 
 The backend keeps **no timers and no job list**. `contribute` returns an empty cleanup because there
-is nothing to release. Everything the surface shows is read back from disk and from `launchctl` on
+is nothing to release. Everything the screen shows is read back from disk and from `launchctl` on
 each `jobs.list`: the plists under the label prefix, `launchctl print` per label,
 `launchctl print-disabled` once, and the tail of each job's history file. The one file the plugin
 owns is `jobs.json`, mapping slug to display name, because a name like "Nightly backup" does not
@@ -73,7 +75,7 @@ lines from `print-disabled`.
 ## The runner
 
 launchd spawns `/bin/zsh <data>/runner.sh <slug> <command>`, not the command itself. The runner is
-what makes the surface's history and log exist: it appends start and exit markers around the
+what makes the screen's history and log exist: it appends start and exit markers around the
 command's output, writes one JSON line per run, and rotates both files. It is kept as a string
 constant in `server/jobs.ts`, rewritten on every save when it differs, so a change to it ships
 with the plugin and reaches every job the next time one is saved — **not** before. If the runner
@@ -114,7 +116,7 @@ link. **The runner then applies the same rule to its own log and history on ever
 `RUNNER_SCRIPT`): it moves each file out of the legacy directory — derived from its own, `…/plugins/`
 beside `…/plugin-data/` — if only that has it, then appends to the new copy when there is one or
 neither exists, and to the legacy copy only when that file's move failed. That is `dataPath`, file by
-file, and the daemon reads logs and history through `dataPath`, so the surface always reads the copy
+file, and the daemon reads logs and history through `dataPath`, so the screen always reads the copy
 the run wrote and the next start keeps: moved, split (one file moved, one could not), both present, or
 neither. Doing it in the runner rather than the forwarder covers fires after relocation as well, and
 launchd never runs two instances of one job, so the runner is the only writer of those files while it
@@ -161,8 +163,8 @@ through the 0.8 terminal SDK and repaints the pane from that terminal's scrollba
 The capture is a screen read on the daemon, not a file read, so the poll is cheap; the *latency* is
 `tail`'s, not the poll's.
 
-**`terminals.create` requires a `workspaceId` and this surface is global.** Terminals are
-workspace-scoped in Paseo's model and a sidebar surface belongs to no workspace, so there is no
+**`terminals.create` requires a `workspaceId` and this screen is global.** Terminals are
+workspace-scoped in Paseo's model and a plugin screen belongs to no workspace, so there is no
 correct answer here — only a chosen one. It takes the first workspace the daemon lists that is not
 archiving, names the terminal `launchd: <label>` so it is obvious in that workspace's terminal list
 what put it there, and kills it when following stops. **This is user-visible in a workspace the user
@@ -178,38 +180,36 @@ Two lifetime hazards, both handled with a `generation` counter rather than state
 - **A cleanup runs after the component stops re-rendering**, so the handle lives in a ref; a state
   read there would be a stale closure.
 
-Switching jobs and leaving the surface both tear down. While following, the log pane stops
+Switching jobs and leaving the screen both tear down. While following, the log pane stops
 re-reading the file on `lastFinished` and hides the Refresh button — the tail is already ahead of
 anything a re-read would find, and two writers to one box only ever look broken.
 
 ## The sidebar's failing count
 
-The sidebar row is how a job that failed at 3am reaches the user, and `client/failure-alert.ts`
-owns it — the registration, not just the count. **`PluginSidebarContribution` is a static record**,
-`{ id, title, icon, surface }`, in the pinned 0.8 and still in 0.9: no badge, no count, no colour,
-and no callback the host re-reads. The only way to change what the row says is to unregister the
-contribution and register it again, which is why the `addSidebarItem` call moved out of
-`index.client.tsx` and into the module that watches for failures.
+The sidebar row is how a job that failed at 3am reaches the user. It is a live 0.11 header item
+(`addSidebarHeaderItem`), so it is a component that re-renders on its own: `client/sidebar-item.tsx`
+draws it, and `client/failure-alert.ts` owns the poll and a module-scope store of the failing jobs
+that the row reads with `useSyncExternalStore`. The poll is started from `index.client.tsx`, not from
+the row, so it keeps running while the sidebar is collapsed or the row is hidden. The store replaces
+its snapshot only when the list changes, so the row re-renders on news, not every minute.
 
-Removing and adding happen in the same synchronous step, and that is load-bearing in both
-directions. Registering the id twice throws `Duplicate sidebar item`, so the old one has to go
-first; and the host publishes a new snapshot on each call, so the only reason the row does not
-blink out is that React schedules rather than renders between them. Keep those two lines adjacent.
-Re-registering also pushes the item to the end of the host's list, which is invisible here because
-this plugin contributes exactly one.
+Before 0.11 the row was a static `{ id, title, icon, surface }` record that had to be unregistered
+and registered again whenever the count changed. That is gone; do not bring it back.
 
-**With two hosts, one of them owns the row.** `groupPluginSidebarContributions`
-(`packages/app/src/plugins/sidebar-groups.ts` in the app) merges every host's contribution under
-`<pluginId>/sidebar/<itemId>`; the first host to arrive sets `title` and `icon`, and later hosts are
-appended to `targets` with their own title and icon **discarded**. Order is `PluginRegistry.publish`
-sorting installations by `` `${serverId}/${id}` ``, so the owner is whichever opaque server id sorts
-first — not the host being viewed, and not the one with the newest bundle. A host still running an
-older `launchd-jobs` therefore pins the row to the static label and no count appears anywhere, which
-is exactly how this landed the first time it was tried on a two-host setup. There is no API for
-reaching another host's plugin, so the count is one machine's and the README says so.
+**The item id and the screen id are both `jobs` and must stay that.** Settings > Sidebar keys the
+row's ordering and hidden state on `<plugin>/sidebar/<item id>`, shared with the old static item, and
+a saved `/plugin/launchd-jobs/sidebar/jobs` link resolves to the screen with the item's id.
+
+**The row is drawn from the host the app is showing**, and module scope belongs to that host's
+bundle, so the count is always the viewed host's. (The static row took its title from whichever host
+the app listed first, which once hid the count entirely behind a host running an older version.)
+
+A press on the row opens the screen on the job that was open when it was left
+(`lastJobsScreenInput`); a press on the badge — `SidebarRow`'s `trailing` presses on its own — opens
+a popover of the failing jobs, each of which opens `openScreen({ screenId: "jobs", params: { job } })`.
 
 `jobs.health` is a separate contract from `jobs.list` because of *when* it is asked: the poll runs
-whether or not the surface is open, once a minute, in every connected client. So it touches no
+whether or not the screen is open, once a minute, in every connected client. So it touches no
 `launchctl` at all — it globs the prefix, reads the last line of each history file, and answers a
 count. The cost of that is real and deliberate: a job launchd has quietly stopped scheduling is
 **not** counted, because noticing that means `launchctl print` per label per minute. The README says
@@ -217,17 +217,41 @@ so under Limitations.
 
 **Acknowledgement is per run, not per job.** `acknowledged.json` remembers the `startedAt` of the
 failure that was seen, so the next failure alerts again with no expiry to tune and no state to
-clear. Opening a job's detail is what acknowledges it — the surface's effect keys on the run's
+clear. Opening a job's detail is what acknowledges it — the screen's effect keys on the run's
 `startedAt`, so a failure landing while the detail is already open is acknowledged too, which is
 correct: the user is looking straight at it. A job whose latest run *succeeded* loses its entry
 rather than gaining one, so acknowledging can never silence a later failure. Entries for jobs that
 no longer exist are pruned on every write, and `deleteJobHandler` drops its own.
 
-`refreshFailureAlert` is the surface's way of telling the alert to re-ask now instead of within the
+`refreshFailureAlert` is the screen's way of telling the alert to re-ask now instead of within the
 minute, a module-scope binding lent by `startFailureAlert` the way `herald` lends `openSettings`.
 It is called after an acknowledgement and after a delete, not on every list refresh — the 15-second
 list poll doubling as a health poll would be twice the traffic for a count that changes hourly at
 most.
+
+## The screen's `job` param
+
+The popover opens a failing job with `openScreen({ screenId: "jobs", params: { job } })`, and the
+screen seeds its pane from `job` **on mount only**. That is forced by the host, not chosen:
+`openScreen` is a `router.push`, and the plugin route in Paseo's host stack
+(`app/h/[serverId]/_layout.tsx`) has no `getId`, so expo-router appends a new route instance on every
+call — even to the screen already showing — and keeps the earlier ones mounted underneath. A
+screen's params therefore never change while it is mounted, and there is nothing to follow.
+
+**Presses inside the screen never touch the URL.** A plugin can only push — there is no replace and
+no `setParams` — so syncing the URL to the open job would stack a screen per press, each hidden one
+still running its 15-second `launchctl` refresh, and back would step through them one at a time.
+The cost is that a reload comes back to the job the screen was *opened* on, not the one last pressed.
+
+The URL carries only the job; `cachedPane` still holds whether it is viewed or edited and an open
+"New job" form, and `paneFor` keeps a cached pane that is already about the requested job.
+`lastJobsScreenInput` puts the cached job in the URL when the sidebar row or the Command Center
+opens the screen, so the address matches what the screen shows on arrival.
+
+**A job missing from the list in hand gets one fresh read first.** The popover comes from the health
+poll, which can name a job created since the screen last read the list; clearing against
+`cachedJobs` would drop the job the user just tapped. `awaitingRef` holds it until the first list
+of the new mount lands.
 
 ## Checking the server half against reality
 
@@ -257,7 +281,8 @@ non-zero `exitCode`, and call them there. `listSlugs` still reads the **real** `
 — which is what makes the slugs and `assertKnown` work — while every write lands in the scratch
 directory.
 
-There is no harness for the surface. A clean typecheck and a clean
+There is no harness for the screen. A clean typecheck and a clean
 `paseo plugin reload launchd-jobs` prove `client/jobs.tsx` compiles and loads, nothing more. The
-sidebar's title and icon are not covered by either: only opening the app shows whether the row
-actually repainted.
+sidebar row's badge and popover are not covered by either: only opening the app, with a job failing,
+shows whether the row repainted and the popover opens the job. `client/screen.test.ts` covers how
+the param seeds a pane, not the navigation itself.

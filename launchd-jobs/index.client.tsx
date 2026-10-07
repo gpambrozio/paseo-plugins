@@ -1,13 +1,14 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 
 import { startFailureAlert } from "./client/failure-alert";
-import { LaunchdJobs } from "./client/jobs";
+import { LaunchdJobs, lastJobsScreenInput } from "./client/jobs";
+import { JOBS_SCREEN_ID, JOBS_TITLE } from "./client/screen";
+import { JobsSidebarItem } from "./client/sidebar-item";
 
 export default function contribute(client: PluginClientContext) {
-  client.addSurface("jobs", LaunchdJobs);
-  // The sidebar item belongs to the alert, not to this file: its title and
-  // icon change with the number of failing jobs, and the only way a static
-  // contribution can change is to be registered again.
+  client.addScreen({ id: JOBS_SCREEN_ID, title: JOBS_TITLE, Component: LaunchdJobs });
+  client.addSidebarHeaderItem({ id: JOBS_SCREEN_ID, title: JOBS_TITLE, Component: JobsSidebarItem });
+  // The row reads the failing count from the store this poll writes.
   const stopAlert = startFailureAlert(client);
   client.addCommandCenterItem({
     id: "open-jobs",
@@ -15,12 +16,12 @@ export default function contribute(client: PluginClientContext) {
     icon: "CalendarClock",
     keywords: ["launchd", "cron", "schedule", "jobs", "timer"],
     context: "global",
-    onSelect({ openSurface }) {
-      openSurface("jobs");
+    onSelect({ openScreen }) {
+      openScreen(lastJobsScreenInput());
     },
   });
 
-  // The surface owns its own refresh timer and releases it on unmount; the
+  // The screen owns its own refresh timer and releases it on unmount; the
   // alert's poll is this file's to stop.
   return () => {
     stopAlert();

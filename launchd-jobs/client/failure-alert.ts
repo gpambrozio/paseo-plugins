@@ -1,40 +1,71 @@
 /**
- * The sidebar item, and the failure count in it.
+ * The failing jobs the sidebar row counts, and the poll that finds them.
  *
  * A job that fails at 3am is worth knowing about without opening anything, so
- * the sidebar row itself carries the news: "Scheduled jobs (2 failing)" with a
- * struck-through calendar instead of a clock.
- *
- * **A sidebar contribution is a static record.** `PluginSidebarContribution` is
- * `{ id, title, icon, surface }` in 0.8 and still is in 0.9 — no badge, no
- * count, no colour, and no callback the host will re-read. The only way to
- * change what the row says is to unregister the contribution and register it
- * again, which is what this module does, and why it owns the registration
- * rather than `index.client.tsx`. Removing and adding happen in the same
- * synchronous step: the host publishes a new snapshot on each, but React
- * schedules rather than renders, so the row never blinks out.
+ * the sidebar row itself carries the news: a red count beside "Scheduled jobs"
+ * and a struck-through calendar instead of a clock. The row is a live
+ * component (`client/sidebar-item.tsx`); this module is the store it reads,
+ * written by a poll that runs whether or not the screen or the sidebar is
+ * showing. Module scope belongs to one host's bundle eval, so the store is that
+ * host's jobs — the same host the app draws the row for.
  *
  * Async **function expressions**, never async arrows — see `client/jobs.tsx`.
  */
 import type { PluginCleanup } from "@getpaseo/plugin";
 import type { PluginClientContext } from "@getpaseo/plugin/client";
+import { useSyncExternalStore } from "react";
 
 import { readJobHealth } from "../shared/jobs";
 
-const TITLE = "Scheduled jobs";
-const IDLE_ICON = "CalendarClock";
-const FAILING_ICON = "CalendarX2";
+export interface FailingJob {
+  id: string;
+  name: string;
+}
 
 /**
- * How often the count is re-asked. This runs whether or not the surface is
+ * How often the count is re-asked. This runs whether or not the screen is
  * open, so it answers from the history files alone — no `launchctl` — and is
- * slower than the surface's own 15-second list refresh.
+ * slower than the screen's own 15-second list refresh.
  */
 const POLL_MS = 60_000;
 
+const NONE: readonly FailingJob[] = [];
+
 /**
- * Lent to the surface by `start`, the way `herald` lends `openSettings`: the
- * surface calls it after acknowledging or deleting a job so the row catches up
+ * The last answer. Replaced only when it differs, so `useSyncExternalStore`
+ * sees a stable snapshot between polls and the row re-renders only on news.
+ */
+let failing: readonly FailingJob[] = NONE;
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function snapshot(): readonly FailingJob[] {
+  return failing;
+}
+
+function publish(next: readonly FailingJob[]): void {
+  const same =
+    next.length === failing.length &&
+    next.every((job, index) => job.id === failing[index]?.id && job.name === failing[index]?.name);
+  if (same) return;
+  failing = next.length === 0 ? NONE : next;
+  listeners.forEach((listener) => listener());
+}
+
+/** The failing jobs, as of the last poll. Re-renders when they change. */
+export function useFailingJobs(): readonly FailingJob[] {
+  return useSyncExternalStore(subscribe, snapshot);
+}
+
+/**
+ * Lent to the screen by `start`, the way `herald` lends `openSettings`: the
+ * screen calls it after acknowledging or deleting a job so the row catches up
  * now instead of within the minute. Null before contribution and after
  * cleanup, and calling it then is a no-op rather than an error.
  */
@@ -44,41 +75,30 @@ export function refreshFailureAlert(): void {
   recheck?.();
 }
 
-/**
- * Registers the sidebar item and keeps its title and icon honest. The returned
- * cleanup stops the poll and removes the item.
- */
+/** Starts the poll that feeds the store. The returned cleanup stops it. */
 export function startFailureAlert(client: PluginClientContext): PluginCleanup {
-  let registration = register(0);
-  let shown = 0;
   let stopped = false;
   let polling = false;
+  /**
+   * A recheck asked for while a poll was in flight. That poll's answer may
+   * predate what prompted it — an acknowledgement, a delete — so one more
+   * follows rather than leaving a job the user just opened in the popover.
+   */
+  let again = false;
   /** Only warn when the failure changes, or a broken daemon logs every minute. */
   let lastWarning: string | null = null;
 
-  function register(count: number): PluginCleanup {
-    return client.addSidebarItem({
-      id: "jobs",
-      title: count === 0 ? TITLE : `${TITLE} (${count} failing)`,
-      icon: count === 0 ? IDLE_ICON : FAILING_ICON,
-      surface: "jobs",
-    });
-  }
-
-  function show(count: number): void {
-    if (stopped || count === shown) return;
-    registration();
-    registration = register(count);
-    shown = count;
-  }
-
   async function poll(): Promise<void> {
-    if (stopped || polling) return;
+    if (stopped) return;
+    if (polling) {
+      again = true;
+      return;
+    }
     polling = true;
     try {
       const health = await client.rpc(readJobHealth, {});
       lastWarning = null;
-      show(health.failing.length);
+      if (!stopped) publish(health.failing);
       // Off macOS there are no jobs and never will be; stop asking.
       if (!health.supported) stop();
     } catch (error) {
@@ -91,6 +111,10 @@ export function startFailureAlert(client: PluginClientContext): PluginCleanup {
       }
     } finally {
       polling = false;
+      if (again) {
+        again = false;
+        void poll();
+      }
     }
   }
 
@@ -110,6 +134,6 @@ export function startFailureAlert(client: PluginClientContext): PluginCleanup {
   return () => {
     stop();
     recheck = null;
-    registration();
+    publish(NONE);
   };
 }

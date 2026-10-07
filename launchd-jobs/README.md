@@ -1,19 +1,19 @@
 # launchd-jobs
 
 A Paseo plugin that schedules shell commands on your Mac through launchd. It adds a **Scheduled
-jobs** sidebar surface where you create a job — a name, a command, a working directory, and either
+jobs** screen where you create a job — a name, a command, a working directory, and either
 a cron expression or a fixed interval — and the plugin writes it as a LaunchAgent. From then on
-launchd runs it, whether or not Paseo is open. The surface shows what launchd knows about each job,
+launchd runs it, whether or not Paseo is open. The screen shows what launchd knows about each job,
 the last twenty runs with their exit codes, and the tail of its log.
 
-![The Scheduled jobs surface: a job named "Update claude" in the list on the left, marked OK with
+![The Scheduled jobs screen: a job named "Update claude" in the list on the left, marked OK with
 "At 06:20" and its last run; on the right its detail with Run now, Disable, Edit and Delete
 buttons, the schedule, the command, the recent runs with duration and exit code, and the log
 tail.](docs/screenshot.png)
 
 It is a front for launchd, not a scheduler of its own. Nothing here has to stay running: the plugin
 holds no timers and keeps no job database. The plists in `~/Library/LaunchAgents` are the source of
-truth, and the surface reads them back on every refresh.
+truth, and the screen reads them back on every refresh.
 
 ## Install
 
@@ -21,8 +21,9 @@ truth, and the surface reads them back on every refresh.
 paseo plugin install npm:@gpambrozio/paseo-launchd-jobs
 ```
 
-That is the shortest route on **Paseo 0.9 or newer**, which installs plugins straight from npm; add
-`@<version>` to pin one. On 0.8, install the last release that supported it from this repository instead:
+That is the shortest route on **Paseo 0.11 or newer**, which installs plugins straight from npm; add
+`@<version>` to pin one. On Paseo 0.9 or 0.10, install the last release that supports them:
+`paseo plugin install npm:@gpambrozio/paseo-launchd-jobs@0.5.0`. On 0.8, install the last release that supported it from this repository instead:
 
 ```bash
 paseo plugin add gpambrozio/paseo-plugins --path launchd-jobs
@@ -37,12 +38,12 @@ npm run typecheck
 paseo plugin install "$PWD"
 ```
 
-Requires **Paseo 0.9.0 or newer**, on the computer running the daemon and on whatever you view the
-surface on. Both check the version themselves, so an older one reports the plugin as incompatible
+Requires **Paseo 0.11.0 or newer**, on the computer running the daemon and on whatever you view the
+jobs on. Both check the version themselves, so an older one reports the plugin as incompatible
 rather than half working.
 
 The **daemon** has to be running on macOS, because that is where the agents live and where the
-commands run. A daemon on Linux loads the plugin and the surface says so instead of showing a list.
+commands run. A daemon on Linux loads the plugin and the screen says so instead of showing a list.
 The Paseo app can be anywhere.
 
 ## What a job is
@@ -86,13 +87,13 @@ surprise.
 
 Every run appends a line to the log with a timestamp, the command's combined output, and the exit
 code, and one record to a history file — when it started, how long it took, and how it ended. The
-surface shows the last twenty runs and the last 64 KB of the log. Both files live under
+screen shows the last twenty runs and the last 64 KB of the log. Both files live under
 `$PASEO_HOME/plugin-data/launchd-jobs/` (`~/.paseo/plugin-data/launchd-jobs/` by default). A log is rotated
 once it passes 1 MB, and the history keeps its last two hundred runs.
 
 **Follow** shows the log as the job writes it, instead of only when you press **Refresh log** —
 useful for a job you have just started, or one that takes a while. Press it again to stop;
-following also ends when you switch jobs or leave the surface, so nothing is left running.
+following also ends when you switch jobs or leave the screen, so nothing is left running.
 
 Following needs somewhere to run, and borrows one of your open workspaces: while it lasts it shows
 up in that workspace's terminal list as `launchd: <job name>`, and it goes away when you stop. With
@@ -103,21 +104,24 @@ no workspace open there is nowhere to run it, and the button says so — **Refre
 ## When a job fails
 
 A job that fails at three in the morning is worth knowing about without going looking, so the
-sidebar says so: **Scheduled jobs** becomes **Scheduled jobs (2 failing)**, and its icon changes to
-a crossed-out calendar. A job counts as failing when its most recent run ended with a non-zero exit
-code, which is the same thing the list shows as **Failed (exit N)**.
+sidebar says so: a red count appears beside **Scheduled jobs**, and its icon changes to a
+crossed-out calendar. Tap the count for the list of failing jobs, and tap one to open it straight on
+its last run. A job counts as failing when its most recent run ended with a non-zero exit code, which
+is the same thing the list shows as **Failed (exit N)**.
 
 Opening the job clears it from the count — that is all it takes, there is nothing to dismiss. The
 alert comes back if the job fails again, because what is remembered is the run you saw, not the
 job. A job whose next run succeeds drops out of the count on its own.
 
-The count is checked about once a minute, whether or not the surface is open, so the sidebar can be
-a minute behind a failure that has just happened. Opening the surface and pressing **Refresh** shows
+The count is checked about once a minute, whether or not the jobs screen is open, so the sidebar can
+be a minute behind a failure that has just happened. Opening the screen and pressing **Refresh** shows
 the truth immediately.
+
+With more than one Paseo host, the row shows the jobs of the host you are looking at.
 
 ## Removing
 
-Deleting a job in the surface unloads it, deletes the plist, and deletes its log and history.
+Deleting a job in the screen unloads it, deletes the plist, and deletes its log and history.
 Removing the *plugin* does not: the agents stay installed and keep running, because they are
 launchd's, not Paseo's. Delete the jobs first, or delete the plists by hand and run
 `launchctl bootout gui/$UID/<label>` for each.
@@ -129,12 +133,6 @@ launchd's, not Paseo's. Delete the jobs first, or delete the plists by hand and 
   A daemon started over SSH with no GUI session may not be able to load agents into it.
 - Six-field cron expressions with seconds are refused; launchd has no seconds field. Use a fixed
   interval instead.
-- **With more than one Paseo host, the sidebar row belongs to one of them.** The app merges the
-  entry contributed by every host into a single row and takes its label and icon from whichever
-  host it lists first, so the count you see is that host's jobs, and a host still running an older
-  version of this plugin pins the row to a plain "Scheduled jobs" with no count at all. Clicking the
-  row still opens the host you were last on. Update the plugin everywhere, and read the count as
-  belonging to one machine.
 - The sidebar's failing count only knows about runs that finished badly. A job launchd has quietly
   stopped scheduling — one shown as **Not loaded** — is not counted, because finding that out means
   asking launchd about every job once a minute.

@@ -1,4 +1,4 @@
-import { type PluginSurfaceProps, useRpc } from "@getpaseo/plugin/client";
+import { type PluginOpenScreenInput, type PluginScreenProps, type PluginSurfaceProps, useRpc } from "@getpaseo/plugin/client";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from "react-native";
@@ -7,9 +7,10 @@ import type { Job, JobSpec, RunRecord } from "../shared/jobs";
 import { acknowledgeJob, createJob, deleteJob, listJobs, readJobLog, runJob, setJobEnabled, updateJob } from "../shared/jobs";
 import { refreshFailureAlert } from "./failure-alert";
 import { useLogFollow } from "./log-follow";
+import { JOBS_TITLE, type Pane, jobsScreenInput, paneFor, paneJobId, requestedJobId } from "./screen";
 
 /**
- * The surface: a list of the plugin's LaunchAgents on the left, and on the
+ * The screen: a list of the plugin's LaunchAgents on the left, and on the
  * right whichever of three things is open — a job's detail, the form editing
  * it, or the form for a new one. Compact shows one pane at a time.
  *
@@ -21,11 +22,18 @@ import { useLogFollow } from "./log-follow";
  */
 
 /**
- * Module-scope caches, because the surface is unmounted whenever the user
+ * Module-scope caches, because the screen is unmounted whenever the user
  * navigates to a workspace and mounted fresh on the way back. The list
  * repaints before the first load answers; the open pane comes back; and a
  * half-typed form is still there, keyed by what it was editing so a draft for
  * one job is never adopted by another.
+ *
+ * A screen opened with a `job` param starts on that job instead — that is how
+ * the sidebar's popover opens a failing one. The param is read on mount only:
+ * every `openScreen` mounts a new instance, so there is nothing to follow
+ * afterwards, and presses inside the screen change the pane without touching
+ * the URL. `lastJobsScreenInput` is how the sidebar row and the Command Center
+ * reopen the screen on the job it was left on.
  */
 let cachedJobs: Job[] | null = null;
 let cachedPane: Pane = { kind: "empty" };
@@ -34,7 +42,15 @@ let cachedDraft: { key: string; draft: Draft } | null = null;
 /** How often the list re-asks launchd while the surface is on screen. */
 const REFRESH_MS = 15_000;
 
-type Pane = { kind: "empty" } | { kind: "view"; id: string } | { kind: "edit"; id: string } | { kind: "new" };
+/** Whether the list in hand has job `id`; null names no job, so it is trivially listed. */
+function isListed(id: string | null): boolean {
+  return id === null || (cachedJobs ?? []).some((job) => job.id === id);
+}
+
+/** Opens the screen on the job that was open when it was left. */
+export function lastJobsScreenInput(): PluginOpenScreenInput {
+  return jobsScreenInput(paneJobId(cachedPane));
+}
 
 /**
  * A one-off outcome — a job created, a run started, a log that would not read.
@@ -796,7 +812,7 @@ function JobForm({
 // ---------------------------------------------------------------------------
 // The surface
 
-export function LaunchdJobs(props: PluginSurfaceProps) {
+export function LaunchdJobs(props: PluginScreenProps) {
   const styles = useStyles(props);
   const { compact } = props.layout;
   const foreground = props.theme.colors.foreground;
@@ -809,7 +825,11 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
   const [launchAgentsDir, setLaunchAgentsDir] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(cachedJobs === null);
-  const [pane, setPaneState] = useState<Pane>(cachedPane);
+  const requestedJob = requestedJobId(props.params);
+  const [pane, setPaneState] = useState<Pane>(function initialPane() {
+    cachedPane = paneFor(requestedJob, cachedPane);
+    return cachedPane;
+  });
   const setPane = useCallback((next: Pane) => {
     cachedPane = next;
     setPaneState(next);
@@ -817,11 +837,19 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
   const paneRef = useRef(pane);
   paneRef.current = pane;
 
+  /**
+   * A job the URL named that the list in hand does not have — one created
+   * since the list was last read, which the sidebar's popover can name. It
+   * gets one fresh read before the pane gives up on it.
+   */
+  const awaitingRef = useRef(isListed(requestedJob) ? null : requestedJob);
+
   const refresh = useCallback(
     async function refresh(quiet = false) {
       if (!quiet) setBusy(true);
       try {
         const next = await list({});
+        awaitingRef.current = null;
         cachedJobs = next.jobs;
         setJobs(next.jobs);
         setSupported(next.supported);
@@ -862,12 +890,15 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
     [toast],
   );
 
-  const selectedId = pane.kind === "view" || pane.kind === "edit" ? pane.id : null;
+  const selectedId = paneJobId(pane);
   const selected = selectedId === null ? null : (jobs ?? []).find((job) => job.id === selectedId) ?? null;
 
-  // A job deleted elsewhere, or a broken refresh, must not strand the pane.
+  // A job deleted elsewhere, a link to one that is gone, or a broken refresh,
+  // must not strand the pane.
   useEffect(() => {
-    if (selectedId !== null && jobs !== null && selected === null) setPane({ kind: "empty" });
+    if (selectedId === null || jobs === null || selected !== null) return;
+    if (awaitingRef.current === selectedId) return;
+    setPane({ kind: "empty" });
   }, [selectedId, selected, jobs]);
 
   /**
@@ -971,7 +1002,7 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
         <View style={styles.empty}>
           <Text style={styles.heading}>macOS only</Text>
           <Text style={styles.emptyText}>
-            This plugin manages launchd agents, and the daemon this surface is connected to is not running on macOS.
+            This plugin manages launchd agents, and the daemon this screen is connected to is not running on macOS.
           </Text>
         </View>
       </View>
@@ -981,7 +1012,7 @@ export function LaunchdJobs(props: PluginSurfaceProps) {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.title}>Scheduled jobs</Text>
+        <Text style={styles.title}>{JOBS_TITLE}</Text>
         <View style={styles.spacer} />
         <Pressable
           accessibilityRole="button"

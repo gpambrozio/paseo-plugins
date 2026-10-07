@@ -2,6 +2,6 @@
   "id": "launchd-jobs",
   "description": "Schedule shell commands on your Mac through launchd",
   "requirements": {
-    "paseo": ">=0.9.0"
+    "paseo": ">=0.11.0"
   }
 }
