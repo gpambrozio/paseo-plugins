@@ -182,8 +182,11 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
   `cachedPane` and `cachedDraft` in `launchd-jobs`. Anything that *is* worth persisting belongs in a
   settings document, which the host restores on its own. Since 0.11 a screen has a third place:
   its **params**, string pairs that travel in the screen's URL, so they survive a reload, back and
-  forward, and a saved link. A screen is handed its params but cannot change them; the entry lends
-  it `client.openScreen` — see `github-board/client/screen.ts`, which keeps the open card there.
+  forward, and a saved link. **A screen is handed its params once, on arrival, and nothing changes
+  them.** `openScreen` is a `router.push` onto a route with no `getId`, so every call mounts a *new*
+  screen — even to the one already showing — and leaves the old one mounted and running underneath.
+  Read params on mount, and never call `openScreen` from inside a screen to record what it shows:
+  `launchd-jobs` and `github-board/client/screen.ts` take a job and a card on arrival only.
 - **Draw with `addScreen`, `addSidebarHeaderItem` or `addSidebarFooterItem`, and `openScreen`.**
   `addSurface`, `addSidebarItem` and `openSurface` are 0.11's deprecated aliases for them, due to be
   removed after 2027-03-29. A screen carries its own header title — a string or a function of its

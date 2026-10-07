@@ -7,6 +7,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-github-board` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [0.10.2] — 2026-10-07
+
+### Fixed
+
+- **Opening cards no longer piles up copies of the board.** Every card you opened or closed quietly
+  opened another copy of the whole board on top of the last one, and kept the older ones running
+  underneath. Back then walked through every one of them. Now the board stays one board however
+  many cards you open.
+
+### Changed
+
+- **The open card is no longer part of the board's address.** Back and forward leave the board
+  rather than stepping between cards, reloading brings back the card the board was opened on rather
+  than the last one you clicked, and the header reads "GitHub" without naming the card. A link
+  that names a card still opens it.
+
 ## [0.10.1] — 2026-10-07
 
 ### Changed

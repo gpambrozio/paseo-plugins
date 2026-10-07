@@ -171,8 +171,7 @@ filtered out.
 ## Reading a card
 
 **Click a card** and it opens in a panel beside the board — the right half of the screen, or the
-whole of it on a phone. The open card is part of the screen's address, and the header names it,
-so reloading, going back and forward, and a saved link all bring the same card back. The panel
+whole of it on a phone. A link to the board that names a card opens it in the panel. The panel
 shows the title, who opened it, the comment count, the labels, a pull request's branches, and the
 description rendered the way GitHub renders it — including the HTML a bot like Dependabot writes,
 whose release notes show as collapsible sections — followed by the assignees. A pill in the panel's header says whether the item is still open, or has been closed or

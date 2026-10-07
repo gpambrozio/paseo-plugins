@@ -79,7 +79,7 @@ import {
   promptSettings,
 } from "../shared/settings";
 import { isOpenableLink } from "./link";
-import { findBoardItem, itemKey, requestedItemKey, showBoardItem } from "./screen";
+import { findBoardItem, requestedItemKey } from "./screen";
 import { trackPointerOnDocument } from "./web";
 
 /**
@@ -4067,43 +4067,29 @@ export function GitHubBoard(props: PluginScreenProps) {
   }, [detailOpen, detailProgress]);
 
   /**
-   * The card the screen's URL names. Opening and closing the panel go through
-   * the URL rather than straight to state, so a reload, back and forward, and a
-   * link all land on the same card; the effect below is what follows it.
+   * The card the screen's URL named on arrival, until the board shows it or a
+   * press or a close overrides it. Read on mount only: a screen's params never
+   * change while it is up, and pressing a card must not call `openScreen` —
+   * that pushes a new board per press, each one left mounted underneath.
    */
-  const requestedKey = requestedItemKey(props.params);
-  /**
-   * The card last pressed, with the column it was pressed in. It stands in
-   * for a lookup when the URL catches up, so a card that sits in two columns
-   * opens with the template of the one it was pressed in.
-   */
-  const pressedRef = useRef<{ item: BoardItem; type: ColumnId } | null>(null);
+  const arrivalKeyRef = useRef(requestedItemKey(props.params));
 
   useEffect(() => {
-    if (requestedKey === null) {
-      setDetailOpen(false);
-      return;
-    }
-    const pressed = pressedRef.current;
-    const target =
-      pressed !== null && itemKey(pressed.item) === requestedKey
-        ? pressed
-        : board === null
-          ? null
-          : findBoardItem(board, requestedKey);
-    if (target === null) {
-      // Not on this board — a link from another host, or a card closed since.
-      // A panel already showing it keeps showing it; anything else closes.
-      if (detailTarget === null || itemKey(detailTarget.item) !== requestedKey) {
-        setDetailOpen(false);
-      }
-      return;
-    }
-    if (detailTarget?.item.id !== target.item.id) setDetailTarget(target);
+    const key = arrivalKeyRef.current;
+    if (key === null || board === null) return;
+    // Not on this board yet — a link from another host, or a stale cache the
+    // refresh has not replaced — so keep waiting for the next board.
+    const target = findBoardItem(board, key);
+    if (target === null) return;
+    arrivalKeyRef.current = null;
+    setDetailTarget(target);
     setDetailOpen(true);
-  }, [board, detailTarget, requestedKey]);
+  }, [board]);
 
-  const closeDetails = useCallback(() => showBoardItem(null), []);
+  const closeDetails = useCallback(() => {
+    arrivalKeyRef.current = null;
+    setDetailOpen(false);
+  }, []);
   /**
    * The surface's own view, measured when a menu opens. A right-click reports
    * where it happened in the window; the menu is positioned inside this view,
@@ -4373,8 +4359,9 @@ export function GitHubBoard(props: PluginScreenProps) {
   );
 
   const openDetails = useCallback((item: BoardItem, type: ColumnId) => {
-    pressedRef.current = { item, type };
-    showBoardItem(item);
+    arrivalKeyRef.current = null;
+    setDetailTarget({ item, type });
+    setDetailOpen(true);
   }, []);
 
   /**

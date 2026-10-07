@@ -1,7 +1,7 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 
 import { GitHubBoard } from "./client/board";
-import { BOARD_SCREEN_ID, BOARD_TITLE, bindScreenOpener, boardScreenTitle } from "./client/screen";
+import { BOARD_SCREEN_ID, BOARD_TITLE } from "./client/screen";
 import { BoardSettingsScreen } from "./client/settings-screen";
 import { BoardSidebarItem } from "./client/sidebar-item";
 import { BoardTimelineCard } from "./client/timeline";
@@ -9,12 +9,9 @@ import { BoardTimelineItemSchema } from "./shared/board";
 import { BOARD_ITEM_TIMELINE_KIND, BOARD_ITEM_TIMELINE_VERSION } from "./shared/timeline";
 
 export default function contribute(client: PluginClientContext) {
-  client.addScreen({ id: BOARD_SCREEN_ID, title: boardScreenTitle, Component: GitHubBoard });
-  // The open card is a screen param, and a screen is given no way to change
-  // its own params, so the capability is lent to it from here.
-  bindScreenOpener((input) => {
-    client.openScreen(input);
-  });
+  // A static title: the screen's params are only what it was opened with, so a
+  // title naming the open card would go stale at the first press.
+  client.addScreen({ id: BOARD_SCREEN_ID, title: BOARD_TITLE, Component: GitHubBoard });
   /**
    * Renders the rows `sendToChatHandler` appends. The `kind`/`version` pair has
    * to match what the daemon wrote, which is why both sides import it from
@@ -62,7 +59,5 @@ export default function contribute(client: PluginClientContext) {
     },
   });
 
-  return () => {
-    bindScreenOpener(null);
-  };
+  return () => {};
 }

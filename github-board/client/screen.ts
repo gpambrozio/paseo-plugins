@@ -1,4 +1,4 @@
-import type { PluginOpenScreenInput, PluginScreenParams } from "@getpaseo/plugin/client";
+import type { PluginScreenParams } from "@getpaseo/plugin/client";
 
 import type { Board, BoardItem, ColumnId } from "../shared/board";
 
@@ -12,13 +12,16 @@ export const BOARD_SCREEN_ID = "board";
 export const BOARD_TITLE = "GitHub";
 
 /**
- * The screen param naming the card the detail panel is open on, as
- * `owner/name#number`. A param rather than component state so the open card
- * lives in the screen's URL: a reload, back and forward, and a link keep it.
+ * The screen param naming the card to open on arrival, as `owner/name#number`.
+ * It is read once, when the screen mounts: every `openScreen` mounts a new
+ * instance — the host's stack pushes a route per call, even to the screen
+ * already showing — so a screen's params never change while it is up. A link or
+ * a reload naming a card lands on it; presses inside the board never touch the
+ * URL, because a push per press would stack a live board per card.
  */
 export const ITEM_PARAM = "item";
 
-/** How a card is spelled in the screen's URL and title: `owner/name#number`. */
+/** How a card is spelled in the screen's URL: `owner/name#number`. */
 export function itemKey(item: Pick<BoardItem, "repository" | "number">): string {
   return `${item.repository}#${item.number}`;
 }
@@ -27,20 +30,6 @@ export function itemKey(item: Pick<BoardItem, "repository" | "number">): string 
 export function requestedItemKey(params: PluginScreenParams): string | null {
   const value = params[ITEM_PARAM];
   return value === undefined || value === "" ? null : value;
-}
-
-/** The params that open the panel on `item`, or close it when `item` is null. */
-export function boardScreenInput(item: BoardItem | null): PluginOpenScreenInput {
-  return {
-    screenId: BOARD_SCREEN_ID,
-    params: item === null ? {} : { [ITEM_PARAM]: itemKey(item) },
-  };
-}
-
-/** The screen header: the open card when there is one, else the board. */
-export function boardScreenTitle(params: PluginScreenParams): string {
-  const key = requestedItemKey(params);
-  return key === null ? BOARD_TITLE : `${BOARD_TITLE} · ${key}`;
 }
 
 /**
@@ -57,25 +46,4 @@ export function findBoardItem(
     if (item !== undefined) return { item, type: column.id };
   }
   return null;
-}
-
-/**
- * Opening a screen is a `PluginClientContext` capability: `PluginScreenProps`
- * carries the params but no way to change them. `index.client.tsx` lends the
- * opener here at contribution time, which happens before the screen can mount.
- * Module scope belongs to this host's bundle eval, so the opener navigates on
- * the host this board is drawn for.
- */
-let openScreen: ((input: PluginOpenScreenInput) => void) | null = null;
-
-export function bindScreenOpener(open: ((input: PluginOpenScreenInput) => void) | null): void {
-  openScreen = open;
-}
-
-/** Opens the board on `item`, or with no card when null. */
-export function showBoardItem(item: BoardItem | null): void {
-  if (openScreen === null) {
-    throw new Error("github-board: the screen opener is not bound; index.client.tsx binds it");
-  }
-  openScreen(boardScreenInput(item));
 }

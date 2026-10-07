@@ -23,7 +23,7 @@ compile time. This file covers only what is specific to `github-board`.
 | `server/image.ts`          | The daemon's image fetch: redirects by hand, the token only to `github.com`, a timeout and a size cap. |
 | `server/data-dir.ts`       | `$PASEO_HOME/plugin-data/github-board/`, and moving the settings file out of `plugins/`. |
 | `client/board.tsx`         | The screen: columns, cards, the detail panel, the repository filter, the send dialog, and the client cache. |
-| `client/screen.ts`         | The screen and sidebar id, the open card as a screen param, the header title, and the lent `openScreen`. |
+| `client/screen.ts`         | The screen and sidebar id, and the card a screen param names on arrival. |
 | `client/sidebar-item.tsx`  | The sidebar header row.                                                     |
 | `client/settings-screen.tsx` | The Settings → Plugins frame around the same editor the gear button opens. |
 | `client/markdown.tsx`      | The renderer for an item's Markdown body; only the detail panel uses it.    |
@@ -45,19 +45,24 @@ and hidden state on `<plugin>/sidebar/<id>`, the same key for a legacy row and a
 saved `/plugin/github-board/sidebar/board` link resolves to the *screen* with the sidebar item's id.
 Rename either and users lose their sidebar placement and their links.
 
-**The open card is a screen param, `item=<owner>/<name>#<number>`**, not component state, so a
-reload, back and forward, and a link all reopen it, and `boardScreenTitle` puts it in the header.
-Pressing a card or closing the panel does not touch the panel's state directly: it calls
-`openScreen` with the new params (`showBoardItem`), and an effect in `GitHubBoard` follows
-`props.params`. Each press and each close is therefore one history entry. `PluginScreenProps`
-carries `params` but no way to change them, so `index.client.tsx` lends `client.openScreen` to a
-module-scope binding in `client/screen.ts` — the same trick herald uses for `openSettings`.
-Each host evaluates its own bundle, so the lent opener navigates on the host the board is drawn for.
+**The screen param `item=<owner>/<name>#<number>` opens a card on arrival, and only then.** A link
+or a URL naming a card lands on it; pressing a card and closing the panel are component state and
+never touch the URL. 0.10.0 did the opposite — every press and every close called `openScreen` with
+the new params — and that stacked a board per press, because `openScreen` is a `router.push` onto a
+plugin route with no `getId` (`app/h/[serverId]/_layout.tsx` in Paseo): each call mounts a fresh
+screen on top and leaves the old one mounted underneath, and a screen's params never change while it
+is up. `client/screen.test.ts` walks the screen's imports and fails if any of them reaches for
+`openScreen` again.
+
+The cost is the one `launchd-jobs` pays: back and forward do not step between cards, a reload comes
+back to the card the screen was *opened* on rather than the last one pressed, and nothing hands the
+user a link to the card on screen. The header is a static "GitHub" for the same reason — a title
+built from params would keep naming the arrival card after it was closed.
 
 The param names a card by repository and number, and the panel needs a `BoardItem` and a column, so
-the effect looks the key up on the loaded board — or uses the card just pressed, which keeps the
-column it was pressed in. A key the board does not show — a link from another host, a card closed
-since — opens nothing, and a panel already open on a card that a refresh drops stays where it is.
+`arrivalKeyRef` is looked up on each board that lands until one shows it; a press or a close drops
+it first. A key the board never shows — a link from another host, a card closed since — opens
+nothing.
 
 Two downgrades came with the move, both Paseo's: the screen header no longer draws the GitHub icon
 (the host draws one only for a legacy row), and Settings → Sidebar shows a generic plugin icon for
