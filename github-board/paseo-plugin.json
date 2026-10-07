@@ -2,6 +2,6 @@
   "id": "github-board",
   "description": "Your GitHub issues, pull requests and discussions on one sidebar board",
   "requirements": {
-    "paseo": ">=0.11.0-beta.2"
+    "paseo": ">=0.11.0"
   }
 }

@@ -7,6 +7,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.3.2] — 2026-10-07
+
+### Changed
+
+- **Requires the released Paseo 0.11.0.** FirstMate was built against a Paseo 0.11 preview; it now
+  follows the final release, and no longer loads on the 0.11 previews. Nothing changes in FirstMate
+  itself.
+
 ## [0.3.1] — 2026-10-04
 
 ### Added
