@@ -1,49 +1,43 @@
 /**
- * Wiring: the surface, its sidebar entry, the settings screen, and the two
+ * Wiring: the screen, its sidebar row, the settings screen, and the two
  * Command Center items that reach them.
  *
  * `bindSettingsOpener` is the one piece that is not plain registration. A
- * surface is given no way to open a settings screen — `PluginSurfaceProps`
+ * screen is given no way to open a settings screen — `PluginScreenProps`
  * carries no `openSettings` — so the capability is lent to the module here.
- * Contribution runs before any surface mounts, so the binding is always set by
+ * Contribution runs before any screen mounts, so the binding is always set by
  * the time one renders, and it is cleared in the cleanup because this module
  * outlives a disconnected client's context.
  */
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 
 import { PricingSurface, bindSettingsOpener } from "./client/pricing";
+import { PRICING_ICON, PRICING_SCREEN_ID, PRICING_TITLE } from "./client/screen";
 import { PricingSettingsScreen } from "./client/settings-screen";
-
-/** Any Lucide component name. A typo load-fails the whole plugin. */
-const ICON = "CircleDollarSign";
+import { PricingSidebarItem } from "./client/sidebar";
 
 export default function contribute(client: PluginClientContext) {
-  client.addSurface("pricing", PricingSurface);
+  client.addScreen({ id: PRICING_SCREEN_ID, title: PRICING_TITLE, Component: PricingSurface });
   bindSettingsOpener((id) => {
     client.openSettings(id);
   });
 
-  client.addSidebarItem({
-    id: "model-pricing",
-    title: "Model pricing",
-    icon: ICON,
-    surface: "pricing",
-  });
+  client.addSidebarHeaderItem({ id: PRICING_SCREEN_ID, title: PRICING_TITLE, Component: PricingSidebarItem });
   client.addSettingsScreen({
     id: "model-pricing",
-    title: "Model pricing",
-    icon: ICON,
+    title: PRICING_TITLE,
+    icon: PRICING_ICON,
     Component: PricingSettingsScreen,
   });
 
   client.addCommandCenterItem({
     id: "open-model-pricing",
     title: "Open model pricing",
-    icon: ICON,
+    icon: PRICING_ICON,
     keywords: ["pricing", "price", "cost", "tokens", "models", "cheap", "expensive"],
     context: "global",
-    onSelect({ openSurface }) {
-      openSurface("pricing");
+    onSelect({ openScreen }) {
+      openScreen({ screenId: PRICING_SCREEN_ID });
     },
   });
   client.addCommandCenterItem({

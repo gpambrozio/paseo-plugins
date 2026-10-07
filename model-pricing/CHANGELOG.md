@@ -7,6 +7,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-model-pricing` and tagged here, so a version is something to install and a
 line to read before you move.
 
+## [0.4.0] — 2026-10-07
+
+### Changed
+
+- **Requires Paseo 0.11.** This version uses the new screen and sidebar that Paseo 0.11 introduced,
+  so it does not load on 0.10 or older. Stay on 0.3.0 until you update Paseo.
+- **The table's title reads "Model pricing" however you open it.** Opening it from the Command
+  Center used to title the screen "pricing".
+- **The sidebar row follows the computer you are looking at.** With the plugin on more than one
+  computer, the row now belongs to the one the app is showing, and it lights up while the table is
+  open. Where you placed the row in Settings → Sidebar, whether you hid it, and saved links to the
+  table all carry over. The row shows Paseo's generic plugin icon in Settings → Sidebar, and the
+  table's header no longer shows the dollar icon.
+
 ## [0.3.0] — 2026-09-22
 
 ### Added

@@ -8,14 +8,14 @@
  *   user navigates to a workspace and mounted fresh on the way back, so
  *   component state is gone. Keeping the last table here means a return visit
  *   paints immediately and only refetches once the data has aged out.
- * - **The gear is lent from the entry.** `PluginSurfaceProps` carries no
+ * - **The gear is lent from the entry.** `PluginScreenProps` carries no
  *   `openSettings`, so `index.client.tsx` hands one to `bindSettingsOpener` and
  *   the button hides while nothing is bound.
  * - **No async arrows.** Hermes evaluates one in the eval'd client bundle to
  *   `undefined`, with no error until something calls it. Async *function
  *   expressions* are fine, and are what every callback here is.
  */
-import { type PluginSurfaceProps, useRpc, useSettings } from "@getpaseo/plugin/client";
+import { type PluginScreenProps, useRpc, useSettings } from "@getpaseo/plugin/client";
 import { FlatList, Icon, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
@@ -90,7 +90,7 @@ function stampOf(sources: readonly SourceStatus[]): number {
   return stamps.length === 0 ? Date.now() : Math.min(...stamps);
 }
 
-export function PricingSurface(props: PluginSurfaceProps) {
+export function PricingSurface(props: PluginScreenProps) {
   const { theme, layout } = props;
   const styles = useStyles(props);
   const settings = useSettings(displaySettings);

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-A Paseo plugin that adds a **Model pricing** sidebar surface: one sortable table of what every model
+A Paseo plugin that adds a **Model pricing** sidebar screen: one sortable table of what every model
 on the enabled providers costs, ranked against the cheapest one on screen, plus a settings screen
 choosing which providers are fetched and shown.
 
@@ -13,7 +13,9 @@ compile time. This file covers only what is specific to `model-pricing`.
 | File                         | What it owns                                                                             |
 | ---------------------------- | ---------------------------------------------------------------------------------------- |
 | `index.server.ts`            | Wiring — one RPC, the display settings document, the cache flushed on cleanup.            |
-| `index.client.tsx`           | Wiring — the surface, sidebar item, settings screen, two ⌘K items, the settings opener.   |
+| `index.client.tsx`           | Wiring — the screen, sidebar row, settings screen, two ⌘K items, the settings opener.     |
+| `client/screen.ts`           | The screen's id, title and icon. The id is the old sidebar item's, not the old surface's. |
+| `client/sidebar.tsx`         | The sidebar header row, lit while the screen is open.                                     |
 | `shared/providers.ts`        | The five providers and which of the two upstreams each is read from. Plain values.        |
 | `shared/pricing.ts`          | `PriceRow`, the per-source status, and the `pricing.load` contract.                       |
 | `shared/settings.ts`         | The host settings document: providers, the blend weight, the tool-call filter.            |

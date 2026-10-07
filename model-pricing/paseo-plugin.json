@@ -2,6 +2,6 @@
   "id": "model-pricing",
   "description": "What every model costs, across five providers, in one table",
   "requirements": {
-    "paseo": ">=0.9.0"
+    "paseo": ">=0.11.0"
   }
 }
