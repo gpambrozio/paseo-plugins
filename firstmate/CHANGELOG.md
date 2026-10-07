@@ -7,6 +7,23 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.3.4] — 2026-10-07
+
+### Fixed
+
+- **A suggestion you remove stays removed.** Taking a suggestion off the board with its trash button
+  used to last only until the first mate next updated its list, and then it came back. FirstMate now
+  remembers what you removed: the board keeps it hidden, and the first mate is told not to suggest it
+  again. If something about it really changes — a new pull request, new work, a new decision — the
+  first mate can suggest it again in words that say what changed, and that one shows. Pressing a
+  suggestion to send it does not count as removing it.
+
+  What you removed is listed in `data/suggestions-dismissed.md` in the first mate's home, the newest
+  50; open it in Files and delete a line to let that suggestion show again. A home whose charter you
+  have not edited picks up the first mate's new instructions on its own; if you have edited yours, the
+  board offers the new one to compare. A running first mate follows them once it re-reads its
+  instructions or is restarted.
+
 ## [0.3.3] — 2026-10-07
 
 ### Changed

@@ -24,7 +24,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/charter-file.ts`      | `data/charter.md`, the captain's copy it is rendered from: follows the plugin until edited. |
 | `server/home.ts`              | The home directory: writes the charter and records, reads the backlog and project registry. |
 | `server/backlog.ts`           | `data/backlog.md` → `BacklogItem[]`. Lenient, because an agent writes the file.            |
-| `server/suggestions.ts`       | `data/suggestions.md` → `Suggestion[]`, the board's next-step buttons, and taking one out. Lenient, likewise. |
+| `server/suggestions.ts`       | `data/suggestions.md` → `Suggestion[]`, the board's next-step buttons, taking one out, and the dismissed list that hides it after. Lenient, likewise. |
 | `server/crew-report.ts`       | A crewmate's closing status line (`done: PR …`) → state and text.                          |
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
@@ -240,7 +240,7 @@ got every file, `AGENTS.md` with no placeholder left; and on the real daemon a r
 every settings save, every plugin start and every save of that file in the panel** — it names the crew's
 model, and a charter change should reach a home in use without a relaunch; a running first mate still
 has to be asked to re-read it) and creates `data/captain.md`, `projects.md`, `backlog.md`,
-`suggestions.md`, `learnings.md` and `opening.md` only when missing, so a relaunch never loses a record. `data/captain.md` is the
+`suggestions.md`, `suggestions-dismissed.md`, `learnings.md` and `opening.md` only when missing, so a relaunch never loses a record. `data/captain.md` is the
 captain's to edit and outranks the charter below its hard rules; that is where customisation that
 should survive an upgrade goes.
 
@@ -406,6 +406,22 @@ at the same moment, and the removal starts over from its version, `REMOVE_ATTEMP
 write landing between that last check and the rename is still lost: a rename cannot compare and swap.
 The Files view's own saves get the same second check, by modification time as before. The RPC answers
 with the list left, which the board puts in the fleet query at once.
+
+**A removal is remembered, because deleting the line alone does not stick.** The first mate rewrites
+the whole file from its records, and nothing in them said the captain had removed a suggestion, so one
+kept on the backlog came straight back, again and again. So before the line goes, `recordDismissal`
+appends it to `data/suggestions-dismissed.md` as `- <label> :: <prompt> (dismissed YYYY-MM-DD)`, the
+newest `MAX_DISMISSED` (50) kept and each prompt once, by its latest dismissal, written the same staged,
+compare-before-rename way and started over when two removals race. The board leaves out of
+`data/suggestions.md` any suggestion whose prompt matches a dismissed one, whitespace collapsed, before
+counting to `MAX_SUGGESTIONS`, and never edits the file to do it. Recording comes first, so a removal that
+then fails still hides the card. Charter §2 has the first mate read the file before every rewrite, never
+write a dismissed suggestion again, and say in new words what changed when one should come back — a new
+pull request, new commits, a new decision — which the board shows, since the prompt no longer matches.
+The file is a record from its template, so an existing home gets it on the next plugin start, and the
+captain lets a suggestion back by deleting its line there. **bb's FirstMate keeps the same file in the
+same line shape**; change one only with the other. Pressing a card is acting on it, not dismissing it:
+the send never reaches this code, so nothing is recorded.
 
 On the card, the trash is a sibling of the send `Pressable` rather than inside it, so pressing it can
 never press the card. A removal on its way shuts that card by label and prompt, not position

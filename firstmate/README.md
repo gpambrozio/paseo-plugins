@@ -92,7 +92,10 @@ charter, the records it starts with, the home's icon — is in `templates/`, as 
   away, just as if you had typed it and pressed Send, and brings the chat into view so you see it go
   out; anything you were typing stays in the message box. A suggestion too long to show whole gets a
   chevron that opens the full request below it, to read or copy, without sending it. The trash button
-  beside a suggestion takes it off the list without sending it. With no suggestions there is no card and no tab.
+  beside a suggestion takes it off the list without sending it, and FirstMate remembers that: the first
+  mate will not suggest it again, and the board hides it if it does. When something about it changes —
+  a new pull request, say — the first mate can suggest it again in new words, and that shows. With no
+  suggestions there is no card and no tab.
 
 ![After the voyage: the first mate's Bearings report in the chat — Captain's Call: nothing needs your
 action; Recently Landed: the knots fix and the dark mode toggle, both landed on main; Underway and
@@ -180,6 +183,9 @@ settings, and your choice is kept.
 - `data/backlog.md` — every task, in flight, queued and done. The board reads it.
 - `data/suggestions.md` — what the first mate thinks you will want next, one per line as
   `- <label> :: <what to send>`. The first mate keeps it up to date; the board turns it into buttons.
+- `data/suggestions-dismissed.md` — the suggestions you removed from the board, the newest 50. The
+  board hides any suggestion with the same words, and the first mate reads it before writing new ones.
+  Delete a line to let that suggestion show again.
 - `data/<task>/brief.md`, `data/<task>/report.md` — each worker's instructions, and an investigation's
   findings.
 - `watches/` — scripts FirstMate runs on a schedule; see below.

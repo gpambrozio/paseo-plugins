@@ -14,11 +14,26 @@
  * label and a prompt on either side of `::` is skipped, the bullet is optional,
  * and a label wrapped in `**` or backticks is unwrapped. A missing or empty
  * file means no suggestions.
+ *
+ * What the captain takes off the board is remembered in
+ * `data/suggestions-dismissed.md`, in the same shape with the day it went:
+ *
+ *     - Land web#42 :: Merge https://github.com/you/web/pull/42, captain's word. (dismissed 2026-10-07)
+ *
+ * and the board leaves out any suggestion whose prompt reads the same, so the
+ * first mate rewriting its list from its records cannot bring one back. bb's
+ * FirstMate keeps the same file in the same shape.
  */
 import type { Suggestion } from "../shared/fleet";
 
 /** More than this is a list nobody reads; the charter asks for about five. */
 export const MAX_SUGGESTIONS = 8;
+
+/** How many dismissals `data/suggestions-dismissed.md` keeps, the newest. */
+export const MAX_DISMISSED = 50;
+
+/** The day a dismissed line ends with, and whatever space is around it. */
+const DISMISSED_ON = /\s*\(dismissed \d{4}-\d{2}-\d{2}\)\s*$/;
 
 const SEPARATOR = "::";
 
@@ -88,11 +103,73 @@ function rangesOf(offsets: readonly number[]): Array<{ start: number; end: numbe
   return ranges;
 }
 
-/** Every well-formed suggestion, in file order, the first `MAX_SUGGESTIONS` of them. */
-export function parseSuggestions(markdown: string): Suggestion[] {
+/**
+ * Every well-formed suggestion, in file order, the first `MAX_SUGGESTIONS` of them — leaving out those
+ * whose prompt is in `dismissed` (`parseDismissed`) before counting, so a hidden one takes no place.
+ */
+export function parseSuggestions(markdown: string, dismissed: ReadonlySet<string> = new Set()): Suggestion[] {
   return scan(markdown)
-    .slice(0, MAX_SUGGESTIONS)
-    .map((found) => found.suggestion);
+    .map((found) => found.suggestion)
+    .filter((suggestion) => !dismissed.has(promptKey(suggestion.prompt)))
+    .slice(0, MAX_SUGGESTIONS);
+}
+
+/** A prompt as dismissals compare it: runs of whitespace as one space, none at either end. */
+export function promptKey(prompt: string): string {
+  return prompt.replace(/\s+/g, " ").trim();
+}
+
+/** Each dismissed line, its prompt without the day it was dismissed. */
+function scanDismissed(markdown: string): Array<Found & { key: string }> {
+  return scan(markdown)
+    .map((found) => ({ ...found, key: promptKey(found.suggestion.prompt.replace(DISMISSED_ON, "")) }))
+    .filter((found) => found.key !== "");
+}
+
+/** The prompts `data/suggestions-dismissed.md` records, as `promptKey` writes them. */
+export function parseDismissed(markdown: string): Set<string> {
+  return new Set(scanDismissed(markdown).map((found) => found.key));
+}
+
+/** `YYYY-MM-DD`, in the daemon's local time. */
+function day(at: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
+
+/**
+ * `markdown` — the dismissed file — with `target` added as its newest line, dismissed on `at`. An older
+ * line with the same prompt goes, so a suggestion is listed once, by its latest dismissal, and past
+ * `MAX_DISMISSED` lines the oldest go too. Only those lines' own characters and line breaks are taken
+ * out, as `withoutSuggestion` does, so the file's heading and notes stay as they were.
+ */
+export function withDismissal(markdown: string, target: Suggestion, at: Date): string {
+  const key = promptKey(target.prompt);
+  // A `::` in the label would move where the line splits, and the prompt read back with it.
+  const label = promptKey(target.label).replaceAll(SEPARATOR, ":");
+  if (key === "" || label === "") return markdown;
+  const line = `- ${label} ${SEPARATOR} ${key} (dismissed ${day(at)})`;
+  const joined = `${markdown}${markdown === "" || /[\r\n]$/.test(markdown) ? "" : "\n"}${line}\n`;
+
+  const all = scanDismissed(joined);
+  // Read back as anything but the line just written — a stray `-->` in the file, say — trim nothing.
+  if (all[all.length - 1]?.key !== key) return joined;
+  const older = all.slice(0, -1);
+  const others = older.filter((found) => found.key !== key);
+  const overflow = Math.max(0, others.length + 1 - MAX_DISMISSED);
+  const going = new Set([...older.filter((found) => found.key === key), ...others.slice(0, overflow)]);
+  return without(joined, older.filter((found) => going.has(found)).flatMap((found) => found.ranges));
+}
+
+/** `markdown` without the characters in `ranges`, which are in ascending order and do not overlap. */
+function without(markdown: string, ranges: ReadonlyArray<{ start: number; end: number }>): string {
+  let next = "";
+  let at = 0;
+  for (const range of ranges) {
+    next += markdown.slice(at, range.start);
+    at = range.end;
+  }
+  return next + markdown.slice(at);
 }
 
 function same(a: Suggestion, b: Suggestion): boolean {
@@ -116,14 +193,7 @@ export function withoutSuggestion(markdown: string, target: Suggestion): string 
   const match = all[index];
   if (match === undefined) return null;
 
-  let next = "";
-  let at = 0;
-  for (const range of match.ranges) {
-    next += markdown.slice(at, range.start);
-    at = range.end;
-  }
-  next += markdown.slice(at);
-
+  const next = without(markdown, match.ranges);
   const expected = all.filter((_, other) => other !== index).map((found) => found.suggestion);
   const left = scan(next).map((found) => found.suggestion);
   if (left.length !== expected.length || left.some((suggestion, other) => !same(suggestion, expected[other]!))) {

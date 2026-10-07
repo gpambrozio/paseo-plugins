@@ -7,6 +7,7 @@ import { CREW_LABELS } from "../shared/fleet";
 import { readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./config";
 import type { PaseoApi } from "./host-types";
 import { adoptMate, askMate, commandText, compactMate, launchMate, releaseMate, restartMate, restartNote } from "./mate";
+import { prepareHome, readSuggestions } from "./home";
 import { TEMPLATES, readTemplate, withoutNotes } from "./templates";
 
 let paseoHome = "";
@@ -230,6 +231,23 @@ describe("askMate", () => {
     expect(upload).toMatchObject({ type: "uploaded_file", fileName: "notes.txt", mimeType: "text/plain", size: 5 });
     expect(String(upload?.path)).toBe(join(paseoHome, "uploads", String(upload?.id), "notes.txt"));
     await expect(readFile(String(upload?.path), "utf8")).resolves.toBe("hello");
+  });
+
+  it("leaves a pressed suggestion on the list and out of the dismissed ones", async () => {
+    await updateFirstmateConfig({ mateAgentId: "old-mate" });
+    const config = await readFirstmateConfig();
+    const home = resolveHome(config);
+    await prepareHome(home, config);
+    await writeFile(join(home, TEMPLATES.suggestions), "- Land :: Merge it\n");
+    const dismissed = await readFile(join(home, TEMPLATES.suggestionsDismissed), "utf8");
+
+    // A card's press is the chat's own send of its prompt.
+    const { paseo, sent } = fakePaseo({ "old-mate": { ...oldMate, status: "idle" } });
+    await askMate(paseo, { text: "Merge it" });
+
+    expect(sent.map((message) => message.text)).toEqual(["Merge it"]);
+    expect(await readSuggestions(home)).toEqual([{ label: "Land", prompt: "Merge it" }]);
+    expect(await readFile(join(home, TEMPLATES.suggestionsDismissed), "utf8")).toBe(dismissed);
   });
 
   it("writes nothing when there is no first mate to send to", async () => {

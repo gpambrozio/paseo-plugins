@@ -3,8 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { REMOVE_ATTEMPTS, readSuggestions, removeSuggestion } from "./home";
-import { MAX_SUGGESTIONS, parseSuggestions, withoutSuggestion } from "./suggestions";
+import { REMOVE_ATTEMPTS, prepareHome, readSuggestions, removeSuggestion } from "./home";
+import { FirstmateConfigSchema } from "../shared/fleet";
+import {
+  MAX_DISMISSED,
+  MAX_SUGGESTIONS,
+  parseDismissed,
+  parseSuggestions,
+  withDismissal,
+  withoutSuggestion,
+} from "./suggestions";
 import { TEMPLATES, readTemplate } from "./templates";
 
 describe("parseSuggestions", () => {
@@ -171,7 +179,7 @@ describe("removeSuggestion", () => {
     try {
       const target = { label: "Land", prompt: "Merge it" };
       expect(await removeSuggestion(home, target)).toEqual([]);
-      await mkdir(join(home, "data"));
+      await mkdir(join(home, "data"), { recursive: true });
       const path = join(home, TEMPLATES.suggestions);
       await writeFile(path, "# Suggestions\n\n- Land :: Merge it\n- Scout :: Look around\n");
       expect(await removeSuggestion(home, target)).toEqual([{ label: "Scout", prompt: "Look around" }]);
@@ -247,6 +255,118 @@ describe("removeSuggestion when the first mate writes too", () => {
       );
       expect(left).toEqual([{ label: "Scout", prompt: "Look around" }]);
       expect(await readFile(path, "utf8")).toBe(scout);
+    });
+  });
+});
+
+describe("dismissed suggestions", () => {
+  const land = { label: "Land web#42", prompt: "Merge https://github.com/you/web/pull/42" };
+  const scout = { label: "Scout", prompt: "Look around" };
+  const on = new Date(2026, 9, 7, 12);
+
+  async function withHome(run: (home: string) => Promise<void>): Promise<void> {
+    const home = await mkdtemp(join(tmpdir(), "firstmate-dismissed-"));
+    try {
+      await mkdir(join(home, "data"));
+      await run(home);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  }
+
+  it("writes each dismissal as a suggestion line with the day it went", () => {
+    expect(withDismissal("", land, on)).toBe(
+      "- Land web#42 :: Merge https://github.com/you/web/pull/42 (dismissed 2026-10-07)\n",
+    );
+    expect(withDismissal("# Dismissed\n<!-- a note -->", { label: " A  b ", prompt: "one\n two " }, on)).toBe(
+      "# Dismissed\n<!-- a note -->\n- A b :: one two (dismissed 2026-10-07)\n",
+    );
+    expect(parseDismissed(withDismissal("", land, on))).toEqual(new Set([land.prompt]));
+  });
+
+  it("starts as a file with no dismissals in a new home", async () => {
+    const template = await readTemplate(TEMPLATES.suggestionsDismissed);
+    expect(parseDismissed(template)).toEqual(new Set());
+    expect(withDismissal(template, land, on).startsWith(template)).toBe(true);
+  });
+
+  it("keeps the newest dismissals, each prompt once, and the file's heading and notes", async () => {
+    const head = await readTemplate(TEMPLATES.suggestionsDismissed);
+    let file = head;
+    for (let index = 0; index < MAX_DISMISSED + 5; index++) {
+      file = withDismissal(file, { label: `S${index}`, prompt: `Do ${index}` }, on);
+    }
+    file = withDismissal(file, { label: "Again", prompt: `  Do  ${MAX_DISMISSED + 4}` }, on);
+    const lines = file.slice(head.length).trimEnd().split("\n");
+    expect(file.startsWith(head)).toBe(true);
+    expect(lines).toHaveLength(MAX_DISMISSED);
+    expect(lines[0]).toBe("- S5 :: Do 5 (dismissed 2026-10-07)");
+    expect(lines[lines.length - 1]).toBe(`- Again :: Do ${MAX_DISMISSED + 4} (dismissed 2026-10-07)`);
+    expect(parseDismissed(file).size).toBe(MAX_DISMISSED);
+  });
+
+  it("hides a suggestion whose prompt was dismissed, and shows one whose prompt changed", () => {
+    const dismissed = parseDismissed(withDismissal("", land, on));
+    const file = [
+      "- Land it now :: Merge   https://github.com/you/web/pull/42 ",
+      "- Land web#43 :: Merge https://github.com/you/web/pull/43",
+      "- Scout :: Look around",
+    ].join("\n");
+    expect(parseSuggestions(file, dismissed)).toEqual([
+      { label: "Land web#43", prompt: "Merge https://github.com/you/web/pull/43" },
+      scout,
+    ]);
+  });
+
+  it("does not let hidden suggestions take a place in the list", () => {
+    const lines = Array.from({ length: MAX_SUGGESTIONS + 2 }, (_, index) => `- S${index} :: Do ${index}`);
+    const dismissed = new Set(["Do 0", "Do 1"]);
+    const shown = parseSuggestions(lines.join("\n"), dismissed);
+    expect(shown).toHaveLength(MAX_SUGGESTIONS);
+    expect(shown[0]).toEqual({ label: "S2", prompt: "Do 2" });
+  });
+
+  it("records a removal, hides the first mate's repeat of it and never edits the file to do so", async () => {
+    await withHome(async (home) => {
+      const path = join(home, TEMPLATES.suggestions);
+      const dismissedPath = join(home, TEMPLATES.suggestionsDismissed);
+      await writeFile(path, `- ${land.label} :: ${land.prompt}\n- Scout :: Look around\n`);
+
+      expect(await removeSuggestion(home, land, {}, on)).toEqual([scout]);
+      expect(await readFile(dismissedPath, "utf8")).toContain(
+        "- Land web#42 :: Merge https://github.com/you/web/pull/42 (dismissed 2026-10-07)\n",
+      );
+
+      // The first mate rewrites its list from its records, the removed suggestion included.
+      const rewrite = `- Land :: ${land.prompt}\n- Scout :: Look around\n- Land web#42 :: Merge https://github.com/you/web/pull/42 now it has a new head\n`;
+      await writeFile(path, rewrite);
+      expect(await readSuggestions(home)).toEqual([
+        scout,
+        { label: "Land web#42", prompt: "Merge https://github.com/you/web/pull/42 now it has a new head" },
+      ]);
+      expect(await readFile(path, "utf8")).toBe(rewrite);
+    });
+  });
+
+  it("records a removal the file no longer has, and a second one beside the first", async () => {
+    await withHome(async (home) => {
+      await prepareHome(home, FirstmateConfigSchema.parse({}));
+      const dismissedPath = join(home, TEMPLATES.suggestionsDismissed);
+      const template = await readTemplate(TEMPLATES.suggestionsDismissed);
+      expect(await readFile(dismissedPath, "utf8")).toBe(template);
+
+      expect(await removeSuggestion(home, land, {}, on)).toEqual([]);
+      await Promise.all([removeSuggestion(home, scout, {}, on), removeSuggestion(home, { label: "C", prompt: "c" }, {}, on)]);
+      const file = await readFile(dismissedPath, "utf8");
+      expect(file.startsWith(template)).toBe(true);
+      expect(parseDismissed(file)).toEqual(new Set([land.prompt, scout.prompt, "c"]));
+    });
+  });
+
+  it("is no dismissals when the file is missing", async () => {
+    await withHome(async (home) => {
+      await writeFile(join(home, TEMPLATES.suggestions), "- Scout :: Look around\n");
+      expect(await readSuggestions(home)).toEqual([scout]);
     });
   });
 });

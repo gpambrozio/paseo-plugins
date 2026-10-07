@@ -295,8 +295,9 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
   }
 
   /**
-   * A suggestion's trash: its line leaves the first mate's file, and the board takes the list the
-   * daemon answers with at once rather than waiting for the next load.
+   * A suggestion's trash: the daemon records it as dismissed and its line leaves the first mate's file,
+   * and the board takes the list the daemon answers with at once rather than waiting for the next load.
+   * Pressing a suggestion (`suggest`) never comes here, so sending one never dismisses it.
    */
   function dismissSuggestion(suggestion: Suggestion): Promise<void> {
     return removeSuggestions(suggestion)

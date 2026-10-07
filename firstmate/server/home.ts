@@ -10,6 +10,7 @@
  *     <home>/data/projects.md    the project registry
  *     <home>/data/backlog.md     every work item; the board reads it
  *     <home>/data/suggestions.md what the captain might do next; the board's buttons
+ *     <home>/data/suggestions-dismissed.md  what the captain took off the board; written by the plugin
  *     <home>/data/learnings.md
  *     <home>/data/opening.md     a new first mate's first message; the captain's, never overwritten
  *     <home>/watches/            scripts the plugin runs on a schedule (watch-files.ts, watches.ts)
@@ -40,8 +41,8 @@ import type { BacklogItem, FirstmateConfig, Project, Suggestion } from "../share
 import { parseBacklog } from "./backlog";
 import { renderCharter } from "./charter";
 import { syncCharter } from "./charter-file";
-import { FileChangedError, readTextFile, replaceTextIfUnchanged, type WriteHooks } from "./files";
-import { parseSuggestions, withoutSuggestion } from "./suggestions";
+import { FileChangedError, readTextFile, replaceTextIfUnchanged, writeTextFile, type WriteHooks } from "./files";
+import { parseDismissed, parseSuggestions, withDismissal, withoutSuggestion } from "./suggestions";
 import { TEMPLATES, readTemplate, withoutNotes, type TemplatePath } from "./templates";
 import { seedWatches } from "./watch-files";
 
@@ -52,6 +53,7 @@ const RECORDS: readonly TemplatePath[] = [
   TEMPLATES.learnings,
   TEMPLATES.backlog,
   TEMPLATES.suggestions,
+  TEMPLATES.suggestionsDismissed,
   TEMPLATES.opening,
   TEMPLATES.icon,
 ];
@@ -121,18 +123,57 @@ export async function readBacklog(home: string): Promise<BacklogItem[]> {
   return markdown === null ? [] : parseBacklog(markdown);
 }
 
+/** The board's suggestions: `data/suggestions.md`, without any the captain has dismissed. */
 export async function readSuggestions(home: string): Promise<Suggestion[]> {
   const markdown = await readOptional(join(home, TEMPLATES.suggestions));
-  return markdown === null ? [] : parseSuggestions(markdown);
+  return markdown === null ? [] : parseSuggestions(markdown, await readDismissed(home));
+}
+
+/** The prompts in `data/suggestions-dismissed.md`; none when it is missing. */
+async function readDismissed(home: string): Promise<Set<string>> {
+  const markdown = await readOptional(join(home, TEMPLATES.suggestionsDismissed));
+  return markdown === null ? new Set() : parseDismissed(markdown);
 }
 
 /** How many times a removal starts over when the first mate rewrites the file under it. */
 export const REMOVE_ATTEMPTS = 3;
 
 /**
- * Takes one suggestion out of `data/suggestions.md`, leaving every other byte as it was, and answers
- * with the suggestions left. One the file no longer has — the first mate rewrote it since the board
- * looked — is not an error: nothing is written.
+ * Adds `target` to `data/suggestions-dismissed.md` as dismissed on `at` (`withDismissal`), creating the
+ * file from its template when it is missing. The write is staged and renamed like a removal's, and
+ * refused if the file changed since it was read, which starts it over — two removals at once both land.
+ */
+export async function recordDismissal(home: string, target: Suggestion, at: Date): Promise<void> {
+  const path = TEMPLATES.suggestionsDismissed;
+  for (let attempt = 1; ; attempt++) {
+    let current: string | null = null;
+    try {
+      const file = await readTextFile(home, path);
+      if (file.content === null) throw new Error(`${path} is not a text file the board can edit.`);
+      current = file.content;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    const next = withDismissal(current ?? (await readTemplate(path)), target, at);
+    try {
+      if (current === null) await writeTextFile(home, { path, content: next, expectedModifiedMs: null, force: false });
+      else await replaceTextIfUnchanged(home, path, current, next);
+      return;
+    } catch (error) {
+      if (!(error instanceof FileChangedError)) throw error;
+      if (attempt >= REMOVE_ATTEMPTS) {
+        throw new Error(`${path} kept changing while this suggestion was being recorded as dismissed. Try again.`);
+      }
+    }
+  }
+}
+
+/**
+ * The captain's trash on a suggestion card. The suggestion is recorded as dismissed first
+ * (`recordDismissal`), so the board hides it from now on whatever happens to the file, and then taken
+ * out of `data/suggestions.md`, leaving every other byte as it was; the answer is the suggestions the
+ * board now shows. One the file no longer has — the first mate rewrote it since the board looked — is
+ * still recorded, but nothing is written to the file.
  *
  * The write is confined to the home, staged in a temporary file and renamed into place, and refused
  * if the file no longer reads as it did (`replaceTextIfUnchanged`), checked again just before the
@@ -140,7 +181,14 @@ export const REMOVE_ATTEMPTS = 3;
  * over from what it wrote. A write of its that lands between that last check and the rename is still
  * lost; see `stageAndReplace`.
  */
-export async function removeSuggestion(home: string, target: Suggestion, hooks: WriteHooks = {}): Promise<Suggestion[]> {
+export async function removeSuggestion(
+  home: string,
+  target: Suggestion,
+  hooks: WriteHooks = {},
+  at: Date = new Date(),
+): Promise<Suggestion[]> {
+  await recordDismissal(home, target, at);
+  const dismissed = await readDismissed(home);
   for (let attempt = 1; ; attempt++) {
     let file: Awaited<ReturnType<typeof readTextFile>>;
     try {
@@ -151,10 +199,10 @@ export async function removeSuggestion(home: string, target: Suggestion, hooks: 
     }
     if (file.content === null) throw new Error(`${TEMPLATES.suggestions} is not a text file the board can edit.`);
     const next = withoutSuggestion(file.content, target);
-    if (next === null) return parseSuggestions(file.content);
+    if (next === null) return parseSuggestions(file.content, dismissed);
     try {
       await replaceTextIfUnchanged(home, TEMPLATES.suggestions, file.content, next, hooks);
-      return parseSuggestions(next);
+      return parseSuggestions(next, dismissed);
     } catch (error) {
       if (!(error instanceof FileChangedError)) throw error;
       if (attempt >= REMOVE_ATTEMPTS) {

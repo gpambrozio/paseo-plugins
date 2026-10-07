@@ -300,8 +300,9 @@ export const toggleWatch = defineRpc({
 });
 
 /**
- * Takes one suggestion off the board by removing its line from `data/suggestions.md`, matched by label
- * and prompt; one the file no longer has is left alone. Answers with the suggestions the file has now.
+ * Takes one suggestion off the board: records it in `data/suggestions-dismissed.md`, so the board hides
+ * its prompt from then on, and removes its line from `data/suggestions.md`, matched by label and prompt;
+ * one the file no longer has is left alone. Answers with the suggestions the board shows now.
  */
 export const removeSuggestion = defineRpc({
   name: "firstmate.suggestion.remove",

@@ -33,6 +33,7 @@ export const TEMPLATES = {
   opening: "data/opening.md",
   projects: "data/projects.md",
   suggestions: "data/suggestions.md",
+  suggestionsDismissed: "data/suggestions-dismissed.md",
   watchesReadme: "watches/README.md",
   watchPr: "watches/pr-watch",
   crewModeChosen: "parts/crew-mode-chosen.md",
