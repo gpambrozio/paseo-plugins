@@ -253,9 +253,10 @@ Candidate directories, in precedence order:
 3. `/etc/codex/skills` — scope `admin`
 
 `.codex/skills` is not in Codex's documented set. It stays in the list one rank below its
-`.agents` sibling because Paseo's own orchestration sync writes there
-(`orchestration-skills/internal/paths.ts` targets all three of `.agents`, `.claude`, `.codex`) and
-because older Codex builds read it. Dropping it would hide skills from anyone whose install still
+`.agents` sibling because Paseo's own orchestration sync wrote there before 0.11.0-beta.2
+(`orchestration-skills/internal/paths.ts` targeted all three of `.agents`, `.claude`, `.codex`; it
+now writes only the first two and leaves a `.codex` copy the user edited in place) and because
+older Codex builds read it. Dropping it would hide skills from anyone whose install still
 uses it; ranking it second means the documented copy wins when a name lives in both.
 
 Each direct child directory (or symlink) is a skill; read its `SKILL.md`. Codex follows symlinked

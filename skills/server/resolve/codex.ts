@@ -20,9 +20,11 @@ export interface CodexResolveOptions {
  * `/etc/codex/skills`.
  *
  * `.codex/skills` is read alongside each `.agents/skills` and at `$CODEX_HOME`
- * because that is where Paseo's own orchestration sync writes and where older
- * Codex builds looked. It sits second within each scope, so when a name lives
- * in both the documented directory wins.
+ * because older Codex builds looked there, and Paseo before 0.11.0-beta.2
+ * synced its orchestration skills there too. Paseo now writes only to
+ * `~/.agents/skills` and `~/.claude/skills`, and leaves an old copy in place
+ * when the user edited it. It sits second within each scope, so when a name
+ * lives in both the documented directory wins.
  *
  * Codex's bundled system skills have no path on disk and stay invisible here.
  */

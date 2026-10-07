@@ -37,9 +37,10 @@ entries there exist because a reviewer proved the code was wrong about the real 
   `skills`.
 - **Codex scans `.agents/skills`, not `.codex/skills`.** Its documented search path is
   `<dir>/.agents/skills` for every dir from cwd to the repo root, then `~/.agents/skills`, then
-  `/etc/codex/skills`. `.codex/skills` is read one rank lower only because Paseo's orchestration
-  sync writes there and older builds read it. Paseo's own `listCodexSkills` is stale on this; do
-  not "fix" the resolver back to matching it.
+  `/etc/codex/skills`. `.codex/skills` is read one rank lower only because older Codex builds read
+  it, Paseo before 0.11.0-beta.2 synced its orchestration skills there, and Paseo since leaves a
+  copy there in place when the user edited it — it now writes only `~/.agents` and `~/.claude`.
+  Paseo's own `listCodexSkills` is stale on this; do not "fix" the resolver back to matching it.
 - **A source kind lives in three files.** `SkillSourceKind` (`server/resolve/skill-entry.ts`), the
   zod enum (`shared/skills.ts`), and `SOURCE_ORDER` (`client/browser.tsx`). The first two disagreeing
   fails validation at runtime; a kind missing from the third sorts to the top of the panel, since
