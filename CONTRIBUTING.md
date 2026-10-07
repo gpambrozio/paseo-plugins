@@ -40,8 +40,11 @@ Two things worth knowing:
 - **A failed reload stays failed.** Paseo does not restore the previous code. Check the logs.
 - **Never restart the daemon** to pick up a change. It manages the user's running agents.
 
-The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.9.0 or newer** — the
-app too, which checks the plugin's `requirements.paseo` against its own version.
+The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.9.0 or newer** —
+**0.11.0** for a plugin drawn with 0.11's screen and sidebar API — the app too, which checks the
+plugin's `requirements.paseo` against its own version. New screens and sidebar rows use `addScreen`,
+`addSidebarHeaderItem` or `addSidebarFooterItem`, and `openScreen`; `addSurface`, `addSidebarItem`
+and `openSurface` are deprecated aliases due to be removed after 2027-03-29.
 
 ## Client and server are separate bundles
 

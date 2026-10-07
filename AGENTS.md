@@ -50,11 +50,12 @@ paseo plugin logs skills          # load errors and stderr
   `firstmate`.
 - **A failed reload stays failed.** Paseo does not restore the previous code.
 - **Never restart the daemon** — it manages the user's running agents.
-- The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.9.0 or newer**. Four
-  plugins declare `requirements.paseo: ">=0.9.0"`, and `github-board` and `firstmate`
-  `">=0.11.0-beta.2"`, for 0.11's screen and sidebar API; on an older daemon they do not degrade,
-  they refuse to load. There are no version fallbacks left in this repo — see *Versions* below for
-  why the app-side check made them unnecessary.
+- The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.9.0 or newer** —
+  **0.11.0** for a plugin drawn with 0.11's screen and sidebar API. Each plugin's
+  `requirements.paseo` says which: `">=0.11.0"` once it has moved to that API, `">=0.9.0"` until
+  then. On an older daemon a plugin does not degrade, it refuses to load. There are no version
+  fallbacks left in this repo — see *Versions* below for why the app-side check made them
+  unnecessary.
 - There is no harness for plugin UI. A clean typecheck and a clean reload prove a `client/` change
   compiles and loads, nothing more; a human has to look at the panel. Check a wide window *and* a
   compact one, and switch theme — unstyled text and hardcoded colours only show up in one of them.
@@ -179,7 +180,20 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
   round trip and is *not* worth persisting (a loaded board, the open pane, a half-typed form) lives
   in module-scope variables the component reads on mount: `cachedBoard` in `github-board`,
   `cachedPane` and `cachedDraft` in `launchd-jobs`. Anything that *is* worth persisting belongs in a
-  settings document, which the host restores on its own.
+  settings document, which the host restores on its own. Since 0.11 a screen has a third place:
+  its **params**, string pairs that travel in the screen's URL, so they survive a reload, back and
+  forward, and a saved link. A screen is handed its params but cannot change them; the entry lends
+  it `client.openScreen` — see `github-board/client/screen.ts`, which keeps the open card there.
+- **Draw with `addScreen`, `addSidebarHeaderItem` or `addSidebarFooterItem`, and `openScreen`.**
+  `addSurface`, `addSidebarItem` and `openSurface` are 0.11's deprecated aliases for them, due to be
+  removed after 2027-03-29. A screen carries its own header title — a string or a function of its
+  params — and a sidebar item is a live component drawn from the host being viewed, where a legacy
+  row took the first host's title. Moving a plugin over, **register the screen and a header item
+  under the old sidebar item's id**: the app resolves a saved `/sidebar/<id>` link to the screen
+  with that id, and a header item with that id keeps the row's place and hidden state in
+  Settings → Sidebar — a footer item is keyed apart from the old row, so it starts fresh. A
+  sidebar item's and a popover's props carry `openScreen` but neither `navigation` nor
+  `openSettings`.
 - **Module scope does not outlive the host's connection.** When the connection to a host drops — the
   phone backgrounded, the Mac asleep, a network change — the app disposes that host's plugins, and it
   evaluates the bundle afresh when the connection returns, so every module-scope variable starts over.
@@ -187,9 +201,14 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
   under a `Symbol.for` key is still there for the new evaluation: `firstmate/client/draft.ts` keeps the
   chat's unsent message that way, for the life of the app.
 - **`paseo.agents.subscribe()` alone hears nothing.** Since 0.9 it is a local listener fed only by
-  an observation the same API instance opened with `agents.list({ subscribe: {} })`, and every
-  plugin runtime gets its own instance, so the app's own observations do not reach it. Open one and
-  release it on teardown; a snapshot is one page (`pageInfo.hasMore`), not the whole list. See
+  an observation the same API instance opened with `agents.list({ subscribe: {} })`, and the app's
+  own observations do not reach it. Since 0.11 the app gives each installed plugin **one**
+  `PaseoApi`, shared by the client entry (`client.paseo`), `usePaseo()` in every screen, panel and
+  timeline item, and every Command Center and slash-command callback, and disposes it only when the
+  plugin is torn down. So a bare `subscribe()` hears whatever the plugin's other observations
+  feed, and nothing until one is open; and an observation that is never released lasts until the
+  plugin unloads, not until the component that opened it unmounts. Open one and release it on
+  teardown; a snapshot is one page (`pageInfo.hasMore`), not the whole list. See
   `skills/client/agents.ts` and `herald/client/agents.ts`.
 - **The server half is given `paseo` only inside an RPC handler or a lifecycle hook.**
   `PluginServerContext` has none, so a timer started in the server entry cannot reach Paseo on its own.
@@ -225,8 +244,9 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
   connection was replaced — and pass the same `serverId` to `navigation.openAgent`,
   `openWorkspace` or `openBrowser` to follow the work across. `github-board`'s send dialog is the
   worked example.
-- **A surface cannot open its own settings screen.** `PluginSurfaceProps` carries no
-  `openSettings`; only `PluginClientContext` and a Command Center or slash-command callback have it.
+- **A surface cannot open its own settings screen.** `PluginScreenProps` carries no
+  `openSettings`, and nor do the sidebar item's and popover's props; only `PluginClientContext`
+  and a Command Center or slash-command callback have it.
   A surface that needs to reach one keeps its own in-surface editor, routes the user through ⌘K —
   see `github-board`, which does both — or is *lent* the capability by the entry:
   `herald/index.client.tsx` passes `client.openSettings` to a module-scope binding in
@@ -237,18 +257,20 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
 
 `paseo-plugin.json` carries `requirements.paseo`, an npm semver range. **A missing
 `requirements.paseo` means `<0.8.0`**, so 0.8 rejects the plugin outright with a link to the
-migration guide — adding the field is part of migrating, not a substitute for it. Four plugins
-here declare `>=0.9.0`; `github-board` and `firstmate` declare `>=0.11.0-beta.2`.
+migration guide — adding the field is part of migrating, not a substitute for it. A plugin here
+declares `>=0.11.0` once it draws with 0.11's screen and sidebar API, and `>=0.9.0` until then.
 
 **The manifest may only carry what the *oldest* declared version accepts.** `PluginManifestSchema`
-is `.strict()` in every Paseo, so a key one version added is a load failure on every version before
-it — not a warning, not an ignored field. 0.9 added `description`, which the app shows in its
-plugins list; adding it here while `requirements.paseo` still said `>=0.8.0` broke all five on 0.8,
-and paseo.cafe's admission scan is what caught it, because it allows the key for an npm source
-(0.9-only by construction) and rejects it for a Git one. Either the key goes or the floor rises —
-the key went first, and the floor rose later, when `openExternalUrl` and `navigation.openBrowser`
-made 0.9 worth requiring; `description` came back in the same change. Check a new manifest key
-against the tag named in `requirements.paseo` before adding it.
+is `.strict()` in every Paseo before 0.11.0, so a key one version added is a load failure on every
+version before it — not a warning, not an ignored field. 0.11.0 ignores unknown top-level keys
+(though `requirements` stays strict) and adds `name`, `icon` and `media`, which 0.10 and older still
+reject. 0.9 added `description`, which the app shows in its plugins list; adding it here while
+`requirements.paseo` still said `>=0.8.0` broke all five on 0.8, and paseo.cafe's admission scan is
+what caught it, because it allows the key for an npm source (0.9-only by construction) and rejects
+it for a Git one. Either the key goes or the floor rises — the key went first, and the floor rose
+later, when `openExternalUrl` and `navigation.openBrowser` made 0.9 worth requiring; `description`
+came back in the same change. Check a new manifest key against the tag named in `requirements.paseo`
+before adding it.
 
 The daemon checks the range before installing or loading, and **each connected app checks it against
 its own version** before evaluating client code. That second check is what retired this repo's
@@ -324,13 +346,12 @@ cost per plugin, not per release.
 
 ### The SDK dependency
 
-All six plugins now depend on the real published `@getpaseo/plugin`, pinned to an exact
-version — `0.9.0` at the time of writing, except `github-board` and `firstmate`, on `0.11.0-beta.2`
-for the 0.11 screen and sidebar API. Pin it *exactly*: `npm install --save-dev` writes
-a caret, and a range here is the same bet on an unreleased shape that the prerelease trap below
-describes. `skills` used to ship a hand-written
-`paseo-plugin.d.ts` shim instead; it was deleted in the 0.8 migration, because every new host API
-had to be hand-declared into it before it could be used.
+All six plugins now depend on the real published `@getpaseo/plugin`, pinned to an exact version —
+`0.11.0` for a plugin on 0.11's screen and sidebar API, `0.9.0` for the rest, at the time of
+writing. Pin it *exactly*: `npm install --save-dev` writes a caret, and a range here is the same bet
+on an unreleased shape that the prerelease trap below describes. `skills` used to ship a
+hand-written `paseo-plugin.d.ts` shim instead; it was deleted in the 0.8 migration, because every
+new host API had to be hand-declared into it before it could be used.
 
 `@getpaseo/plugin` peer-depends on the *exact* `@getpaseo/client` and `@getpaseo/protocol` it ships
 against, so all three move together: `npm install @getpaseo/plugin@<v> @getpaseo/client@<v>

@@ -58,8 +58,9 @@ the daemon loads each plugin from that path every time it starts. Moving this
 repo means reinstalling every plugin you installed from it.
 
 The daemon needs `"pluginsEnabled": true` in its `config.json`, and Paseo
-**0.9.0 or newer** — every plugin here declares that, and an older daemon
-refuses to load them rather than degrading.
+**0.9.0 or newer** — **0.11.0** for a plugin drawn with Paseo 0.11's screens and
+sidebar rows. Each plugin's `paseo-plugin.json` declares which, and an older
+daemon refuses to load it rather than degrading.
 
 ## Layout
 
