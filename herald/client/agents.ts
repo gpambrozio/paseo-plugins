@@ -3,8 +3,12 @@
  *
  * Since Paseo 0.9, `paseo.agents.subscribe()` only adds a local listener to
  * observations the same API instance opened with `agents.list({ subscribe })`,
- * and every plugin runtime gets an API instance of its own — so a bare
+ * and the app's own observations live on another instance — so a bare
  * `subscribe()` hears nothing, ever. This opens that observation.
+ *
+ * Since 0.11 the whole installation shares one API instance, disposed only
+ * when the plugin unloads, so an observation nobody releases outlives the
+ * component that opened it. Always run the returned cleanup.
  *
  * Herald only takes the stream as a nudge to poll sooner; what is listed comes
  * from its own polls. So the snapshot is ignored and asked for one agent long:

@@ -1,33 +1,35 @@
 /**
- * The surface: every agent waiting on the user, each with the sentence Herald
- * wrote for it, a button to open the session, and a button to hear it again.
+ * The Herald screen: every agent waiting on the user, each with the sentence
+ * Herald wrote for it, a button to open the session, and a button to hear it
+ * again. Opened with an `agent` param — the sidebar popover does that — it
+ * scrolls that agent's card into view and outlines it.
  *
- * Two sources, joined by agent id. Paseo's own attention flag decides who is
- * listed — it is what the sidebar badges already follow — and Herald's entries
- * explain why, in a sentence. An agent Paseo flags that Herald has no entry
- * for (an event before the plugin loaded, say) is still listed, with what Paseo
- * knows about the reason.
+ * Two sources, joined by agent id in `client/rows.ts` and loaded by
+ * `client/waiting.ts`, which the sidebar row reads too. An agent Paseo flags
+ * that Herald has no entry for (an event before the plugin loaded, say) is
+ * still listed, with what Paseo knows about the reason.
  *
  * Async **function expressions**, never async arrows, anywhere in this file:
  * the app `eval`s the client bundle, and Hermes's eval compiler on iOS and
  * Android evaluates an async arrow to `undefined`. Same reason every closure
  * over a list element goes through `.map`, never a `for…of` body.
  */
-import { type PluginSurfaceProps, usePaseo, useRpc } from "@getpaseo/plugin/client";
+import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 
-import { listAttention, type AttentionEntry, type AttentionReason } from "../shared/herald";
-import { watchAgents } from "./agents";
 import { getAnnouncer, isMutedHere, setMutedHere, speechText } from "./announcer";
+import { lookOf, relativeTime, rowSubtitle, rowTitle, toneColor, withAlpha, type Row } from "./rows";
+import { focusedAgentId } from "./screen";
+import { useWaiting, useWaitingNudges } from "./waiting";
 import { canPlaySpeech, speechPlatform } from "./web";
 
 /**
  * Opening the settings screen is a `PluginClientContext` capability:
- * `PluginSurfaceProps` carries no `openSettings`, so the surface cannot reach
+ * `PluginScreenProps` carries no `openSettings`, so the screen cannot reach
  * its own settings on its own. `index.client.tsx` has the context and hands the
- * opener down here at contribution time — which happens before any surface can
+ * opener down here at contribution time — which happens before any screen can
  * mount — and the header button calls it. Module scope belongs to this client's
  * bundle eval, the same place the other plugins here keep their surface caches.
  */
@@ -37,151 +39,16 @@ export function bindSettingsOpener(open: ((id: string) => void) | null): void {
   openSettingsScreen = open;
 }
 
-/** A row's reason: one of Herald's, or "attention" when only Paseo's flag is known. */
-type RowReason = AttentionReason | "attention";
-
-interface Row {
-  agentId: string;
-  title: string | null;
-  workspaceId: string | null;
-  cwd: string;
-  reason: RowReason;
-  /** ISO time the row sorts by: the event, or when Paseo flagged the agent. */
-  at: string;
-  entry: AttentionEntry | null;
-}
-
-/** The fields this surface reads off a Paseo agent snapshot. */
-interface FlaggedAgent {
-  id: string;
-  title: string | null;
-  workspaceId: string | null;
-  cwd: string;
-  status: string;
-  attentionReason: "finished" | "error" | "permission" | null;
-  at: string;
-}
-
-/**
- * A Paseo-flagged agent worth a row: one whose session is still open. Paseo
- * keeps an agent flagged until the user's next message, however long ago the
- * turn ended, and that is right — a question asked a week ago is still
- * unanswered. A *closed* session is not waiting on anyone until it is opened
- * again, and a turn reported as finished on an agent that is *running* was
- * not the end of anything — some providers say a turn is done and carry on.
- * Those two are the cases dropped here.
- */
-function isCurrent(agent: FlaggedAgent): boolean {
-  if (agent.status === "closed") return false;
-  if (agent.attentionReason === "finished" && agent.status === "running") return false;
-  return true;
-}
-
-/**
- * Module-scope caches, because the surface is unmounted whenever the user
- * navigates to an agent — which the Open button does — and mounted fresh on
- * the way back. The list repaints before the first load answers.
- *
- * Workspace names come from the host API, not `useWorkspace`: the SDK's state
- * hooks are for workspace and agent panels and throw in a sidebar surface
- * ("Plugin state hooks must run inside a workspace panel").
- */
-let cachedRows: Row[] | null = null;
-let cachedWorkspaceNames: Record<string, string> = {};
-
-const IDLE_REFRESH_MS = 10_000;
-const BUSY_REFRESH_MS = 2_500;
-
 const TEST_SENTENCE = "This is Herald. Your agents will be announced like this.";
-
-function withAlpha(color: string, alpha: string): string {
-  return /^#[0-9a-fA-F]{6}$/.test(color) ? `${color}${alpha}` : color;
-}
-
-function relativeTime(iso: string): string {
-  const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (!Number.isFinite(seconds)) return "";
-  if (seconds < 45) return "just now";
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  const days = Math.round(hours / 24);
-  return days === 1 ? "yesterday" : `${days} days ago`;
-}
-
-function basename(path: string): string {
-  const parts = path.split("/").filter((part) => part !== "");
-  return parts[parts.length - 1] ?? path;
-}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-interface ReasonLook {
-  icon: string;
-  label: string;
-  tone: "accent" | "success" | "warning" | "danger" | "muted";
-}
-
-function lookOf(reason: RowReason): ReasonLook {
-  switch (reason) {
-    case "question":
-      return { icon: "MessageCircle", label: "Question", tone: "accent" };
-    case "plan":
-      return { icon: "ClipboardList", label: "Plan to approve", tone: "accent" };
-    case "permission":
-      return { icon: "Shield", label: "Permission", tone: "warning" };
-    case "finished":
-      return { icon: "Check", label: "Finished", tone: "success" };
-    case "error":
-      return { icon: "X", label: "Error", tone: "danger" };
-    case "canceled":
-      return { icon: "Ban", label: "Interrupted", tone: "muted" };
-    case "attention":
-      return { icon: "Megaphone", label: "Needs you", tone: "accent" };
-  }
-}
-
-/**
- * Herald's entries win over Paseo's flags for the same agent, since they carry
- * the reason and the sentence. A *finished* entry on an agent that is working
- * again is already withheld by the daemon, which knows each entry's agent
- * without having to enumerate every running one — see `Liveness`.
- */
-function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[]): Row[] {
-  const byAgent = new Map<string, Row>();
-  entries.forEach((entry) => {
-    byAgent.set(entry.agentId, {
-      agentId: entry.agentId,
-      title: entry.agentTitle,
-      workspaceId: entry.workspaceId,
-      cwd: entry.cwd,
-      reason: entry.reason,
-      at: entry.createdAt,
-      entry,
-    });
-  });
-  flagged.forEach((agent) => {
-    if (byAgent.has(agent.id) || !isCurrent(agent)) return;
-    byAgent.set(agent.id, {
-      agentId: agent.id,
-      title: agent.title,
-      workspaceId: agent.workspaceId,
-      cwd: agent.cwd,
-      reason: agent.attentionReason ?? "attention",
-      at: agent.at,
-      entry: null,
-    });
-  });
-  return [...byAgent.values()].sort((a, b) => b.at.localeCompare(a.at));
-}
-
 // ---------------------------------------------------------------------------
 // Styles
 
-function useStyles({ theme, layout }: PluginSurfaceProps) {
+function useStyles({ theme, layout }: PluginScreenProps) {
   return useMemo(() => {
     const { colors } = theme;
     const separator = withAlpha(colors.foregroundMuted, "33");
@@ -265,6 +132,7 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
       pending: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
       pendingText: { color: colors.foregroundMuted, fontSize: 13 },
       cardPressed: { backgroundColor: colors.surface2 },
+      cardFocused: { borderColor: colors.accent },
       speaker: { padding: 4 },
     };
   }, [theme, layout.compact]);
@@ -272,32 +140,20 @@ function useStyles({ theme, layout }: PluginSurfaceProps) {
 
 type Styles = ReturnType<typeof useStyles>;
 
-function toneColor(theme: PluginSurfaceProps["theme"], tone: ReasonLook["tone"]): string {
-  const { colors } = theme;
-  switch (tone) {
-    case "accent":
-      return colors.accent;
-    case "success":
-      return colors.statusSuccess;
-    case "warning":
-      return colors.statusWarning;
-    case "danger":
-      return colors.statusDanger;
-    case "muted":
-      return colors.foregroundMuted;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Rows
 
 interface RowCardProps {
   row: Row;
-  workspaceName: string | null;
-  props: PluginSurfaceProps;
+  title: string;
+  /** The agent the screen was opened on, from the sidebar popover. */
+  focused: boolean;
+  props: PluginScreenProps;
   styles: Styles;
   onOpen: ((agentId: string) => void) | null;
   onSpeak: (row: Row) => void;
+  /** Where the card sits in the list, so the screen can scroll a focused one into view. */
+  onPlaced: (agentId: string, y: number) => void;
 }
 
 /**
@@ -305,16 +161,12 @@ interface RowCardProps {
  * the sentence again — beside the title, not at the card's edge, so it is seen. Nested pressables: the speaker takes the touch
  * and the card does not also open.
  */
-function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCardProps) {
+function RowCard({ row, title, focused, props, styles, onOpen, onSpeak, onPlaced }: RowCardProps) {
   const look = lookOf(row.reason);
   const color = toneColor(props.theme, look.tone);
   const muted = props.theme.colors.foregroundMuted;
   const entry = row.entry;
-  // Agents are usually untitled; the workspace names the work. Under it, the
-  // agent's own title or, failing that, what it was last asked — which is
-  // what tells two untitled agents in one workspace apart.
-  const title = workspaceName ?? entry?.workspaceTitle ?? basename(row.cwd);
-  const subtitle = row.title?.trim() || entry?.lastRequest || null;
+  const subtitle = rowSubtitle(row);
   const spoken = entry === null ? null : speechText(entry);
   // Hidden outright where nothing can play it, rather than offered and failing.
   const canSpeakRow = canPlaySpeech() && (entry === null || spoken !== null);
@@ -348,7 +200,12 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
       accessibilityLabel={`Open ${title}`}
       disabled={onOpen === null}
       onPress={onOpen === null ? undefined : () => onOpen(row.agentId)}
-      style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
+      onLayout={(event) => onPlaced(row.agentId, event.nativeEvent.layout.y)}
+      style={({ pressed }) => [
+        styles.card,
+        focused ? styles.cardFocused : null,
+        pressed ? styles.cardPressed : null,
+      ]}
     >
       <View style={styles.cardTop}>
         <View style={[styles.reasonPill, { backgroundColor: withAlpha(color, "22") }]}>
@@ -398,82 +255,48 @@ function RowCard({ row, workspaceName, props, styles, onOpen, onSpeak }: RowCard
 }
 
 // ---------------------------------------------------------------------------
-// Surface
+// Screen
 
-export function HeraldSurface(props: PluginSurfaceProps) {
+export function HeraldScreen(props: PluginScreenProps) {
   const styles = useStyles(props);
-  const paseo = usePaseo();
-  const list = useRpc(listAttention);
   const toast = useToast();
+  const waiting = useWaiting();
+  useWaitingNudges();
 
-  const [rows, setRows] = useState<Row[] | null>(cachedRows);
-  const [workspaceNames, setWorkspaceNames] = useState<Record<string, string>>(cachedWorkspaceNames);
-  const [error, setError] = useState<string | null>(null);
+  const rows = waiting.data?.rows ?? null;
+  const workspaceNames = useMemo(() => waiting.data?.workspaceNames ?? {}, [waiting.data]);
+  const error = waiting.error === null ? null : errorText(waiting.error);
   const [muted, setMuted] = useState(isMutedHere());
   const [testing, setTesting] = useState(false);
-  const busyRef = useRef(false);
 
-  const refresh = useCallback(
-    async function refresh() {
-      if (busyRef.current) return;
-      busyRef.current = true;
-      try {
-        const [attention, flagged, workspaces] = await Promise.all([
-          list({}),
-          paseo.agents.list({ filter: { requiresAttention: true }, page: { limit: 100 } }),
-          paseo.workspaces.list({ page: { limit: 200 } }),
-        ]);
-        const names: Record<string, string> = {};
-        workspaces.entries.forEach((workspace) => {
-          names[workspace.id] = workspace.title ?? workspace.name;
-        });
-        cachedWorkspaceNames = names;
-        setWorkspaceNames(names);
-        const agents: FlaggedAgent[] = flagged.entries.map((item) => ({
-          id: item.agent.id,
-          title: item.agent.title ?? null,
-          workspaceId: item.agent.workspaceId ?? null,
-          cwd: item.agent.cwd,
-          status: item.agent.status,
-          attentionReason: item.agent.attentionReason ?? null,
-          at: item.agent.attentionTimestamp ?? item.agent.updatedAt,
-        }));
-        const next = joinRows(attention.entries, agents);
-        cachedRows = next;
-        setRows(next);
-        setError(null);
-      } catch (caught) {
-        setError(errorText(caught));
-      } finally {
-        busyRef.current = false;
-      }
+  // The agent the popover asked for: scrolled to once per request, when its
+  // card has been laid out, and outlined for as long as the param stands.
+  const focusId = focusedAgentId(props.params);
+  const scrollRef = useRef<ScrollView>(null);
+  const placed = useRef(new Map<string, number>());
+  const scrolledTo = useRef<string | null>(null);
+  const scrollToFocus = useCallback(
+    function scrollToFocus() {
+      if (focusId === null || scrolledTo.current === focusId) return;
+      const y = placed.current.get(focusId);
+      if (y === undefined) return;
+      scrolledTo.current = focusId;
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
     },
-    [list, paseo],
+    [focusId],
   );
-
-  // A poll, quickened while a summary is being written, plus a nudge from
-  // Paseo's own agent stream so a new arrival shows within a moment.
-  const pending = rows?.some((row) => row.entry?.summary.status === "pending") ?? false;
   useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), pending ? BUSY_REFRESH_MS : IDLE_REFRESH_MS);
-    return () => {
-      clearInterval(timer);
-    };
-  }, [refresh, pending]);
-  // Its own effect, so the observation is not closed and reopened every time
-  // `pending` flips the poll's pace.
-  useEffect(() => {
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const unwatch = watchAgents(paseo, () => {
-      if (debounce !== null) clearTimeout(debounce);
-      debounce = setTimeout(() => void refresh(), 400);
-    });
-    return () => {
-      if (debounce !== null) clearTimeout(debounce);
-      unwatch();
-    };
-  }, [refresh, paseo]);
+    if (focusId === null) scrolledTo.current = null;
+    scrollToFocus();
+  }, [focusId, scrollToFocus]);
+  const onPlaced = useCallback(
+    function onPlaced(agentId: string, y: number) {
+      placed.current.set(agentId, y);
+      if (agentId === focusId) scrollToFocus();
+    },
+    [focusId, scrollToFocus],
+  );
+  const focusGone = focusId !== null && rows !== null && !rows.some((row) => row.agentId === focusId);
 
   const openAgent = props.navigation?.openAgent;
   const onOpen = useMemo(
@@ -497,7 +320,7 @@ export function HeraldSurface(props: PluginSurfaceProps) {
         toast.error(errorText(caught));
       }
     },
-    [toast],
+    [toast, workspaceNames],
   );
 
   const onTest = useCallback(
@@ -570,7 +393,7 @@ export function HeraldSurface(props: PluginSurfaceProps) {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Refresh"
-          onPress={() => void refresh()}
+          onPress={() => void waiting.refetch()}
           style={styles.toolButton}
         >
           <Icon name="RefreshCw" size={14} color={foreground} />
@@ -587,12 +410,13 @@ export function HeraldSurface(props: PluginSurfaceProps) {
         )}
       </View>
       {hint === null ? null : <Text style={styles.hint}>{hint}</Text>}
+      {focusGone ? <Text style={styles.hint}>That agent is no longer waiting for you.</Text> : null}
       {error === null ? null : (
         <View style={styles.banner}>
           <Text style={styles.bannerText}>{error}</Text>
         </View>
       )}
-      <ScrollView contentContainerStyle={styles.list}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.list}>
         {rows === null ? (
           <View style={styles.empty}>
             <ActivityIndicator color={props.theme.colors.foregroundMuted} />
@@ -610,11 +434,13 @@ export function HeraldSurface(props: PluginSurfaceProps) {
             <RowCard
               key={row.agentId}
               row={row}
-              workspaceName={row.workspaceId === null ? null : workspaceNames[row.workspaceId] ?? null}
+              title={rowTitle(row, workspaceNames)}
+              focused={row.agentId === focusId}
               props={props}
               styles={styles}
               onOpen={onOpen}
               onSpeak={onSpeak}
+              onPlaced={onPlaced}
             />
           ))
         )}

@@ -1,8 +1,10 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 
 import { startAnnouncer } from "./client/announcer";
-import { HeraldSurface, bindSettingsOpener } from "./client/herald";
+import { HeraldScreen, bindSettingsOpener } from "./client/herald";
+import { HERALD_SCREEN_ID, HERALD_TITLE, heraldScreenInput } from "./client/screen";
 import { HeraldSettingsScreen } from "./client/settings-screen";
+import { HeraldSidebarItem } from "./client/sidebar";
 import { HeraldTimelineCard } from "./client/timeline-card";
 import { HERALD_CARD_KIND, HERALD_CARD_VERSION, HeraldCardSchema } from "./shared/timeline";
 
@@ -11,8 +13,12 @@ export default function contribute(client: PluginClientContext) {
   // what speaks. Everything below is how the user sees and tunes it.
   const announcer = startAnnouncer(client);
 
-  client.addSurface("herald", HeraldSurface);
-  // The surface's own settings button. A surface is given no way to open a
+  // The screen and the sidebar row share the id the 0.10 sidebar item had, so
+  // Settings › Sidebar keeps the row's place and a saved
+  // `/plugin/herald/sidebar/herald` link still opens the screen.
+  client.addScreen({ id: HERALD_SCREEN_ID, title: HERALD_TITLE, Component: HeraldScreen });
+  client.addSidebarHeaderItem({ id: HERALD_SCREEN_ID, title: HERALD_TITLE, Component: HeraldSidebarItem });
+  // The screen's own settings button. A screen is given no way to open a
   // settings screen, so the capability is lent to it from here.
   bindSettingsOpener((id) => {
     client.openSettings(id);
@@ -24,12 +30,6 @@ export default function contribute(client: PluginClientContext) {
     version: HERALD_CARD_VERSION,
     schema: HeraldCardSchema,
     Component: HeraldTimelineCard,
-  });
-  client.addSidebarItem({
-    id: "herald",
-    title: "Herald",
-    icon: "Megaphone",
-    surface: "herald",
   });
   client.addSettingsScreen({
     id: "herald",
@@ -43,8 +43,8 @@ export default function contribute(client: PluginClientContext) {
     icon: "Megaphone",
     keywords: ["herald", "attention", "waiting", "needs you", "speak", "voice"],
     context: "global",
-    onSelect({ openSurface }) {
-      openSurface("herald");
+    onSelect({ openScreen }) {
+      openScreen(heraldScreenInput());
     },
   });
   client.addCommandCenterItem({

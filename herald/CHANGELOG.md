@@ -7,6 +7,26 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.6.0] — 2026-10-07
+
+**Requires Paseo 0.11.** This version does not load on Paseo 0.10 or older; stay on 0.5.1 until you
+update Paseo.
+
+### Added
+
+- **The Herald row in the sidebar counts who is waiting for you.** A small number beside it says how
+  many agents need you right now, and it goes away when none do. Tap the number for a list of them;
+  pick one and Herald opens with that agent's card scrolled into view and outlined. Tapping the row
+  itself still opens Herald as before.
+
+### Changed
+
+- **The Herald page is titled "Herald" however you open it.** Opened from the Command Center, its
+  title read "herald". Your sidebar order, a hidden Herald row and saved links to it all carry over.
+- Settings › Sidebar now shows a generic plugin icon for Herald instead of the megaphone, and the
+  page's title no longer has the megaphone beside it. Paseo draws both that way for every plugin on
+  its new sidebar.
+
 ## [0.5.1] — 2026-09-27
 
 ### Changed

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-A Paseo plugin that adds a **Herald** sidebar surface: every agent waiting on the user, each with a
+A Paseo plugin that adds a **Herald** screen and sidebar row: every agent waiting on the user, each with a
 one-sentence summary written by a short-lived helper agent, and speaks that sentence on the device
 running the app when the event happens.
 
@@ -13,7 +13,7 @@ compile time. This file covers only what is specific to `herald`.
 | File                         | What it owns                                                                          |
 | ---------------------------- | ------------------------------------------------------------------------------------- |
 | `index.server.ts`            | Wiring — three RPCs, the speech settings document, the hooks, the store's file.        |
-| `index.client.tsx`           | Wiring — the announcer, the surface, sidebar item, settings screen, its opener.         |
+| `index.client.tsx`           | Wiring — the announcer, the screen, sidebar item, settings screen, its opener.          |
 | `shared/herald.ts`           | The `AttentionEntry` shape, the list RPC, and the daemon config document with defaults. |
 | `shared/settings.ts`         | The host settings document for *how* to speak; the app reads it, the daemon never does. |
 | `shared/timeline.ts`         | The summary card's `kind`/`version` and schema; a *runtime* import on both sides.        |
@@ -30,13 +30,17 @@ compile time. This file covers only what is specific to `herald`.
 | `server/data-dir.ts`         | `$PASEO_HOME/plugin-data/herald/`, and moving the plugin's files out of `plugins/`.     |
 | `server/say.ts`              | `say` on the daemon Mac, driven for its voices: text in on stdin, a WAV out, bytes back. |
 | `client/announcer.ts`        | The poll-and-speak loop that runs while the app is open, panel or no panel.            |
-| `client/herald.tsx`          | The surface: Paseo's attention list joined with Herald's entries.                      |
-| `client/agents.ts`           | Keeps an agents observation open so Paseo's agent stream reaches the two above.         |
+| `client/herald.tsx`          | The screen: the waiting list as cards, focused on the `agent` param when given.         |
+| `client/sidebar.tsx`         | The sidebar row with its waiting count, and the popover the count opens.                |
+| `client/waiting.ts`          | The one query the screen, the row and the popover all read, and its agent-stream nudge. |
+| `client/rows.ts`             | Pure: Paseo's attention list joined with Herald's entries, and how a row is named.      |
+| `client/screen.ts`           | Pure: the screen id the sidebar item shares, and the `agent` param.                    |
+| `client/agents.ts`           | Keeps an agents observation open so Paseo's agent stream reaches the announcer and the list. |
 | `client/settings-screen.tsx` | Settings › Plugins › Herald: speech (host document) and summaries (daemon RPCs).       |
 | `client/option-picker.tsx`   | A settings row opening a searchable, scrolling list, for choices too long for a select. |
 | `client/prompt-editor.tsx`   | A settings row opening the summary prompt in a modal, with its placeholder legend.      |
 | `client/web.ts`              | Every browser global: audio playback, the Web Speech API, the desktop-shell check.      |
-| `server/*.test.ts`           | The tests. `npm test`.                                                                 |
+| `*/*.test.ts`                | The tests. `npm test`.                                                                 |
 
 ## The hooks have 30 seconds and the summary does not fit
 
@@ -287,7 +291,7 @@ gone), so `server/liveness.ts` asks the daemon about each entry's agent before t
   *after* the event Herald recorded, so a brand-new entry must not be judged by a flag not yet set;
 - **archived** or **missing**: removed for good.
 
-The panel applies the closed rule to Paseo-only rows too (`isCurrent` in `client/herald.tsx`). A row
+The panel applies the closed rule to Paseo-only rows too (`isCurrent` in `client/rows.ts`). A row
 with no Herald entry says so, because the event predates the plugin watching that agent. Net effect:
 Paseo decides who is waiting; Herald explains why.
 
@@ -402,33 +406,61 @@ same shape as the picker — a `SettingsRow` opening a `Modal.Content scrollable
 multiline host `TextInput` taking the body. Its draft is local until *Save*, so *Cancel* cancels and
 the daemon is not written per keystroke.
 
-## The SDK's state hooks do not work in a surface
+## The screen, the sidebar row and its popover read one list
+
+The screen keeps the id the 0.10 sidebar item had, `herald`, and the live sidebar header item has it
+too: Settings › Sidebar keys the row's order and hidden state on the item id, and a saved
+`/plugin/herald/sidebar/herald` link resolves to the screen of the same id. Rename neither.
+
+The row counts `rows.length` from `useWaiting` (`client/waiting.ts`), the same join the screen draws,
+so the badge and the screen cannot disagree. It is one react-query key, and Paseo gives a plugin one
+query cache per installation — screen, sidebar item and popover alike — so with the screen open
+beside the sidebar they poll once between them. The row is always mounted while the sidebar is, so
+it is what keeps the list fresh off the screen; it also opens its own agent observation
+(`useWaitingNudges`), which it releases on unmount. The popover does not open one: it lives only
+while open, under a row that is already listening.
+
+The row itself opens the screen, as the 0.10 item did. The count is a separate pressable in the
+row's `trailing` slot, which the host draws beside the row's pressable, and it opens the popover.
+`PluginPopoverProps` carries no `navigation`, so a pick in the popover cannot open the agent; it
+opens the screen with `params: { agent }`, and the screen scrolls that card into view once — when
+the card has laid out — and outlines it for as long as the param stands. A param rather than state,
+so a reload and back/forward keep it.
+
+## The SDK's state hooks do not work in a screen
 
 `useWorkspace` and `useAgent` throw "Plugin state hooks must run inside a workspace panel" when
-called from a sidebar surface — they are for `addWorkspacePanel` components, which have a workspace
-or agent in scope. The first shipped panel used one for the workspace name and failed on mount.
-`client/herald.tsx` lists workspaces through the host API on each refresh and maps id to title
-instead. Anything a surface needs to know about workspaces or agents goes through `usePaseo()`.
+called from a screen or a sidebar item — they are for `addWorkspacePanel` components, which have a
+workspace or agent in scope. The first shipped panel used one for the workspace name and failed on
+mount. `client/waiting.ts` lists workspaces through the host API on each load and maps id to title
+instead. Anything a screen needs to know about workspaces or agents goes through `usePaseo()`.
 
-The header's gear is the other half of that gap: a surface is given no `openSettings` either, so
+The header's gear is the other half of that gap: a screen is given no `openSettings` either, so
 `index.client.tsx` lends it one through `bindSettingsOpener`, and the button is hidden while nothing
 is bound. Keep the binding cleared in the contribution's cleanup — the module outlives a
 disconnected client's context.
 
 ## Paseo's agent stream has to be asked for
 
-Both the announcer and the surface poll, and use Paseo's agent stream only to poll *sooner*. Since
+Both the announcer and the waiting list poll, and use Paseo's agent stream only to poll *sooner*. Since
 Paseo 0.9 that stream is silent unless the plugin opens an observation: `paseo.agents.subscribe()`
 is a local listener fed only by an `agents.list({ subscribe: {} })` the same API instance made, and
-each plugin runtime has its own instance. Herald's bare `subscribe()` calls predate that change, so
-on 0.9 every nudge was lost and everything waited for the ten-second tick — slower, never wrong.
+the app's own observations are on a different instance. Herald's bare `subscribe()` calls predate
+that change, so on 0.9 every nudge was lost and everything waited for the ten-second tick — slower,
+never wrong.
+
+Since 0.11 the app gives each plugin installation **one** `PaseoApi`, shared by the client entry
+(the announcer), the screen, the sidebar item, the popover and every callback, and disposes it only
+when the plugin is torn down. So an observation that is not released is not cleaned up with the
+component that opened it: it lasts until the plugin unloads. Every `watchAgents` caller keeps its
+cleanup and runs it — the announcer's `stop()`, and the effect in `useWaitingNudges`.
 
 `client/agents.ts` opens the observation. The snapshot is ignored and asked for one agent long: the
 polls read the full lists, and the daemon filters an observation's updates by `filter`, not by page,
 so a one-agent page still hears every agent. Paseo re-requests the observation after a reconnect but
 releases one whose request fails without telling the listeners, so `watchAgents` catches that
-through `error` and reopens it with backoff. The surface opens it in an effect of its own, so the
-poll's pace changing does not close and reopen it.
+through `error` and reopens it with backoff. The list opens it in an effect of its own
+(`useWaitingNudges`), so the poll's pace changing does not close and reopen it.
 
 ## Checking it
 
@@ -448,3 +480,7 @@ cover, check by hand after `paseo plugin reload herald`:
    follows it. *Restore the default* and *Save* puts it back.
 6. `paseo ls -a -g --label herald.role=summarizer -q` after a few summaries: empty. Switch *Delete
    the helper when it is done* off, trigger one more, and the helper is there.
+7. The sidebar row shows the same count as the screen's header, in the warning colour, and none when
+   nothing waits. Tap the count: a popover (a bottom sheet in a compact window) lists the agents;
+   pick one and the screen opens scrolled to that card, outlined. Tap the row itself: the screen
+   opens with nothing outlined.
