@@ -20,6 +20,7 @@ import { modelLabel, relativeTime, shortPath } from "./format";
 import { useModeOptions, useModelOptions, withCurrent } from "./models";
 import { OptionPicker } from "./option-picker";
 import { IconButton, errorText } from "./ui";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 const PROVIDER_DEFAULT = "";
 
@@ -63,9 +64,9 @@ export function LaunchPanel({
     const { colors } = theme;
     return {
       panel: { padding: compact ? 12 : 20, gap: 18, maxWidth: 760 },
-      title: { color: colors.foreground, fontSize: compact ? 18 : 22, fontWeight: "600" as const },
-      body: { color: colors.foreground, fontSize: 13, lineHeight: 19 },
-      muted: { color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 },
+      title: { color: colors.foreground, fontSize: compact ? FONT_SIZE.heading : FONT_SIZE.display, fontWeight: "600" as const },
+      body: { color: colors.foreground, fontSize: FONT_SIZE.body, lineHeight: lineHeightFor(FONT_SIZE.body) },
+      muted: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) },
       actions: { flexDirection: "row" as const, gap: 8, flexWrap: "wrap" as const },
       candidate: {
         flexDirection: "row" as const,
@@ -76,7 +77,7 @@ export function LaunchPanel({
         borderBottomColor: colors.border,
       },
       candidateText: { flex: 1, gap: 2 },
-      candidateTitle: { color: colors.foreground, fontSize: 13 },
+      candidateTitle: { color: colors.foreground, fontSize: FONT_SIZE.body },
     };
   }, [theme, compact]);
 

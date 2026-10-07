@@ -16,6 +16,7 @@ import { useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { contextPercent, contextTone, formatTokenCount } from "./format";
+import { FONT_SIZE } from "./type-scale";
 
 /** The icon size the chat's buttons use, and Paseo's stroke. */
 const RING_SIZE = 14;
@@ -134,9 +135,9 @@ export function ContextMeter({
         borderColor: colors.border,
         backgroundColor: colors.surface2,
       },
-      title: { color: colors.foreground, fontSize: 12, fontWeight: "600" as const },
-      share: { color: tone, fontSize: 12 },
-      detail: { color: colors.foregroundMuted, fontSize: 11 },
+      title: { color: colors.foreground, fontSize: FONT_SIZE.small, fontWeight: "600" as const },
+      share: { color: tone, fontSize: FONT_SIZE.small },
+      detail: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
     };
   }, [theme, tone]);
 

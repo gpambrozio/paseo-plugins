@@ -27,6 +27,7 @@ import { CrewCard } from "./card";
 import { FLEET_QUERY_KEY, useFleet } from "./fleet";
 import { groupCards } from "./format";
 import { IconButton, errorText } from "./ui";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 type Navigation = PluginWorkspacePanelProps["navigation"];
 
@@ -69,11 +70,11 @@ function PanelBody({
     return {
       screen: { flex: 1, backgroundColor: colors.surface0 },
       content: { padding: compact ? 12 : 16, gap: 10, paddingBottom: 24 },
-      title: { color: colors.foreground, fontSize: 15, fontWeight: "600" as const },
-      muted: { color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 },
+      title: { color: colors.foreground, fontSize: FONT_SIZE.subtitle, fontWeight: "600" as const },
+      muted: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) },
       input: {
         color: colors.foreground,
-        fontSize: 13,
+        fontSize: FONT_SIZE.body,
         minHeight: 60,
         borderWidth: 1,
         borderColor: colors.border,

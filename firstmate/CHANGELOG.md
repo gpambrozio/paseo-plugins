@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.3.3] — 2026-10-07
+
+### Changed
+
+- **Larger, easier-to-read text.** Everything in FirstMate is a size up and now matches Paseo's own
+  default text sizes: the chat, the cards, the suggestions, the watches and the files read at the
+  size Paseo's own screens do, titles stay above body text and the small print stays below it.
+  FirstMate does not yet follow the font sizes you choose in Paseo's Settings, because Paseo does not
+  share them with plugins; it will as soon as it does.
+
 ## [0.3.2] — 2026-10-07
 
 ### Changed

@@ -15,6 +15,7 @@ import { Text, View } from "react-native";
 import { displaySettings } from "../shared/settings";
 import { useFleet } from "./fleet";
 import { FLEET_SCREEN_ID, activeCrewCount } from "./screen";
+import { FONT_SIZE } from "./type-scale";
 
 export function FleetSidebarItem({ theme, currentScreen, openScreen }: PluginSidebarItemProps) {
   const display = useSettings(displaySettings);
@@ -31,7 +32,7 @@ export function FleetSidebarItem({ theme, currentScreen, openScreen }: PluginSid
         alignItems: "center" as const,
         backgroundColor: theme.colors.surface2,
       },
-      badgeText: { color: theme.colors.foregroundMuted, fontSize: 11, fontWeight: "600" as const },
+      badgeText: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.caption, fontWeight: "600" as const },
     }),
     [theme],
   );

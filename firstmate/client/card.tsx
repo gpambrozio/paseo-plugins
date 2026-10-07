@@ -17,6 +17,7 @@ import { Pressable, Text, View } from "react-native";
 import { exitCrew, interruptCrew, relaunchCrew, steerCrew, type ColumnId, type FleetCard } from "../shared/fleet";
 import { agentStatusLabel, agentStatusTone, columnTone, modelLabel, opensAsLeft, relativeTime } from "./format";
 import { Chip, IconButton, errorText } from "./ui";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 /** The card's first action, which opens the crewmate somewhere. */
 export interface CardOpener {
@@ -116,15 +117,15 @@ export function CrewCard({
         gap: 6,
       },
       titleRow: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 8 },
-      title: { flex: 1, color: colors.foreground, fontSize: 13, fontWeight: "600" as const },
-      meta: { color: colors.foregroundMuted, fontSize: 11 },
-      report: { color: colors.foreground, fontSize: 12, lineHeight: 17 },
+      title: { flex: 1, color: colors.foreground, fontSize: FONT_SIZE.body, fontWeight: "600" as const },
+      meta: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
+      report: { color: colors.foreground, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) },
       reportState: { color: tone, fontWeight: "600" as const },
-      link: { color: colors.accent, fontSize: 12, textDecorationLine: "underline" as const },
+      link: { color: colors.accent, fontSize: FONT_SIZE.small, textDecorationLine: "underline" as const },
       actions: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginTop: 2 },
       input: {
         color: colors.foreground,
-        fontSize: 13,
+        fontSize: FONT_SIZE.body,
         minHeight: 60,
         borderWidth: 1,
         borderColor: colors.border,
@@ -134,7 +135,7 @@ export function CrewCard({
         backgroundColor: colors.surface1,
         textAlignVertical: "top" as const,
       },
-      prompt: { color: colors.foreground, fontSize: 12 },
+      prompt: { color: colors.foreground, fontSize: FONT_SIZE.small },
     };
   }, [theme, compact, tone]);
 

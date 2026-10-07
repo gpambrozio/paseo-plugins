@@ -16,6 +16,7 @@ import { Pressable, Text, View } from "react-native";
 import { toggleWatch, watchPath, type WatchSummary } from "../shared/fleet";
 import { errorText, watchStatusText, watchTone } from "./format";
 import { MONOSPACE } from "./ui";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 export const WATCHES_TITLE = "Watches";
 export const WATCHES_ICON = "Radar";
@@ -67,13 +68,13 @@ export function WatchList({
       head: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
       dot: { width: 7, height: 7, borderRadius: 4 },
       nameButton: { flex: 1, minWidth: 0 },
-      name: { color: colors.foreground, fontSize: 13, fontWeight: "600" as const, textDecorationLine: "underline" as const },
-      schedule: { color: colors.foregroundMuted, fontSize: 11, fontFamily: MONOSPACE },
-      status: { color: colors.foregroundMuted, fontSize: 12 },
-      problem: { color: colors.statusDanger, fontSize: 12 },
-      note: { color: colors.statusWarning, fontSize: 12 },
-      output: { color: colors.foreground, fontSize: 11, fontFamily: MONOSPACE, lineHeight: 15 },
-      more: { color: colors.foregroundMuted, fontSize: 11 },
+      name: { color: colors.foreground, fontSize: FONT_SIZE.body, fontWeight: "600" as const, textDecorationLine: "underline" as const },
+      schedule: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption, fontFamily: MONOSPACE },
+      status: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
+      problem: { color: colors.statusDanger, fontSize: FONT_SIZE.small },
+      note: { color: colors.statusWarning, fontSize: FONT_SIZE.small },
+      output: { color: colors.foreground, fontSize: FONT_SIZE.caption, fontFamily: MONOSPACE, lineHeight: lineHeightFor(FONT_SIZE.caption) },
+      more: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
     };
   }, [theme]);
 

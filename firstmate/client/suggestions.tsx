@@ -20,6 +20,7 @@ import { Pressable, Text, View } from "react-native";
 import type { Suggestion } from "../shared/fleet";
 import { chevronLabel, isCut, showsChevron } from "./suggestion-fold";
 import { suggestionRemovals } from "./suggestion-removals";
+import { FONT_SIZE } from "./type-scale";
 
 export const SUGGESTIONS_TITLE = "Suggestions";
 export const SUGGESTIONS_ICON = "Lightbulb";
@@ -54,11 +55,11 @@ function cardStyles(theme: PluginTheme, disabled: boolean) {
     text: { ...text, overflow: "hidden" as const },
     // The same text unclamped, laid out at the same width and never seen, to measure against.
     whole: { ...text, position: "absolute" as const, top: 0, left: 0, right: 0, opacity: 0 },
-    label: { color: colors.foreground, fontSize: 13, fontWeight: "600" as const },
-    prompt: { color: colors.foregroundMuted, fontSize: 12 },
+    label: { color: colors.foreground, fontSize: FONT_SIZE.body, fontWeight: "600" as const },
+    prompt: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
     full: {
       color: colors.foregroundMuted,
-      fontSize: 12,
+      fontSize: FONT_SIZE.small,
       borderTopWidth: 1,
       borderTopColor: colors.border,
       paddingHorizontal: 10,

@@ -7,6 +7,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo } from "react";
 import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 /** A fixed-width font on every platform; iOS has no font named "monospace". */
 export const MONOSPACE = Platform.select({ ios: "Menlo", default: "monospace" });
@@ -48,7 +49,7 @@ export function IconButton({
         backgroundColor: tone === "accent" ? colors.accent : colors.surface1,
         opacity: disabled ? 0.5 : 1,
       },
-      label: { color, fontSize: 12, fontWeight: "500" as const },
+      label: { color, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
     }),
     [colors, tone, disabled, showLabel, color],
   );
@@ -97,7 +98,7 @@ export function Segmented<Value extends string>({
       },
       segment: { justifyContent: "center" as const, paddingHorizontal: 12 },
       selected: { backgroundColor: colors.accent },
-      label: { color: colors.foreground, fontSize: 12, fontWeight: "500" as const },
+      label: { color: colors.foreground, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
       labelSelected: { color: colors.accentForeground, fontWeight: "600" as const },
     }),
     [colors],
@@ -212,7 +213,7 @@ export function Banner({
         paddingVertical: 8,
         backgroundColor: colors.surface1,
       },
-      text: { flex: 1, minWidth: 200, color: colors.foreground, fontSize: 12, lineHeight: 17 },
+      text: { flex: 1, minWidth: 200, color: colors.foreground, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) },
     }),
     [colors, color],
   );
@@ -252,7 +253,7 @@ export function Chip({ theme, text, color }: { theme: PluginTheme; text: string;
         backgroundColor: theme.colors.surface2,
       },
       dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: color },
-      text: { color: theme.colors.foreground, fontSize: 11 },
+      text: { color: theme.colors.foreground, fontSize: FONT_SIZE.caption },
     }),
     [theme, color],
   );

@@ -31,6 +31,7 @@ import {
   type Selections,
 } from "./questions";
 import { IconButton, MONOSPACE, errorText, type Tone } from "./ui";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 type AgentHandle = ReturnType<ReturnType<typeof usePaseo>["agents"]["ref"]>;
 export type PermissionRequest = NonNullable<AgentHandle["pendingPermissions"]>[number];
@@ -90,7 +91,7 @@ function useCardStyles(theme: PluginTheme, compact: boolean) {
         gap: 10,
       },
       heading: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
-      headingText: { color: colors.accent, fontSize: 12, fontWeight: "600" as const },
+      headingText: { color: colors.accent, fontSize: FONT_SIZE.small, fontWeight: "600" as const },
       tabs: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6 },
       tab: {
         flexDirection: "row" as const,
@@ -103,18 +104,18 @@ function useCardStyles(theme: PluginTheme, compact: boolean) {
         borderColor: colors.border,
       },
       tabActive: { borderColor: colors.foreground, backgroundColor: colors.surface2 },
-      tabText: { color: colors.foregroundMuted, fontSize: 12 },
+      tabText: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
       tabTextActive: { color: colors.foreground },
-      question: { color: colors.foreground, fontSize: 14, fontWeight: "600" as const, lineHeight: 20 },
+      question: { color: colors.foreground, fontSize: FONT_SIZE.content, fontWeight: "600" as const, lineHeight: lineHeightFor(FONT_SIZE.content) },
       option: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 10, paddingVertical: 6 },
-      mark: { color: colors.foregroundMuted, fontSize: 16, lineHeight: 20, width: 18 },
+      mark: { color: colors.foregroundMuted, fontSize: FONT_SIZE.subtitle, lineHeight: lineHeightFor(FONT_SIZE.body), width: 18 },
       markSelected: { color: colors.accent },
       optionText: { flex: 1, gap: 2 },
-      optionLabel: { color: colors.foreground, fontSize: 13, lineHeight: 19 },
-      optionDescription: { color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 },
+      optionLabel: { color: colors.foreground, fontSize: FONT_SIZE.body, lineHeight: lineHeightFor(FONT_SIZE.body) },
+      optionDescription: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) },
       input: {
         color: colors.foreground,
-        fontSize: 13,
+        fontSize: FONT_SIZE.body,
         minHeight: 44,
         borderWidth: 1,
         borderColor: colors.border,
@@ -125,11 +126,11 @@ function useCardStyles(theme: PluginTheme, compact: boolean) {
         textAlignVertical: "top" as const,
       },
       actions: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 8 },
-      body: { color: colors.foreground, fontSize: 13, lineHeight: 19 },
+      body: { color: colors.foreground, fontSize: FONT_SIZE.body, lineHeight: lineHeightFor(FONT_SIZE.body) },
       code: {
         color: colors.foreground,
         fontFamily: MONOSPACE,
-        fontSize: 12,
+        fontSize: FONT_SIZE.code,
         backgroundColor: colors.surface0,
         borderRadius: 6,
         padding: 8,

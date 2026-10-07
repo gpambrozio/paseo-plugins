@@ -34,6 +34,7 @@ import {
 } from "./format";
 import { SUGGESTIONS_ICON, SUGGESTIONS_TITLE, SuggestionList } from "./suggestions";
 import { WATCHES_ICON, WATCHES_TITLE, WatchList } from "./watches";
+import { FONT_SIZE } from "./type-scale";
 
 const COLLAPSED_WIDTH = 40;
 
@@ -72,7 +73,7 @@ export function Board(props: BoardProps) {
     return {
       board: { flex: 1, padding: compact ? 10 : 12, gap: 10 },
       stack: { gap: 10, padding: 10, paddingBottom: 24 },
-      nobody: { padding: compact ? 10 : 12, color: colors.foregroundMuted, fontSize: 12 },
+      nobody: { padding: compact ? 10 : 12, color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
       row: { flex: 1, minHeight: 0, flexDirection: "row" as const, gap: 10 },
       column: {
         flexGrow: 1,
@@ -97,13 +98,13 @@ export function Board(props: BoardProps) {
       columnFolded: { flexGrow: 0, flexBasis: COLLAPSED_WIDTH, width: COLLAPSED_WIDTH, alignItems: "center" as const },
       header: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
       headerFolded: { alignItems: "center" as const, gap: 8 },
-      title: { flex: 1, color: colors.foreground, fontSize: 12, fontWeight: "600" as const },
-      count: { color: colors.foregroundMuted, fontSize: 11 },
+      title: { flex: 1, color: colors.foreground, fontSize: FONT_SIZE.small, fontWeight: "600" as const },
+      count: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
       arrow: { padding: 3 },
       body: { gap: 8, paddingBottom: 4 },
       foldedTitle: {
         color: colors.foregroundMuted,
-        fontSize: 11,
+        fontSize: FONT_SIZE.caption,
         transform: [{ rotate: "90deg" }],
         width: 120,
         textAlign: "center" as const,

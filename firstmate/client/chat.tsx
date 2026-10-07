@@ -35,6 +35,7 @@ import { IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
 import { canAttachFiles, pickFiles, receiveFiles, type OfferedFile } from "./web";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 /** A run of tool calls shows this many before folding the rest behind a count. */
 const TOOL_RUN_VISIBLE = 2;
@@ -230,14 +231,14 @@ export function MateChat({
         paddingHorizontal: 10,
         paddingVertical: 7,
       },
-      captainText: { color: colors.foreground, fontSize: 13, lineHeight: 18 },
+      captainText: { color: colors.foreground, fontSize: FONT_SIZE.body, lineHeight: lineHeightFor(FONT_SIZE.body) },
       mate: { alignSelf: "stretch" as const },
       line: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
-      lineText: { flex: 1, color: colors.foregroundMuted, fontSize: 11 },
-      toolText: { flex: 1, color: colors.foregroundMuted, fontSize: 11, fontFamily: MONOSPACE },
-      more: { color: colors.accent, fontSize: 11 },
-      error: { color: colors.statusDanger, fontSize: 12 },
-      hint: { color: colors.foregroundMuted, fontSize: 12, textAlign: "center" as const, padding: 16 },
+      lineText: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
+      toolText: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.caption, fontFamily: MONOSPACE },
+      more: { color: colors.accent, fontSize: FONT_SIZE.caption },
+      error: { color: colors.statusDanger, fontSize: FONT_SIZE.small },
+      hint: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small, textAlign: "center" as const, padding: 16 },
       composerFrame: {
         borderTopWidth: 1,
         borderTopColor: colors.border,
@@ -262,14 +263,14 @@ export function MateChat({
         borderRadius: 10,
         backgroundColor: colors.surface1,
       },
-      dropText: { color: colors.foreground, fontSize: 13 },
+      dropText: { color: colors.foreground, fontSize: FONT_SIZE.body },
       inputRow: { flexDirection: "row" as const, alignItems: "flex-end" as const, gap: 8 },
       inputActions: { gap: 6 },
       input: {
         flex: 1,
         color: colors.foreground,
-        fontSize: 14,
-        lineHeight: 20,
+        fontSize: FONT_SIZE.content,
+        lineHeight: lineHeightFor(FONT_SIZE.content),
         borderWidth: 1,
         borderColor: colors.border,
         borderRadius: 8,
@@ -551,8 +552,8 @@ function AttachmentChip({
         backgroundColor: colors.surface2,
       },
       text: { flexShrink: 1 },
-      name: { color: colors.foreground, fontSize: 12 },
-      size: { color: colors.foregroundMuted, fontSize: 10 },
+      name: { color: colors.foreground, fontSize: FONT_SIZE.small },
+      size: { color: colors.foregroundMuted, fontSize: FONT_SIZE.micro },
       remove: { padding: 4 },
     }),
     [colors],

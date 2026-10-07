@@ -24,6 +24,7 @@ import { Markdown } from "./markdown";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { Chip, IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useAgentTimeline } from "./use-timeline";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 /** How much of a crewmate's history is read: its tail, this many entries long. */
 const TIMELINE_LIMIT = 200;
@@ -83,12 +84,12 @@ export function CrewmateView({
         paddingTop: compact ? 0 : 12,
         paddingBottom: 8,
       },
-      title: { flex: 1, color: colors.foreground, fontSize: 14, fontWeight: "600" as const },
+      title: { flex: 1, color: colors.foreground, fontSize: FONT_SIZE.content, fontWeight: "600" as const },
       body: { flex: 1, minHeight: 0, paddingHorizontal: compact ? 10 : 12, paddingBottom: compact ? 10 : 12, gap: 10 },
       bodySide: { flexDirection: "row" as const },
       cardColumn: { width: CARD_COLUMN_WIDTH, flexGrow: 0, flexShrink: 0 },
       cardStacked: { flexGrow: 0, maxHeight: "45%" as const },
-      gone: { color: colors.foregroundMuted, fontSize: 12, lineHeight: 17 },
+      gone: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) },
       transcriptFrame: {
         flex: 1,
         minHeight: 0,
@@ -173,11 +174,11 @@ function ActivityTranscript({
     const { colors } = theme;
     return {
       body: { padding: compact ? 10 : 14, gap: 8 },
-      label: { color: colors.foregroundMuted, fontSize: 10, fontWeight: "600" as const, letterSpacing: 0.6, marginTop: 4 },
+      label: { color: colors.foregroundMuted, fontSize: FONT_SIZE.micro, fontWeight: "600" as const, letterSpacing: 0.6, marginTop: 4 },
       prompt: { borderLeftWidth: 3, borderLeftColor: colors.accent, paddingLeft: 10 },
-      promptText: { color: colors.foreground, fontSize: 13, lineHeight: 19 },
-      reasoning: { color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, fontStyle: "italic" as const },
-      more: { color: colors.accent, fontSize: 11, marginTop: 2 },
+      promptText: { color: colors.foreground, fontSize: FONT_SIZE.body, lineHeight: lineHeightFor(FONT_SIZE.body) },
+      reasoning: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small), fontStyle: "italic" as const },
+      more: { color: colors.accent, fontSize: FONT_SIZE.caption, marginTop: 2 },
       tool: {
         borderWidth: 1,
         borderColor: colors.border,
@@ -188,26 +189,26 @@ function ActivityTranscript({
         gap: 8,
       },
       toolHead: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
-      toolLabel: { color: colors.foreground, fontSize: 12, fontWeight: "600" as const },
-      toolSummary: { flex: 1, color: colors.foregroundMuted, fontSize: 11, fontFamily: MONOSPACE },
+      toolLabel: { color: colors.foreground, fontSize: FONT_SIZE.small, fontWeight: "600" as const },
+      toolSummary: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.caption, fontFamily: MONOSPACE },
       detail: {
         color: colors.foreground,
-        fontSize: 11,
-        lineHeight: 16,
+        fontSize: FONT_SIZE.caption,
+        lineHeight: lineHeightFor(FONT_SIZE.caption),
         fontFamily: MONOSPACE,
         backgroundColor: colors.surface2,
         borderRadius: 6,
         padding: 8,
       },
       planRow: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 8 },
-      planText: { flex: 1, color: colors.foreground, fontSize: 13, lineHeight: 18 },
+      planText: { flex: 1, color: colors.foreground, fontSize: FONT_SIZE.body, lineHeight: lineHeightFor(FONT_SIZE.body) },
       planDone: { color: colors.foregroundMuted, textDecorationLine: "line-through" as const },
       planActive: { fontWeight: "600" as const },
       line: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
-      lineText: { flex: 1, color: colors.foregroundMuted, fontSize: 11 },
-      error: { color: colors.statusDanger, fontSize: 12 },
-      hint: { color: colors.foregroundMuted, fontSize: 12, textAlign: "center" as const, padding: 16 },
-      link: { color: colors.accent, fontSize: 11, textDecorationLine: "underline" as const },
+      lineText: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
+      error: { color: colors.statusDanger, fontSize: FONT_SIZE.small },
+      hint: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small, textAlign: "center" as const, padding: 16 },
+      link: { color: colors.accent, fontSize: FONT_SIZE.caption, textDecorationLine: "underline" as const },
     };
   }, [theme, compact]);
 
@@ -300,7 +301,7 @@ function ActivityTranscript({
               )}
             </View>
             {!expanded || row.detail === null ? null : row.markdown ? (
-              <Markdown source={row.detail} theme={theme} fontSize={12} onOpenLink={openLink} />
+              <Markdown source={row.detail} theme={theme} fontSize={FONT_SIZE.small} onOpenLink={openLink} />
             ) : (
               <Text selectable style={styles.detail}>
                 {row.detail}

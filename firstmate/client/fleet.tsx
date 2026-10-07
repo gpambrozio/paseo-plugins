@@ -46,6 +46,7 @@ import { useMateSender } from "./mate-send";
 import { ResizeHandle, clampShare } from "./resize-handle";
 import { SuggestionList } from "./suggestions";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
+import { FONT_SIZE } from "./type-scale";
 
 export const FLEET_QUERY_KEY = ["firstmate", "fleet"] as const;
 
@@ -222,9 +223,9 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
         borderBottomColor: colors.border,
       },
       headerRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, flexWrap: "wrap" as const },
-      title: { color: colors.foreground, fontSize: compact ? 17 : 20, fontWeight: "600" as const },
+      title: { color: colors.foreground, fontSize: compact ? FONT_SIZE.heading : FONT_SIZE.display, fontWeight: "600" as const },
       spacer: { flex: 1 },
-      meta: { color: colors.foregroundMuted, fontSize: 12 },
+      meta: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
       banners: { paddingHorizontal: compact ? 12 : 16, paddingTop: 8, gap: 6 },
       split: { flex: 1, minHeight: 0, flexDirection: "row" as const },
       rail: {
@@ -244,10 +245,10 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
       },
       tab: { flex: 1, paddingVertical: 7, alignItems: "center" as const },
       tabActive: { backgroundColor: colors.accent },
-      tabText: { color: colors.foreground, fontSize: 13 },
+      tabText: { color: colors.foreground, fontSize: FONT_SIZE.body },
       tabTextActive: { color: colors.accentForeground, fontWeight: "600" as const },
       suggestions: { padding: 10, paddingBottom: 24 },
-      loading: { color: colors.foregroundMuted, fontSize: 13, padding: 20 },
+      loading: { color: colors.foregroundMuted, fontSize: FONT_SIZE.body, padding: 20 },
     };
   }, [theme, compact]);
 

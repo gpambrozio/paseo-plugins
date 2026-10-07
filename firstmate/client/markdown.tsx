@@ -21,6 +21,7 @@ import { Text, View } from "react-native";
 import { inlineTokens, type FileLookup } from "./file-links";
 import { parseMarkdown, type Block } from "./markdown-parse";
 import { MONOSPACE } from "./ui";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 interface MarkdownStyles {
   paragraph: object;
@@ -45,11 +46,11 @@ interface MarkdownStyles {
 function useMarkdownStyles(theme: PluginTheme, fontSize: number): MarkdownStyles {
   return useMemo(
     () => ({
-      paragraph: { color: theme.colors.foreground, fontSize, lineHeight: Math.round(fontSize * 1.45) },
+      paragraph: { color: theme.colors.foreground, fontSize, lineHeight: lineHeightFor(fontSize) },
       heading: { color: theme.colors.foreground, fontSize: fontSize + 1, fontWeight: "600" as const, marginTop: 4 },
       headingLarge: { color: theme.colors.foreground, fontSize: fontSize + 3, fontWeight: "700" as const, marginTop: 6 },
       listRow: { flexDirection: "row" as const, gap: 6 },
-      listMarker: { color: theme.colors.foregroundMuted, fontSize, lineHeight: Math.round(fontSize * 1.45) },
+      listMarker: { color: theme.colors.foregroundMuted, fontSize, lineHeight: lineHeightFor(fontSize) },
       listText: { flex: 1 },
       codeBlock: {
         backgroundColor: theme.colors.surface2,
@@ -195,7 +196,7 @@ function renderBlocks(blocks: Block[], styles: MarkdownStyles, context: InlineCo
 export function Markdown({
   source,
   theme,
-  fontSize = 13,
+  fontSize = FONT_SIZE.body,
   onOpenLink,
   files = noFiles,
   onOpenFile = null,

@@ -14,6 +14,7 @@ import { FlatList, Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-
 import { SettingsRow } from "@getpaseo/plugin/client/ui";
 import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import { FONT_SIZE } from "./type-scale";
 
 export interface PickerOption {
   label: string;
@@ -70,13 +71,13 @@ export function OptionPicker(props: OptionPickerProps) {
         borderColor: separator,
         backgroundColor: colors.surface1,
       },
-      triggerText: { color: colors.foreground, fontSize: 13, flexShrink: 1 },
+      triggerText: { color: colors.foreground, fontSize: FONT_SIZE.body, flexShrink: 1 },
       triggerDisabled: { opacity: 0.5 },
       body: { flex: 1 },
       content: { flex: 1, padding: compact ? 12 : 16, gap: 10 },
       search: {
         color: colors.foreground,
-        fontSize: 15,
+        fontSize: FONT_SIZE.subtitle,
         paddingHorizontal: 12,
         paddingVertical: 10,
         borderRadius: 8,
@@ -84,7 +85,7 @@ export function OptionPicker(props: OptionPickerProps) {
         borderColor: separator,
         backgroundColor: colors.surface1,
       },
-      count: { color: colors.foregroundMuted, fontSize: 12 },
+      count: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
       list: { flex: 1 },
       row: {
         flexDirection: "row" as const,
@@ -97,9 +98,9 @@ export function OptionPicker(props: OptionPickerProps) {
       },
       rowSelected: { backgroundColor: withAlpha(colors.accent, "1a"), borderRadius: 8 },
       rowText: { flex: 1, gap: 2 },
-      rowLabel: { color: colors.foreground, fontSize: 15 },
-      rowDetail: { color: colors.foregroundMuted, fontSize: 12 },
-      empty: { color: colors.foregroundMuted, fontSize: 14, padding: 16, textAlign: "center" as const },
+      rowLabel: { color: colors.foreground, fontSize: FONT_SIZE.subtitle },
+      rowDetail: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small },
+      empty: { color: colors.foregroundMuted, fontSize: FONT_SIZE.content, padding: 16, textAlign: "center" as const },
     };
   }, [theme, compact]);
 

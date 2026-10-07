@@ -28,6 +28,7 @@ import { agentStatusLabel, modelLabel } from "./format";
 import { useModeOptions, useModelOptions, withCurrent } from "./models";
 import { OptionPicker } from "./option-picker";
 import { errorText } from "./ui";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 const CONFIG_QUERY_KEY = ["firstmate", "config"] as const;
 const PROVIDER_DEFAULT = "";
@@ -65,8 +66,8 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
     () => ({
       screen: { flex: 1, backgroundColor: theme.colors.surface0 },
       content: { padding: layout.compact ? 12 : 20, gap: 16 },
-      note: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 17 },
-      value: { color: theme.colors.foreground, fontSize: 13 },
+      note: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) },
+      value: { color: theme.colors.foreground, fontSize: FONT_SIZE.body },
     }),
     [theme, layout.compact],
   );

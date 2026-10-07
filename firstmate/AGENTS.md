@@ -75,6 +75,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/markdown.tsx`         | A trimmed copy of `github-board`'s renderer, for the first mate's replies.                 |
 | `client/markdown-parse.ts`    | The renderer's blocks, and the inline text in them — what `file-links.ts` walks. Pure.     |
 | `client/file-links.ts`        | A reply's inline tokens, and the home files it names that the daemon (`firstmate.files.find`) says exist. Pure. |
+| `client/type-scale.ts`        | Every font size, by role, at Paseo's default sizes; the one file to change when the theme carries Paseo's font setting. |
 | `client/option-picker.tsx`    | A copy of `herald`'s searchable picker, for the model lists.                               |
 | `client/web.ts`, `resize-handle.tsx` | The chat/board split's drag (a copy of `github-board`'s); the chat's file picker, paste and drop. |
 

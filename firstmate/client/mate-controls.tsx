@@ -17,6 +17,7 @@ import { Text, View } from "react-native";
 import { compactMate, restartMate } from "../shared/fleet";
 import { ContextMeter } from "./context-meter";
 import { IconButton, errorText } from "./ui";
+import { FONT_SIZE, lineHeightFor } from "./type-scale";
 
 export function MateControls({
   theme,
@@ -45,8 +46,8 @@ export function MateControls({
     () => ({
       // `marginLeft: auto` pushes the group to the row's end, and to the end of a line of its own when it wraps.
       group: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, marginLeft: "auto" as const },
-      text: { color: theme.colors.foreground, fontSize: 14, lineHeight: 20 },
-      muted: { color: theme.colors.foregroundMuted, fontSize: 13, lineHeight: 19 },
+      text: { color: theme.colors.foreground, fontSize: FONT_SIZE.content, lineHeight: lineHeightFor(FONT_SIZE.content) },
+      muted: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.body, lineHeight: lineHeightFor(FONT_SIZE.body) },
       actions: { flexDirection: "row" as const, gap: 8, justifyContent: "flex-end" as const },
     }),
     [theme],
