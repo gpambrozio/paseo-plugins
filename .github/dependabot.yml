@@ -1,12 +1,20 @@
 version: 2
 updates:
-  # One entry per plugin folder — there is no workspace root, so each has its
-  # own package.json and lockfile.
+  # One entry over every plugin folder — there is no workspace root, so each
+  # has its own package.json and lockfile.
   #
-  # Everything is collapsed into a single group per folder on purpose:
-  # @getpaseo/plugin peer-depends on the exact @getpaseo/client it ships
-  # against, so a PR that bumps one without the other fails ERESOLVE. Grouping
-  # keeps them moving together, and keeps this to at most one PR per plugin.
+  # Everything is collapsed into one group on purpose: @getpaseo/plugin
+  # peer-depends on the exact @getpaseo/client it ships against, so a PR that
+  # bumps one without the other fails ERESOLVE. Grouping keeps them moving
+  # together, and a group over `directories` is one PR across every folder
+  # ("bump the all-dependencies group across 5 directories").
+  #
+  # A group applies to version updates only unless it says otherwise, and
+  # security updates do not wait for the schedule or count toward
+  # open-pull-requests-limit — so without the second group every alert was its
+  # own PR, one per package per folder. A plugin folder missing from the list
+  # gets no grouping and no commit prefix at all, which is how herald's arrived
+  # as `build(deps-dev)`.
   - package-ecosystem: npm
     directories:
       - /skills
@@ -14,10 +22,16 @@ updates:
       - /launchd-jobs
       - /model-pricing
       - /firstmate
+      - /herald
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
         patterns:
           - "*"
     # The app supplies these to a running plugin, so a plugin's own copy is a
@@ -33,6 +47,6 @@ updates:
       - dependency-name: "@types/react"
       - dependency-name: "@tanstack/react-query"
       - dependency-name: zod
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 1
     commit-message:
       prefix: deps
