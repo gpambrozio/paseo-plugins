@@ -40,8 +40,21 @@ updates:
     # app bundles, so bumping react (and react-native, which drags react with
     # it) fails ERESOLVE outright; the others merely let the typechecker
     # describe APIs the host does not have. They move by hand, when Paseo's
-    # `plugin init` scaffold moves.
+    # `plugin init` scaffold moves. react-native stays on the version the
+    # Paseo app runs, whatever newer one exists.
+    #
+    # The @getpaseo SDK is re-pinned by hand, and only when a plugin needs an
+    # API a newer release adds — never just to track a Paseo release (see
+    # "The SDK dependency" in AGENTS.md).
+    #
+    # `ignore` covers both version and security updates, but only for the
+    # package an update is named after. A security update for a transitive
+    # package can still bump an ignored parent to fix it: #100 bumped the
+    # ignored react-native to drop a vulnerable sprintf-js.
     ignore:
+      - dependency-name: "@getpaseo/client"
+      - dependency-name: "@getpaseo/plugin"
+      - dependency-name: "@getpaseo/protocol"
       - dependency-name: react
       - dependency-name: react-native
       - dependency-name: "@types/react"
