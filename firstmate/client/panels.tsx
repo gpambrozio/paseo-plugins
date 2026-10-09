@@ -23,8 +23,11 @@ import { ScrollView, Text, View } from "react-native";
 
 import { askMate, type FleetCard } from "../shared/fleet";
 import { displaySettings } from "../shared/settings";
+import { captainMessage } from "./attachments";
 import { CrewCard } from "./card";
+import type { MateAsk } from "./card-answer";
 import { FLEET_QUERY_KEY, useFleet } from "./fleet";
+import { useMateSender } from "./mate-send";
 import { groupCards } from "./format";
 import { IconButton, errorText } from "./ui";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
@@ -53,6 +56,11 @@ function PanelBody({
   const toast = useToast();
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
+  /**
+   * The board's sender, so a card's action or answer here goes out exactly as it does on the board —
+   * with a toast once it has, since the chat that would show it go out is not in view.
+   */
+  const mateSender = useMateSender(fleet.data?.mate?.id ?? "");
 
   const data = fleet.data ?? null;
   const isMate = data?.mate !== null && data?.mate !== undefined && data.mate.id === match.agentId;
@@ -86,6 +94,17 @@ function PanelBody({
       },
     };
   }, [theme, compact]);
+
+  const toMate: MateAsk | null =
+    data?.mate === null || data?.mate === undefined
+      ? null
+      : {
+          sending: mateSender.sending,
+          send: (text, onFailure) =>
+            mateSender.send(captainMessage(text, []), onFailure, () =>
+              toast.show("Sent to the first mate.", { variant: "success" }),
+            ),
+        };
 
   function refresh(): void {
     void queryClient.invalidateQueries({ queryKey: FLEET_QUERY_KEY });
@@ -130,6 +149,7 @@ function PanelBody({
                 : { icon: "ExternalLink", label: "Open", onPress: () => navigation.openAgent({ agentId }) }
             }
             onChanged={refresh}
+            toMate={toMate}
             startExpanded
           />
         );

@@ -71,9 +71,10 @@ export interface MateSender {
   /**
    * Sends a message, unless one is already on its way; false when refused. A
    * failure is shown as a toast, then `onFailure` runs — the chat's Send puts
-   * its text back there.
+   * its text back there. `onSent` runs once the daemon has taken it, for a
+   * caller with no transcript in view to show it.
    */
-  send: (message: CaptainMessage, onFailure?: () => void) => boolean;
+  send: (message: CaptainMessage, onFailure?: () => void, onSent?: () => void) => boolean;
   /** Bearings or Ahoy, worded on the daemon; refused and reported like `send`. */
   command: (command: MateCommand) => boolean;
 }
@@ -85,19 +86,22 @@ export function useMateSender(mateId: string): MateSender {
   const gate = gateFor(mateId);
   const sending = useSyncExternalStore(gate.subscribe, gate.busy);
 
-  function deliver(task: () => Promise<unknown>, onFailure?: () => void): boolean {
+  function deliver(task: () => Promise<unknown>, onFailure?: () => void, onSent?: () => void): boolean {
     const started = gate.run(task);
     if (started === null) return false;
-    started.catch((caught: unknown) => {
-      toast.error(errorText(caught));
-      onFailure?.();
-    });
+    started.then(
+      () => onSent?.(),
+      (caught: unknown) => {
+        toast.error(errorText(caught));
+        onFailure?.();
+      },
+    );
     return true;
   }
 
   return {
     sending,
-    send: (message, onFailure) => deliver(() => ask(message), onFailure),
+    send: (message, onFailure, onSent) => deliver(() => ask(message), onFailure, onSent),
     command: (command) => deliver(() => askCommand({ command, args: "" })),
   };
 }

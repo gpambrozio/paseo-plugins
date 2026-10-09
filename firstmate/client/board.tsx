@@ -22,6 +22,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 
 import type { ColumnId, FleetCard, Suggestion, WatchSummary } from "../shared/fleet";
 import { CrewCard } from "./card";
+import type { MateAsk } from "./card-answer";
 import {
   boardItems,
   boardRows,
@@ -46,10 +47,8 @@ interface BoardProps {
   compact: boolean;
   /** Drawn as the first card of a wide board; empty draws no card. */
   suggestions: readonly Suggestion[];
-  /** A message to the first mate is on its way, so the suggestions wait. */
-  suggesting: boolean;
-  /** Sends a suggestion's prompt to the first mate. */
-  onSuggest: (prompt: string) => void;
+  /** Sends a suggestion's prompt, a card's action or a held card's answer to the first mate. */
+  toMate: MateAsk;
   /** Takes a suggestion off the first mate's list without sending it. */
   onRemoveSuggestion: (suggestion: Suggestion) => Promise<void>;
   /** The home's watch scripts: a card after the columns, or the list's last section; empty draws neither. */
@@ -183,6 +182,7 @@ export function Board(props: BoardProps) {
           compact={compact}
           opener={agentId === null ? null : { icon: "Eye", label: "Watch", onPress: () => props.onWatch(agentId) }}
           onChanged={props.onChanged}
+          toMate={props.toMate}
         />
       );
     });
@@ -250,8 +250,8 @@ export function Board(props: BoardProps) {
                     <SuggestionList
                       suggestions={suggestions}
                       theme={theme}
-                      disabled={props.suggesting}
-                      onPick={props.onSuggest}
+                      disabled={props.toMate.sending}
+                      onPick={(prompt) => props.toMate.send(prompt)}
                       onRemove={props.onRemoveSuggestion}
                     />
                   </ScrollView>

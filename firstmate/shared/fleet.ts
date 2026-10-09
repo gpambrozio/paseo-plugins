@@ -70,6 +70,17 @@ export type CrewReportSummary = z.infer<typeof CrewReportSchema>;
 export const BacklogSectionSchema = z.enum(["in-flight", "queued", "done"]);
 export type BacklogSection = z.infer<typeof BacklogSectionSchema>;
 
+/**
+ * One of the captain's likely answers to a held item, written by the first
+ * mate on its backlog line as `(actions: <label> => <prompt> | …)`: the card
+ * draws the label as a button that sends the prompt.
+ */
+export const CardActionSchema = z.object({
+  label: z.string(),
+  prompt: z.string(),
+});
+export type CardAction = z.infer<typeof CardActionSchema>;
+
 export const BacklogItemSchema = z.object({
   section: BacklogSectionSchema,
   id: z.string(),
@@ -79,6 +90,7 @@ export const BacklogItemSchema = z.object({
   mode: z.string().nullable(),
   agentId: z.string().nullable(),
   hold: z.string().nullable(),
+  actions: z.array(CardActionSchema),
   blockedBy: z.string().nullable(),
   since: z.string().nullable(),
   url: z.string().nullable(),

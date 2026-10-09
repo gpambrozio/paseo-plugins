@@ -43,6 +43,7 @@ import { CrewmateView } from "./crewmate";
 import { agentStatusLabel, agentStatusTone, groupCards, orderedColumns, revealFilesPatch, shortPath } from "./format";
 import { LaunchPanel } from "./launch";
 import { useMateSender } from "./mate-send";
+import type { MateAsk } from "./card-answer";
 import { ResizeHandle, clampShare } from "./resize-handle";
 import { SuggestionList } from "./suggestions";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
@@ -282,17 +283,19 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
     mate === null || navigation === undefined ? null : () => navigation.openAgent({ agentId: mate.id });
 
   /**
-   * A suggestion is sent to the first mate at once, through the chat's own
-   * path, and the chat comes into view to show it going out. The draft the
-   * captain was typing is left as it was. While a message is on its way the
-   * buttons are disabled, and a press that still gets through is refused by
-   * the sender, so a double press sends once.
+   * A suggestion, a card's action or a held card's answer is sent to the first
+   * mate at once, through the chat's own path, and the chat comes into view to
+   * show it going out. The draft the captain was typing is left as it was.
+   * While a message is on its way the buttons are disabled, and a press that
+   * still gets through is refused by the sender, so a double press sends once.
    */
-  function suggest(prompt: string): void {
-    if (mate === null || !mateSender.send(captainMessage(prompt, []))) return;
+  function tellMate(text: string, onFailure?: () => void): boolean {
+    if (mate === null || !mateSender.send(captainMessage(text, []), onFailure)) return false;
     if (compact) setTab("chat");
     else if (values.chatCollapsed) save({ chatCollapsed: false });
+    return true;
   }
+  const toMate: MateAsk = { sending: mateSender.sending, send: tellMate };
 
   /**
    * A suggestion's trash: the daemon records it as dismissed and its line leaves the first mate's file,
@@ -531,8 +534,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
       theme={theme}
       compact={compact}
       suggestions={data.suggestions}
-      suggesting={mateSender.sending}
-      onSuggest={suggest}
+      toMate={toMate}
       onRemoveSuggestion={dismissSuggestion}
       watches={data.watches}
       onOpenFile={openFile}
@@ -571,6 +573,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
         onBack={() => setWatching(null)}
         onOpen={navigation === undefined ? null : () => navigation.openAgent({ agentId: watching })}
         onChanged={refresh}
+        toMate={toMate}
       />
     );
 
@@ -611,7 +614,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
                 suggestions={data.suggestions}
                 theme={theme}
                 disabled={mateSender.sending}
-                onPick={suggest}
+                onPick={(prompt) => tellMate(prompt)}
                 onRemove={dismissSuggestion}
               />
             </ScrollView>

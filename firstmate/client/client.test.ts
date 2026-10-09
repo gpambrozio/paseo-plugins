@@ -19,6 +19,7 @@ import {
   restoreFailed,
   toAttachment,
 } from "./attachments";
+import { answerDraft, answerText, cardActions, isHeld, rememberAnswer } from "./card-answer";
 import { createDraftStore } from "./draft";
 import { fileCandidates, inlineTokens, lookupIn, pathCandidate, recentCandidates } from "./file-links";
 import { MAX_FILE_PATH_LENGTH, findHomeFiles } from "../shared/files";
@@ -45,7 +46,7 @@ import {
   watchStatusText,
   watchTone,
 } from "./format";
-import { watchPath, type AgentSummary, type FleetCard, type WatchSummary } from "../shared/fleet";
+import { watchPath, type AgentSummary, type BacklogItem, type FleetCard, type WatchSummary } from "../shared/fleet";
 import { activeCrewCount } from "./screen";
 import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
 
@@ -1006,5 +1007,63 @@ describe("the sidebar row's badge", () => {
       crewCard("closed", { status: "closed" }, "idle"),
     ];
     expect(activeCrewCount(cards)).toBe(3);
+  });
+});
+
+describe("a card's actions and answer", () => {
+  function backlogCard(item: Partial<BacklogItem>): FleetCard {
+    const backlog: BacklogItem = {
+      section: "queued",
+      id: "pick-db",
+      title: "Choose the database",
+      project: "web",
+      kind: "captain",
+      mode: null,
+      agentId: null,
+      hold: null,
+      actions: [],
+      blockedBy: null,
+      since: null,
+      url: null,
+      reportPath: null,
+      outcome: null,
+      ...item,
+    };
+    return { ...crewCard(`backlog:${backlog.id}`, null, "blocked"), taskId: backlog.id, title: backlog.title, backlog };
+  }
+  const choices = [
+    { label: "Postgres", prompt: "Use Postgres for the web project's database (pick-db)" },
+    { label: "SQLite", prompt: "Use SQLite for the web project's database (pick-db)" },
+  ];
+
+  it("draws the first mate's actions in order, held or not", () => {
+    const held = backlogCard({ hold: "Postgres or SQLite?", actions: choices });
+    expect(isHeld(held)).toBe(true);
+    expect(cardActions(held)).toEqual(choices);
+
+    const free = backlogCard({ kind: null, actions: [choices[0]!] });
+    expect(isHeld(free)).toBe(false);
+    expect(cardActions(free)).toEqual([choices[0]]);
+
+    expect(cardActions(crewCard("crew-only", { status: "idle" }))).toEqual([]);
+    expect(isHeld(crewCard("crew-only", { status: "idle" }))).toBe(false);
+  });
+
+  it("sends an answer under the task's id and title, the way bb's board does", () => {
+    const held = backlogCard({ hold: "Postgres or SQLite?" });
+    expect(answerText(held, "  Postgres, but keep SQLite for tests\n")).toBe(
+      "pick-db — Choose the database: Postgres, but keep SQLite for tests",
+    );
+    expect(answerText(held, "   ")).toBeNull();
+    expect(answerText(crewCard("crew-only", { status: "idle" }), "anything")).toBeNull();
+  });
+
+  it("keeps a half-typed answer across a remount, and forgets it once emptied", () => {
+    expect(answerDraft("backlog:pick-db")).toBe("");
+    rememberAnswer("backlog:pick-db", "Postg");
+    expect(answerDraft("backlog:pick-db")).toBe("Postg");
+    expect(answerDraft("backlog:other")).toBe("");
+    rememberAnswer("backlog:pick-db", "");
+    expect(answerDraft("backlog:pick-db")).toBe("");
   });
 });

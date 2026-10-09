@@ -18,6 +18,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import type { FleetCard } from "../shared/fleet";
 import { activityRows, type ActivityRow, type PlanStatus } from "./activity-rows";
 import { CrewCard } from "./card";
+import type { MateAsk } from "./card-answer";
 import { useFollowEnd } from "./follow-end";
 import { agentStatusLabel, agentStatusTone } from "./format";
 import { Markdown } from "./markdown";
@@ -57,6 +58,7 @@ export function CrewmateView({
   onBack,
   onOpen,
   onChanged,
+  toMate,
 }: {
   agentId: string;
   /** Null once the crewmate has left the board — ended, or archived. */
@@ -67,6 +69,7 @@ export function CrewmateView({
   /** Opens the crewmate in Paseo; absent where the host gives no navigation. */
   onOpen: (() => void) | null;
   onChanged: () => void;
+  toMate: MateAsk | null;
 }) {
   const [width, setWidth] = useState(0);
   const agent = card?.agent ?? null;
@@ -107,7 +110,7 @@ export function CrewmateView({
     card === null ? (
       <Text style={styles.gone}>This worker is no longer on the board — it was ended or archived.</Text>
     ) : (
-      <CrewCard card={card} theme={theme} compact={compact} opener={null} onChanged={onChanged} startExpanded={!compact} />
+      <CrewCard card={card} theme={theme} compact={compact} opener={null} onChanged={onChanged} toMate={toMate} startExpanded={!compact} />
     );
 
   return (

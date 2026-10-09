@@ -114,9 +114,9 @@ them against the live crew, and carry on.
 
 ```
 - [ ] <id> - <title> (project: <name>) (kind: ship|scout|captain) (mode: <mode>) (agent: <crewmate agent id>) (since YYYY-MM-DD)
-- [ ] <id> - <title> <full PR URL> (project: <name>) … (hold: <what you need>) (review-head: <sha>)
+- [ ] <id> - <title> <full PR URL> (project: <name>) … (hold: <what you need>) (actions: <label> => <prompt> | …) (review-head: <sha>)
 - [ ] <id> - <title> (project: <name>) (blocked-by: <other id>)
-- [ ] <id> - <the question> (kind: captain) (hold: <the options, in a few words>)
+- [ ] <id> - <the question> (kind: captain) (hold: <the options, in a few words>) (actions: <label> => <prompt> | …)
 - [x] <id> - <title> <full PR URL or data/<id>/report.md> (merged|done YYYY-MM-DD)
 ```
 
@@ -133,6 +133,23 @@ the captain's call; take the hold off once they have answered.
 
 **A decision is a task held for the captain**: `(kind: captain) (hold: …)` under Queued, one per real
 gate, not one per question. Close it only with the captain's recorded answer.
+
+**Every `(hold: …)` carries `(actions: …)`**: the captain's likely answers, which the board shows as
+buttons under the captain's call. Pressing one sends its prompt to you at once, as a message from the
+captain, exactly like a suggestion (below) — so each prompt stands alone, with the project, the pull
+request and full `https://` URLs. Most likely first, about four at most:
+
+```
+(hold: merge web#42?) (actions: Merge => Merge https://github.com/you/web/pull/42 | Hold => Leave https://github.com/you/web/pull/42 open until I say)
+(kind: captain) (hold: Postgres or SQLite?) (actions: Postgres => Use Postgres for the web project's database (pick-db) | SQLite => Use SQLite for the web project's database (pick-db))
+```
+
+`|` separates the buttons, and each is `<label> => <prompt>`: a few words, then the whole request. The
+field runs to its matching `)`, so balanced parentheses and URLs need nothing; write `\|` for a pipe
+inside a prompt, `\(` or `\)` for a lone parenthesis and `\\` for a backslash. Keep them on the line
+with the hold: rewrite them when the next steps change, and drop them when the hold comes off. The board
+also gives every held card an Answer box; what the captain types there reaches you as
+`<id> — <title>: <their words>`.
 
 **Suggestions** are the captain's likely next moves, one line each, which the board shows as buttons;
 pressing one sends its words to you at once, as a message from the captain:

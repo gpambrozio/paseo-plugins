@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CREW_LABELS, FirstmateConfigSchema } from "../shared/fleet";
+import { parseBacklog } from "./backlog";
 import { renderCharter } from "./charter";
 import { isHomeReady, parseProjects, prepareHome, readBacklog, readOpening } from "./home";
 import { TEMPLATES, readTemplate, withoutNotes } from "./templates";
@@ -91,6 +92,47 @@ describe("renderCharter", () => {
       expect(charter).toContain("paseo project ls --json");
       expect(charter).toContain(`paseo ls -g --label ${CREW_LABELS.role}=${CREW_LABELS.crewRole} --json`);
     }
+  });
+
+  it("gives every hold the captain's likely answers as actions, and its examples parse", async () => {
+    const charter = await renderCharter({ home: "/h", crewProvider: "", crewModeId: "" });
+    const rule = charter.indexOf("**Every `(hold: …)` carries `(actions: …)`**");
+    expect(rule).toBeGreaterThan(-1);
+    const text = charter.slice(rule, charter.indexOf("**Suggestions**", rule));
+    for (const words of [
+      "stands alone",
+      "full `https://` URLs",
+      "Most likely first, about four at most",
+      "rewrite them when the next steps change",
+      "drop them when the hold comes off",
+    ]) {
+      expect(text).toContain(words);
+    }
+    // The escapes it teaches are the parser's.
+    expect(text).toContain("`\\|` for a pipe");
+    expect(text).toContain("`\\(` or `\\)` for a lone parenthesis");
+    // What the Answer box sends (`answerText` in client/card-answer.ts), as the charter quotes it.
+    expect(text).toContain("`<id> — <title>: <their words>`");
+
+    const examples = /```\n([\s\S]*?)```/.exec(text)?.[1]?.trim().split("\n") ?? [];
+    expect(examples).toHaveLength(2);
+    const items = parseBacklog(`## Queued\n${examples.map((line, index) => `- [ ] t${index} - Title ${line}`).join("\n")}`);
+    expect(items.map((item) => item.actions.map((action) => action.label))).toEqual([
+      ["Merge", "Hold"],
+      ["Postgres", "SQLite"],
+    ]);
+    expect(items[0]?.actions[0]?.prompt).toBe("Merge https://github.com/you/web/pull/42");
+    expect(items[1]?.actions[0]?.prompt).toBe("Use Postgres for the web project's database (pick-db)");
+    expect(items.map((item) => [item.title, item.url])).toEqual([
+      ["Title", null],
+      ["Title", null],
+    ]);
+  });
+
+  it("puts (actions: …) beside the hold in the backlog line format", async () => {
+    const charter = await renderCharter({ home: "/h", crewProvider: "", crewModeId: "" });
+    expect(charter).toContain("(hold: <what you need>) (actions: <label> => <prompt> | …)");
+    expect(charter).toContain("(kind: captain) (hold: <the options, in a few words>) (actions: <label> => <prompt> | …)");
   });
 });
 

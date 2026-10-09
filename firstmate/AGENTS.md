@@ -23,7 +23,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/charter.ts`           | Renders `AGENTS.md`: the charter's placeholders filled, under its heading note.            |
 | `server/charter-file.ts`      | `data/charter.md`, the captain's copy it is rendered from: follows the plugin until edited. |
 | `server/home.ts`              | The home directory: writes the charter and records, reads the backlog and project registry. |
-| `server/backlog.ts`           | `data/backlog.md` → `BacklogItem[]`. Lenient, because an agent writes the file.            |
+| `server/backlog.ts`           | `data/backlog.md` → `BacklogItem[]`, `(actions: …)` included. Lenient, because an agent writes the file. |
 | `server/suggestions.ts`       | `data/suggestions.md` → `Suggestion[]`, the board's next-step buttons, taking one out, and the dismissed list that hides it after. Lenient, likewise. |
 | `server/crew-report.ts`       | A crewmate's closing status line (`done: PR …`) → state and text.                          |
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
@@ -59,6 +59,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/keys.ts`              | Enter sends, Shift+Enter is a new line — web and wide layouts only, as in Paseo. Pure.     |
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
 | `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
+| `client/card-answer.ts`       | A card's `(actions: …)` buttons and a held card's Answer box: what they send, the kept drafts. Pure. |
 | `client/suggestions.tsx`      | The first mate's suggestions as buttons: a card on the wide board, a tab on a phone.       |
 | `client/suggestion-removals.ts` | Which suggestions have a removal on its way, by label and prompt. Pure.                  |
 | `client/suggestion-fold.ts`   | Whether a folded suggestion card cuts its text, measured against an invisible twin. Pure. |
@@ -447,6 +448,34 @@ its label or prompt, and React Native cannot say that portably — `onTextLayout
 renderer and reports the whole text on iOS — so the card lays the same text out unclamped, invisible
 and at the same width, and compares the two `onLayout` heights (`client/suggestion-fold.ts`). Until both
 are in, the chevron shows.
+
+## A held card answers the captain's call
+
+A backlog line can carry `(actions: <label> => <prompt> | …)`, the captain's likely answers, which
+charter §2 has the first mate write on every `(hold: …)` item. The card draws each as a button under
+"Captain's call" — on any card that has them, held or not, open or folded — and a held card adds an
+Answer box that sends `<id> — <title>: <typed text>` (`answerText`). Both go through the board's
+sender, the one a suggestion uses (`MateAsk`, built from `useMateSender` in `fleet.tsx` and in the
+panels), so they share its one message at a time, its failure toast and the chat coming into view. A
+half-typed answer is kept by card key in module scope, since a card remounts when it changes column.
+In the panels, where no chat is in view, a toast says it went.
+
+**The Answer box is outside the card's `Pressable`**, at the card's foot. react-native-web fires a
+`Pressable`'s `onPress` from the DOM `click`, which bubbles up from a `TextInput` inside it, so a click
+into a box inside the card opened or folded the card (checked in Chromium through react-native-web). A
+`View` claiming the responder does not stop it. A button inside is fine — an inner `Pressable` takes the
+click. The Steer and Relaunch boxes are still inside, and on a compact web layout, where they are not
+focused for you, clicking into one folds the card and hides it.
+
+The field is the one backlog group whose value may hold parentheses and URLs, so `takeActions`
+(`server/backlog.ts`) takes it out of the line before anything else is read: it runs from `(actions:`,
+any case, to its matching `)`; a backslash makes `\`, `|`, `(` and `)` literal and is kept before
+anything else (`C:\Users`); every unescaped `|` separates buttons, spaced or not; a button splits at its
+first ` => `, and one with no arrow, label or prompt is skipped. An unclosed field runs to the end of
+the line and gives no buttons, and only the first field gives any — later ones are taken out all the
+same. **bb's FirstMate (`firstmate-crew` in gpambrozio/bb-plugins) parses the same field with the same
+function and the same tests, and its charter paragraph is the same text**; change one only with the
+other.
 
 ## The home is called FirstMate in the sidebar, with a ship for its icon
 

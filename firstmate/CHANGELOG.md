@@ -7,6 +7,21 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.4.0] — 2026-10-08
+
+### Added
+
+- **Answer a waiting card from the board.** A card waiting on your call now shows the first mate's
+  likely answers as buttons right under "Captain's call" — "Merge", "Hold", "Postgres", "SQLite" —
+  and pressing one sends that answer to the first mate at once, just like a suggestion. Every waiting
+  card also has an Answer box for anything else: what you type goes to the first mate with the task's
+  name in front, so it knows which decision you are answering. On a phone, as with a suggestion, the
+  chat comes into view to show it go out.
+
+  The first mate writes those answers itself, so it needs its new instructions: a home whose charter
+  you have not edited picks them up on its own; if you have edited yours, the board offers the new one
+  to compare. A running first mate follows them once it re-reads its instructions or is restarted.
+
 ## [0.3.4] — 2026-10-07
 
 ### Fixed

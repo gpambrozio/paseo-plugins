@@ -48,8 +48,10 @@ export function IconButton({
         borderColor: tone === "accent" ? colors.accent : colors.border,
         backgroundColor: tone === "accent" ? colors.accent : colors.surface1,
         opacity: disabled ? 0.5 : 1,
+        // A long label — a card action the first mate named — wraps inside a narrow card instead of overflowing it.
+        maxWidth: "100%" as const,
       },
-      label: { color, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
+      label: { color, fontSize: FONT_SIZE.small, fontWeight: "500" as const, flexShrink: 1 },
     }),
     [colors, tone, disabled, showLabel, color],
   );

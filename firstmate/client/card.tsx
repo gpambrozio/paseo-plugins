@@ -7,6 +7,11 @@
  * crewmate directly; relaunching goes through the first mate, because it
  * owns the brief the new crewmate starts from. Ending archives the agent and
  * leaves its workspace and worktree exactly as they are.
+ *
+ * What the first mate wrote as the item's `(actions: …)` is a row of buttons
+ * under the captain's call, shown whether the card is open or not, and a held
+ * card has an Answer box at its foot: both send to the first mate through the
+ * board's sender (`./card-answer`), as a suggestion does.
  */
 import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
@@ -15,6 +20,7 @@ import { useMemo, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { exitCrew, interruptCrew, relaunchCrew, steerCrew, type ColumnId, type FleetCard } from "../shared/fleet";
+import { answerDraft, answerText, cardActions, isHeld, rememberAnswer, type MateAsk } from "./card-answer";
 import { agentStatusLabel, agentStatusTone, columnTone, modelLabel, opensAsLeft, relativeTime } from "./format";
 import { Chip, IconButton, errorText } from "./ui";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
@@ -81,6 +87,7 @@ export function CrewCard({
   compact,
   opener,
   onChanged,
+  toMate,
   startExpanded = false,
 }: {
   card: FleetCard;
@@ -90,6 +97,8 @@ export function CrewCard({
   opener: CardOpener | null;
   /** Called after an action lands, so the board refreshes without waiting for its poll. */
   onChanged: () => void;
+  /** Sends a card action or an answer to the first mate; null draws neither. */
+  toMate: MateAsk | null;
   startExpanded?: boolean;
 }) {
   const steer = useRpc(steerCrew);
@@ -100,11 +109,31 @@ export function CrewCard({
 
   const { expanded, setExpanded, draft, setDraft } = useCardMemory(card.key, startExpanded, card.column);
   const [busy, setBusy] = useState(false);
+  const [answer, setAnswerState] = useState(() => answerDraft(card.key));
+
+  function setAnswer(text: string): void {
+    rememberAnswer(card.key, text);
+    setAnswerState(text);
+  }
+
+  /** The box empties as the answer goes out, and gets it back if the send fails and nothing new was typed. */
+  function sendAnswer(): void {
+    if (toMate === null) return;
+    const typed = answer;
+    const text = answerText(card, typed);
+    if (text === null) return;
+    const restore = () => {
+      if (answerDraft(card.key) === "") rememberAnswer(card.key, typed);
+      setAnswerState((current) => (current === "" ? typed : current));
+    };
+    if (toMate.send(text, restore)) setAnswer("");
+  }
 
   const agent = card.agent;
   const tone = columnTone(theme, card.column);
   const styles = useMemo(() => {
     const { colors } = theme;
+    const pad = compact ? 10 : 12;
     return {
       card: {
         borderWidth: 1,
@@ -113,9 +142,8 @@ export function CrewCard({
         borderLeftColor: tone,
         borderRadius: 10,
         backgroundColor: colors.surface0,
-        padding: compact ? 10 : 12,
-        gap: 6,
       },
+      press: { padding: pad, gap: 6 },
       titleRow: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 8 },
       title: { flex: 1, color: colors.foreground, fontSize: FONT_SIZE.body, fontWeight: "600" as const },
       meta: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
@@ -136,6 +164,25 @@ export function CrewCard({
         textAlignVertical: "top" as const,
       },
       prompt: { color: colors.foreground, fontSize: FONT_SIZE.small },
+      answerRow: {
+        flexDirection: "row" as const,
+        alignItems: "flex-end" as const,
+        gap: 6,
+        paddingHorizontal: pad,
+        paddingBottom: pad,
+      },
+      answerInput: {
+        flex: 1,
+        minWidth: 0,
+        color: colors.foreground,
+        fontSize: FONT_SIZE.small,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 8,
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+        backgroundColor: colors.surface1,
+      },
     };
   }, [theme, compact, tone]);
 
@@ -164,6 +211,9 @@ export function CrewCard({
   }
 
   const backlog = card.backlog;
+  const actions = toMate === null ? [] : cardActions(card);
+  const answers = toMate !== null && isHeld(card);
+  const sending = toMate?.sending ?? false;
   const facts = [
     card.project,
     card.kind,
@@ -172,148 +222,188 @@ export function CrewCard({
   ].filter((fact): fact is string => fact !== null && fact !== "");
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${card.title}. ${expanded ? "Hide" : "Show"} actions`}
-      accessibilityState={{ expanded }}
-      onPress={() => setExpanded(!expanded)}
-      style={styles.card}
-    >
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>{card.title}</Text>
-        {agent === null ? null : <Chip theme={theme} text={agentStatusLabel(agent)} color={agentStatusTone(theme, agent)} />}
-      </View>
-      {facts.length === 0 ? null : <Text style={styles.meta}>{facts.join(" · ")}</Text>}
-
-      {card.report === null ? null : (
-        <Text style={styles.report} numberOfLines={expanded ? undefined : 3}>
-          <Text style={styles.reportState}>{STATE_WORDS[card.report.state] ?? card.report.state}: </Text>
-          {card.report.text}
-        </Text>
-      )}
-      {backlog?.hold === null || backlog?.hold === undefined ? null : (
-        <Text style={styles.report}>
-          <Text style={styles.reportState}>Captain's call: </Text>
-          {backlog.hold}
-        </Text>
-      )}
-      {agent?.lastError === null || agent?.lastError === undefined ? null : (
-        <Text style={[styles.report, { color: theme.colors.statusDanger }]} numberOfLines={expanded ? undefined : 2}>
-          {agent.lastError}
-        </Text>
-      )}
-      {agent === null && backlog?.section === "in-flight" ? (
-        <Text style={styles.meta}>No worker is running for this item.</Text>
-      ) : null}
-
-      {card.url === null ? null : (
-        <Text
-          accessibilityRole="link"
-          style={styles.link}
-          numberOfLines={1}
-          onPress={() => {
-            void openExternalUrl(card.url ?? "").catch((caught: unknown) => toast.error(errorText(caught)));
-          }}
-        >
-          {card.url.replace(/^https?:\/\/(www\.)?github\.com\//, "")}
-        </Text>
-      )}
-      {backlog?.reportPath === null || backlog?.reportPath === undefined ? null : (
-        <Text style={styles.meta}>Report: {backlog.reportPath}</Text>
-      )}
-
-      <Text style={styles.meta}>
-        {[
-          agent === null ? null : modelLabel(agent),
-          agent === null ? backlog?.outcome ?? backlog?.since ?? null : relativeTime(agent.updatedAt),
-        ]
-          .filter((part): part is string => part !== null && part !== "")
-          .join(" · ")}
-      </Text>
-
-      {expanded && agent !== null ? (
-        <View style={styles.actions}>
-          {opener === null ? null : (
-            <IconButton icon={opener.icon} label={opener.label} showLabel theme={theme} onPress={opener.onPress} />
-          )}
-          <IconButton
-            icon="MessageSquare"
-            label="Steer"
-            showLabel
-            theme={theme}
-            disabled={busy}
-            onPress={() => setDraft({ kind: "steer", text: "" })}
-          />
-          <IconButton
-            icon="Square"
-            label="Interrupt"
-            showLabel
-            theme={theme}
-            disabled={busy || (agent.status !== "running" && agent.status !== "initializing")}
-            onPress={() => run("Interrupted.", () => interrupt({ agentId: agent.id }))}
-          />
-          <IconButton
-            icon="RotateCcw"
-            label="Relaunch"
-            showLabel
-            theme={theme}
-            disabled={busy}
-            onPress={() => setDraft({ kind: "relaunch", text: "" })}
-          />
-          <IconButton
-            icon="Power"
-            label="End"
-            showLabel
-            tone="danger"
-            theme={theme}
-            disabled={busy}
-            onPress={() => setDraft({ kind: "end" })}
-          />
+    <View style={styles.card}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${card.title}. ${expanded ? "Hide" : "Show"} actions`}
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded(!expanded)}
+        style={[styles.press, answers ? { paddingBottom: 6 } : null]}
+      >
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>{card.title}</Text>
+          {agent === null ? null : <Chip theme={theme} text={agentStatusLabel(agent)} color={agentStatusTone(theme, agent)} />}
         </View>
-      ) : null}
+        {facts.length === 0 ? null : <Text style={styles.meta}>{facts.join(" · ")}</Text>}
 
-      {expanded && draft !== null ? (
-        <View style={{ gap: 6 }}>
-          {draft.kind === "end" ? (
-            <Text style={styles.prompt}>
-              End this worker? The agent is archived; its workspace and local copy stay exactly as they are.
-            </Text>
-          ) : (
-            <TextInput
-              value={draft.text}
-              onChangeText={(text) => setDraft({ kind: draft.kind, text })}
-              placeholder={
-                draft.kind === "steer"
-                  ? "Tell the worker… (the first mate hears about it)"
-                  : "What the new worker should know — progress so far, what to avoid"
-              }
-              placeholderTextColor={theme.colors.foregroundMuted}
-              multiline
-              autoFocus={!compact}
-              style={styles.input}
-            />
-          )}
+        {card.report === null ? null : (
+          <Text style={styles.report} numberOfLines={expanded ? undefined : 3}>
+            <Text style={styles.reportState}>{STATE_WORDS[card.report.state] ?? card.report.state}: </Text>
+            {card.report.text}
+          </Text>
+        )}
+        {backlog?.hold === null || backlog?.hold === undefined ? null : (
+          <Text style={styles.report}>
+            <Text style={styles.reportState}>Captain's call: </Text>
+            {backlog.hold}
+          </Text>
+        )}
+        {actions.length === 0 ? null : (
           <View style={styles.actions}>
-            <IconButton
-              icon={draft.kind === "end" ? "Power" : "Send"}
-              label={draft.kind === "end" ? "End it" : draft.kind === "steer" ? "Send" : "Relaunch"}
-              showLabel
-              tone={draft.kind === "end" ? "danger" : "accent"}
-              theme={theme}
-              disabled={busy || (draft.kind !== "end" && draft.text.trim() === "")}
-              onPress={submitDraft}
-            />
-            <IconButton icon="X" label="Cancel" showLabel theme={theme} onPress={() => setDraft(null)} />
+            {actions.map((action, index) => (
+              <IconButton
+                key={`${index}:${action.label}`}
+                icon="Send"
+                label={action.label}
+                showLabel
+                theme={theme}
+                disabled={sending}
+                onPress={() => toMate?.send(action.prompt)}
+              />
+            ))}
           </View>
-        </View>
-      ) : null}
+        )}
+        {agent?.lastError === null || agent?.lastError === undefined ? null : (
+          <Text style={[styles.report, { color: theme.colors.statusDanger }]} numberOfLines={expanded ? undefined : 2}>
+            {agent.lastError}
+          </Text>
+        )}
+        {agent === null && backlog?.section === "in-flight" ? (
+          <Text style={styles.meta}>No worker is running for this item.</Text>
+        ) : null}
 
-      {expanded && agent === null ? (
-        <View style={styles.actions}>
-          <Icon name="Info" size={12} color={theme.colors.foregroundMuted} />
-          <Text style={styles.meta}>Ask the first mate to act on backlog items.</Text>
+        {card.url === null ? null : (
+          <Text
+            accessibilityRole="link"
+            style={styles.link}
+            numberOfLines={1}
+            onPress={() => {
+              void openExternalUrl(card.url ?? "").catch((caught: unknown) => toast.error(errorText(caught)));
+            }}
+          >
+            {card.url.replace(/^https?:\/\/(www\.)?github\.com\//, "")}
+          </Text>
+        )}
+        {backlog?.reportPath === null || backlog?.reportPath === undefined ? null : (
+          <Text style={styles.meta}>Report: {backlog.reportPath}</Text>
+        )}
+
+        <Text style={styles.meta}>
+          {[
+            agent === null ? null : modelLabel(agent),
+            agent === null ? backlog?.outcome ?? backlog?.since ?? null : relativeTime(agent.updatedAt),
+          ]
+            .filter((part): part is string => part !== null && part !== "")
+            .join(" · ")}
+        </Text>
+
+        {expanded && agent !== null ? (
+          <View style={styles.actions}>
+            {opener === null ? null : (
+              <IconButton icon={opener.icon} label={opener.label} showLabel theme={theme} onPress={opener.onPress} />
+            )}
+            <IconButton
+              icon="MessageSquare"
+              label="Steer"
+              showLabel
+              theme={theme}
+              disabled={busy}
+              onPress={() => setDraft({ kind: "steer", text: "" })}
+            />
+            <IconButton
+              icon="Square"
+              label="Interrupt"
+              showLabel
+              theme={theme}
+              disabled={busy || (agent.status !== "running" && agent.status !== "initializing")}
+              onPress={() => run("Interrupted.", () => interrupt({ agentId: agent.id }))}
+            />
+            <IconButton
+              icon="RotateCcw"
+              label="Relaunch"
+              showLabel
+              theme={theme}
+              disabled={busy}
+              onPress={() => setDraft({ kind: "relaunch", text: "" })}
+            />
+            <IconButton
+              icon="Power"
+              label="End"
+              showLabel
+              tone="danger"
+              theme={theme}
+              disabled={busy}
+              onPress={() => setDraft({ kind: "end" })}
+            />
+          </View>
+        ) : null}
+
+        {expanded && draft !== null ? (
+          <View style={{ gap: 6 }}>
+            {draft.kind === "end" ? (
+              <Text style={styles.prompt}>
+                End this worker? The agent is archived; its workspace and local copy stay exactly as they are.
+              </Text>
+            ) : (
+              <TextInput
+                value={draft.text}
+                onChangeText={(text) => setDraft({ kind: draft.kind, text })}
+                placeholder={
+                  draft.kind === "steer"
+                    ? "Tell the worker… (the first mate hears about it)"
+                    : "What the new worker should know — progress so far, what to avoid"
+                }
+                placeholderTextColor={theme.colors.foregroundMuted}
+                multiline
+                autoFocus={!compact}
+                style={styles.input}
+              />
+            )}
+            <View style={styles.actions}>
+              <IconButton
+                icon={draft.kind === "end" ? "Power" : "Send"}
+                label={draft.kind === "end" ? "End it" : draft.kind === "steer" ? "Send" : "Relaunch"}
+                showLabel
+                tone={draft.kind === "end" ? "danger" : "accent"}
+                theme={theme}
+                disabled={busy || (draft.kind !== "end" && draft.text.trim() === "")}
+                onPress={submitDraft}
+              />
+              <IconButton icon="X" label="Cancel" showLabel theme={theme} onPress={() => setDraft(null)} />
+            </View>
+          </View>
+        ) : null}
+
+        {expanded && agent === null ? (
+          <View style={styles.actions}>
+            <Icon name="Info" size={12} color={theme.colors.foregroundMuted} />
+            <Text style={styles.meta}>Ask the first mate to act on backlog items.</Text>
+          </View>
+        ) : null}
+      </Pressable>
+      {answers ? (
+        // Outside the card's Pressable: on the web a click inside it is a press of the card, which opens or folds it.
+        <View style={styles.answerRow}>
+          <TextInput
+            value={answer}
+            onChangeText={setAnswer}
+            placeholder="Answer the first mate…"
+            placeholderTextColor={theme.colors.foregroundMuted}
+            accessibilityLabel={`Answer for ${card.title}`}
+            multiline
+            style={styles.answerInput}
+          />
+          <IconButton
+            icon="Send"
+            label="Send"
+            showLabel={!compact}
+            tone="accent"
+            theme={theme}
+            disabled={sending || answer.trim() === ""}
+            onPress={sendAnswer}
+          />
         </View>
       ) : null}
-    </Pressable>
+    </View>
   );
 }

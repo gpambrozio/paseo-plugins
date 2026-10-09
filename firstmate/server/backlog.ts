@@ -12,13 +12,16 @@
  *     - [ ] fix-flaky-login - Fix the flaky login test (project: web) (kind: ship) (mode: direct-PR) (agent: 3f2a…)
  *     ## Queued
  *     - [ ] dark-mode - Add dark mode (project: web) (blocked-by: fix-flaky-login)
- *     - [ ] pick-db - Choose the database (kind: captain) (hold: Postgres or SQLite?)
+ *     - [ ] pick-db - Choose the database (kind: captain) (hold: Postgres or SQLite?) (actions: Postgres => Use Postgres for web | SQLite => Use SQLite for web)
  *     ## Done
  *     - [x] fix-typo - Fix the typo https://github.com/you/web/pull/41 (merged 2026-09-21)
  *
+ * `(actions: …)` is the one group whose value may hold anything a prompt needs, parentheses and URLs
+ * included, so it has its own rules; see `takeActions`.
+ *
  * The item shape is `BacklogItem` in `shared/fleet.ts`, which the board draws.
  */
-import type { BacklogItem, BacklogSection } from "../shared/fleet";
+import type { BacklogItem, BacklogSection, CardAction } from "../shared/fleet";
 
 const SECTION_HEADINGS: ReadonlyArray<[RegExp, BacklogSection]> = [
   [/^in[\s-]*flight\b/i, "in-flight"],
@@ -36,6 +39,87 @@ const REPORT_PATH = /\bdata\/[\w.-]+\/report\.md\b/;
 /** `id - title`, with an en or em dash accepted as the separator too. */
 const ID_AND_TITLE = /^([\w.-]{1,64})\s+[-–—]\s+(.*)$/;
 
+const ACTIONS_START = /\(actions\s*:/gi;
+/** Between an action's label and its prompt. bb's FirstMate reads the same field by the same rules. */
+const ARROW = " => ";
+/** The characters a backslash makes literal inside `(actions: …)`. Before anything else it is kept. */
+const ESCAPABLE = new Set(["\\", "|", "(", ")"]);
+
+/** One character of an actions field, and whether a backslash made it literal. */
+type Token = { char: string; escaped: boolean };
+
+/**
+ * Takes every `(actions: Label => prompt | Label => prompt)` field out of a backlog line, returning the
+ * line without them and the buttons the first one describes.
+ *
+ * - The field runs from `(actions:` (any case) to its matching `)`. Parentheses inside are counted, so a
+ *   balanced pair — `(see web#42)`, a URL with `(` and `)` — needs no escaping.
+ * - A backslash makes the next `\`, `|`, `(` or `)` literal: `\|` is a pipe inside a prompt, `\)` a lone
+ *   closing parenthesis. A backslash before any other character is kept as written.
+ * - `|` separates the buttons. In each, the label is the text before the first ` => ` (spaces included)
+ *   and the prompt is all of the text after it, so a prompt may hold more and a label none. Both are
+ *   trimmed.
+ * - A button with no ` => `, an empty label or an empty prompt is skipped. A field with no matching `)`
+ *   runs to the end of the line and gives no buttons. Either way the rest of the line still reads.
+ * - Only the first field gives buttons; any later one is taken out of the line all the same.
+ *
+ * bb's FirstMate (`firstmate-crew/server/backlog.ts` in gpambrozio/bb-plugins) has the same function; change
+ * one only with the other.
+ */
+export function takeActions(body: string): { rest: string; actions: CardAction[] } {
+  let rest = "";
+  let actions: CardAction[] | null = null;
+  let from = 0;
+  for (const start of body.matchAll(ACTIONS_START)) {
+    if (start.index < from) continue;
+    rest += body.slice(from, start.index);
+    const field = readField(body, start.index + start[0].length);
+    if (actions === null) actions = field.tokens === null ? [] : toActions(field.tokens);
+    from = field.end;
+  }
+  rest += body.slice(from);
+  return { rest, actions: actions ?? [] };
+}
+
+/** The tokens up to the `)` that closes the field and the index after it; null tokens when none does. */
+function readField(body: string, start: number): { tokens: Token[] | null; end: number } {
+  const tokens: Token[] = [];
+  let depth = 1;
+  for (let index = start; index < body.length; index += 1) {
+    const char = body[index] ?? "";
+    const next = body[index + 1];
+    if (char === "\\" && next !== undefined && ESCAPABLE.has(next)) {
+      tokens.push({ char: next, escaped: true });
+      index += 1;
+      continue;
+    }
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (depth === 0) return { tokens, end: index + 1 };
+    tokens.push({ char, escaped: false });
+  }
+  return { tokens: null, end: body.length };
+}
+
+function toActions(tokens: readonly Token[]): CardAction[] {
+  const entries: Token[][] = [[]];
+  for (const token of tokens) {
+    if (token.char === "|" && !token.escaped) entries.push([]);
+    else entries.at(-1)?.push(token);
+  }
+  const actions: CardAction[] = [];
+  for (const entry of entries) {
+    const text = entry.map((token) => token.char).join("");
+    // Every ` => ` is unescaped: none of its characters is escapable.
+    const arrow = text.indexOf(ARROW);
+    if (arrow === -1) continue;
+    const label = text.slice(0, arrow).trim();
+    const prompt = text.slice(arrow + ARROW.length).trim();
+    if (label !== "" && prompt !== "") actions.push({ label, prompt });
+  }
+  return actions;
+}
+
 function sectionOf(heading: string): BacklogSection | null {
   const text = heading.trim();
   for (const [pattern, section] of SECTION_HEADINGS) {
@@ -52,7 +136,9 @@ function field(groups: Map<string, string>, ...names: string[]): string | null {
   return null;
 }
 
-function parseItem(section: BacklogSection, body: string): BacklogItem | null {
+function parseItem(section: BacklogSection, line: string): BacklogItem | null {
+  // First, so a prompt's URLs and parentheses never reach the fields or the title below.
+  const { rest: body, actions } = takeActions(line);
   const groups = new Map<string, string>();
   for (const match of body.matchAll(GROUP)) {
     groups.set((match[1] ?? "").toLowerCase(), match[2] ?? "");
@@ -85,6 +171,7 @@ function parseItem(section: BacklogSection, body: string): BacklogItem | null {
     mode: field(groups, "mode"),
     agentId: field(groups, "agent", "crewmate"),
     hold: field(groups, "hold"),
+    actions,
     blockedBy: field(groups, "blocked-by") ?? bareBlocker?.[1] ?? null,
     since: field(groups, "since") ?? SINCE.exec(body)?.[1]?.trim() ?? null,
     url,
