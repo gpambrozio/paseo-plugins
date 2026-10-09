@@ -16,11 +16,11 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import { exitCrew, interruptCrew, relaunchCrew, steerCrew, type ColumnId, type FleetCard } from "../shared/fleet";
-import { answerDraft, answerText, cardActions, isHeld, rememberAnswer, type MateAsk } from "./card-answer";
+import { answerKey, answers as answerDrafts, cardActions, isHeld, submitAnswer, type MateAsk } from "./card-answer";
 import { agentStatusLabel, agentStatusTone, columnTone, modelLabel, opensAsLeft, relativeTime } from "./format";
 import { Chip, IconButton, errorText } from "./ui";
 import { FONT_SIZE, lineHeightFor } from "./type-scale";
@@ -109,25 +109,8 @@ export function CrewCard({
 
   const { expanded, setExpanded, draft, setDraft } = useCardMemory(card.key, startExpanded, card.column);
   const [busy, setBusy] = useState(false);
-  const [answer, setAnswerState] = useState(() => answerDraft(card.key));
-
-  function setAnswer(text: string): void {
-    rememberAnswer(card.key, text);
-    setAnswerState(text);
-  }
-
-  /** The box empties as the answer goes out, and gets it back if the send fails and nothing new was typed. */
-  function sendAnswer(): void {
-    if (toMate === null) return;
-    const typed = answer;
-    const text = answerText(card, typed);
-    if (text === null) return;
-    const restore = () => {
-      if (answerDraft(card.key) === "") rememberAnswer(card.key, typed);
-      setAnswerState((current) => (current === "" ? typed : current));
-    };
-    if (toMate.send(text, restore)) setAnswer("");
-  }
+  const answerSlot = answerKey(card);
+  const answer = useSyncExternalStore(answerDrafts.subscribe, () => answerDrafts.get(answerSlot));
 
   const agent = card.agent;
   const tone = columnTone(theme, card.column);
@@ -386,7 +369,8 @@ export function CrewCard({
         <View style={styles.answerRow}>
           <TextInput
             value={answer}
-            onChangeText={setAnswer}
+            onChangeText={(text) => answerDrafts.set(answerSlot, text)}
+            editable={!sending}
             placeholder="Answer the first mate…"
             placeholderTextColor={theme.colors.foregroundMuted}
             accessibilityLabel={`Answer for ${card.title}`}
@@ -400,7 +384,9 @@ export function CrewCard({
             tone="accent"
             theme={theme}
             disabled={sending || answer.trim() === ""}
-            onPress={sendAnswer}
+            onPress={() => {
+              if (toMate !== null) submitAnswer(card, toMate);
+            }}
           />
         </View>
       ) : null}

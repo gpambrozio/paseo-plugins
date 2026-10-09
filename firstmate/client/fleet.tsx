@@ -289,8 +289,8 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
    * While a message is on its way the buttons are disabled, and a press that
    * still gets through is refused by the sender, so a double press sends once.
    */
-  function tellMate(text: string, onFailure?: () => void): boolean {
-    if (mate === null || !mateSender.send(captainMessage(text, []), onFailure)) return false;
+  function tellMate(text: string, onFailure?: () => void, onSent?: () => void): boolean {
+    if (mate === null || !mateSender.send(captainMessage(text, []), onFailure, onSent)) return false;
     if (compact) setTab("chat");
     else if (values.chatCollapsed) save({ chatCollapsed: false });
     return true;

@@ -456,9 +456,14 @@ charter §2 has the first mate write on every `(hold: …)` item. The card draws
 "Captain's call" — on any card that has them, held or not, open or folded — and a held card adds an
 Answer box that sends `<id> — <title>: <typed text>` (`answerText`). Both go through the board's
 sender, the one a suggestion uses (`MateAsk`, built from `useMateSender` in `fleet.tsx` and in the
-panels), so they share its one message at a time, its failure toast and the chat coming into view. A
-half-typed answer is kept by card key in module scope, since a card remounts when it changes column.
-In the panels, where no chat is in view, a toast says it went.
+panels), so they share its one message at a time, its failure toast and the chat coming into view.
+An answer lives in the chat's draft store on `globalThis` (`answerKey`), since a card remounts when it
+changes column and a phone's send swaps the board for the chat. It stays in the box, which is disabled
+while any message is on its way, until the daemon has taken it, and is cleared then (`submitAnswer`'s
+`onSent`) whether the card is mounted or not; a failure leaves it to send again. Clearing as the send
+started and putting it back on failure was the first version; the disabled box is bb's fix for its
+review's finding that words typed while an answer was on its way were wiped when that answer landed,
+on the card or, after a send navigated away, on the way back. In the panels, where no chat is in view, a toast says it went.
 
 **The Answer box is outside the card's `Pressable`**, at the card's foot. react-native-web fires a
 `Pressable`'s `onPress` from the DOM `click`, which bubbles up from a `TextInput` inside it, so a click
@@ -468,8 +473,9 @@ click. The Steer and Relaunch boxes are still inside, and on a compact web layou
 focused for you, clicking into one folds the card and hides it.
 
 The field is the one backlog group whose value may hold parentheses and URLs, so `takeActions`
-(`server/backlog.ts`) takes it out of the line before anything else is read: it runs from `(actions:`,
-any case, to its matching `)`; a backslash makes `\`, `|`, `(` and `)` literal and is kept before
+(`server/backlog.ts`) takes it out of the line before anything else is read. Only an `(actions:` outside
+every other parenthesis is a field — one inside `(hold: …)` or a note is that group's text, and a stray
+`)` outside any group is ignored. It runs from `(actions:`, any case, to its matching `)`; a backslash makes `\`, `|`, `(` and `)` literal and is kept before
 anything else (`C:\Users`); every unescaped `|` separates buttons, spaced or not; a button splits at its
 first ` => `, and one with no arrow, label or prompt is skipped. An unclosed field runs to the end of
 the line and gives no buttons, and only the first field gives any — later ones are taken out all the

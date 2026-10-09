@@ -39,7 +39,7 @@ const REPORT_PATH = /\bdata\/[\w.-]+\/report\.md\b/;
 /** `id - title`, with an en or em dash accepted as the separator too. */
 const ID_AND_TITLE = /^([\w.-]{1,64})\s+[-–—]\s+(.*)$/;
 
-const ACTIONS_START = /\(actions\s*:/gi;
+const ACTIONS_START = /\(actions\s*:/iy;
 /** Between an action's label and its prompt. bb's FirstMate reads the same field by the same rules. */
 const ARROW = " => ";
 /** The characters a backslash makes literal inside `(actions: …)`. Before anything else it is kept. */
@@ -52,6 +52,9 @@ type Token = { char: string; escaped: boolean };
  * Takes every `(actions: Label => prompt | Label => prompt)` field out of a backlog line, returning the
  * line without them and the buttons the first one describes.
  *
+ * - Only a field outside every other parenthesis counts: an `(actions:` inside `(hold: …)`, or inside
+ *   any other group, is that group's text and is left alone. Parentheses outside the field are counted
+ *   as written (no escapes there), and a stray `)` outside any group is ignored.
  * - The field runs from `(actions:` (any case) to its matching `)`. Parentheses inside are counted, so a
  *   balanced pair — `(see web#42)`, a URL with `(` and `)` — needs no escaping.
  * - A backslash makes the next `\`, `|`, `(` or `)` literal: `\|` is a pipe inside a prompt, `\)` a lone
@@ -70,12 +73,24 @@ export function takeActions(body: string): { rest: string; actions: CardAction[]
   let rest = "";
   let actions: CardAction[] | null = null;
   let from = 0;
-  for (const start of body.matchAll(ACTIONS_START)) {
-    if (start.index < from) continue;
-    rest += body.slice(from, start.index);
-    const field = readField(body, start.index + start[0].length);
-    if (actions === null) actions = field.tokens === null ? [] : toActions(field.tokens);
-    from = field.end;
+  let depth = 0;
+  let index = 0;
+  while (index < body.length) {
+    const char = body[index];
+    if (char === "(" && depth === 0) {
+      ACTIONS_START.lastIndex = index;
+      const start = ACTIONS_START.exec(body);
+      if (start !== null) {
+        rest += body.slice(from, index);
+        const field = readField(body, index + start[0].length);
+        if (actions === null) actions = field.tokens === null ? [] : toActions(field.tokens);
+        from = index = field.end;
+        continue;
+      }
+    }
+    if (char === "(") depth += 1;
+    if (char === ")") depth = Math.max(0, depth - 1);
+    index += 1;
   }
   rest += body.slice(from);
   return { rest, actions: actions ?? [] };

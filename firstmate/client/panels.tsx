@@ -100,10 +100,11 @@ function PanelBody({
       ? null
       : {
           sending: mateSender.sending,
-          send: (text, onFailure) =>
-            mateSender.send(captainMessage(text, []), onFailure, () =>
-              toast.show("Sent to the first mate.", { variant: "success" }),
-            ),
+          send: (text, onFailure, onSent) =>
+            mateSender.send(captainMessage(text, []), onFailure, () => {
+              toast.show("Sent to the first mate.", { variant: "success" });
+              onSent?.();
+            }),
         };
 
   function refresh(): void {

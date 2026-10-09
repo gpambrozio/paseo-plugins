@@ -157,6 +157,37 @@ describe("takeActions", () => {
     expect(taken.rest.trim()).toBe("x - T");
   });
 
+  it("leaves an (actions: inside another group as that group's text", () => {
+    const line =
+      "x - Title (hold: Explain (actions: Merge => Merge https://github.com/you/web/pull/42) before proceeding) " +
+      "(actions: Wait => Wait for approval) (project: web)";
+    const taken = takeActions(line);
+    expect(taken.actions).toEqual([{ label: "Wait", prompt: "Wait for approval" }]);
+    expect(taken.rest).toBe(
+      "x - Title (hold: Explain (actions: Merge => Merge https://github.com/you/web/pull/42) before proceeding)  (project: web)",
+    );
+  });
+
+  it("gives no buttons, and suppresses nothing, for an (actions: that only appears inside another group", () => {
+    expect(takeActions("x - T (note: write (actions: syntax) like this) (project: web)")).toEqual({
+      rest: "x - T (note: write (actions: syntax) like this) (project: web)",
+      actions: [],
+    });
+    expect(takeActions("x - T (note: see (actions: syntax)) (actions: Go => Start x)").actions).toEqual([{ label: "Go", prompt: "Start x" }]);
+  });
+
+  it("reads the real field of a line whose hold mentions (actions:", () => {
+    // A hold holding parentheses is beyond the other fields' reader either way; only the buttons are at stake here.
+    const [item] = parseBacklog(
+      "## Queued\n- [ ] pick-db - Choose the database (kind: captain) (hold: answer with (actions: Merge => Merge it) later) (actions: Postgres => Use Postgres)",
+    );
+    expect(item).toMatchObject({ id: "pick-db", kind: "captain", actions: [{ label: "Postgres", prompt: "Use Postgres" }] });
+  });
+
+  it("finds a field after a stray closing parenthesis outside any group", () => {
+    expect(takeActions("x - Smile :) (actions: Go => Start x)")).toEqual({ rest: "x - Smile :) ", actions: [{ label: "Go", prompt: "Start x" }] });
+  });
+
   it("never throws on odd input", () => {
     for (const field of ["(actions:", "(actions:)", "(actions: \\", "(actions: ((((", "(actions: ) ) )", "(actions: =>=>|||)"]) {
       expect(() => takeActions(field)).not.toThrow();
