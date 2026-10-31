@@ -38,23 +38,20 @@ export interface FlaggedAgent {
  * keeps an agent flagged until the user's next message, however long ago the
  * turn ended, and that is right — a question asked a week ago is still
  * unanswered. A *closed* session is not waiting on anyone until it is opened
- * again, and a turn reported as finished on an agent that is *running* was
- * not the end of anything — some providers say a turn is done and carry on.
- * Those two are the cases dropped here.
+ * again, so it is dropped here. A finished turn Herald has no entry for is
+ * dropped too, by `joinRows`, whatever the agent's status.
  */
 function isCurrent(agent: FlaggedAgent): boolean {
-  if (agent.status === "closed") return false;
-  if (agent.attentionReason === "finished" && agent.status === "running") return false;
-  return true;
+  return agent.status !== "closed";
 }
 
 /**
  * Herald's entries win over Paseo's flags for the same agent, since they carry
  * the reason and the sentence. A Paseo flag Herald has no entry for gets a row
  * only when something is still waiting on the user, never for a finished turn.
- * A *finished* entry on an agent that is working
- * again is already withheld by the daemon, which knows each entry's agent
- * without having to enumerate every running one — see `Liveness`.
+ * A *finished* entry on an agent that is working again is already withheld by
+ * the daemon, which knows each entry's agent without having to enumerate every
+ * running one — see `Liveness`.
  */
 export function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[]): Row[] {
   const byAgent = new Map<string, Row>();
