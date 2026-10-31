@@ -252,8 +252,8 @@ agent yields `working`: hidden but kept, because the hooks take the entry back f
 summary lands. Every other reason keeps the long cache, an agent waiting on a question being
 *running* too.
 
-The panel still drops a **Paseo-flagged** row of its own, in `isCurrent`, where the status arrives
-with the row and no cross-reference is needed.
+A **Paseo-flagged** agent Herald has no entry for never reaches that question: the panel leaves out
+every entry-less finished flag, running or not (see *What the store means*).
 
 ## The work is named by its workspace
 
@@ -275,7 +275,8 @@ One entry per agent, the most recent reason it is waiting. Entries are removed w
 agent move on: `turn_started` (the user replied), `permission_resolved` for the entry's request,
 `archived`. They are *not* removed when the user merely looks at the agent — Paseo's
 `requiresAttention` flag handles that, and the panel lists the union of Paseo's flagged agents and
-Herald's entries, joined by agent id. Herald explains; Paseo decides who is listed.
+Herald's entries, joined by agent id — less any flag that is a finished turn Herald has no entry for.
+Herald explains; Paseo decides who is listed, but for that one exception.
 
 **There is no age limit, on purpose.** A question asked a week ago is still unanswered. What clears
 Paseo's flag is the user: viewing the agent or closing its tab (observed 2026-09-16 — the tab label
@@ -291,9 +292,14 @@ gone), so `server/liveness.ts` asks the daemon about each entry's agent before t
   *after* the event Herald recorded, so a brand-new entry must not be judged by a flag not yet set;
 - **archived** or **missing**: removed for good.
 
-The panel applies the closed rule to Paseo-only rows too (`isCurrent` in `client/rows.ts`). A row
-with no Herald entry says so, because the event predates the plugin watching that agent. Net effect:
-Paseo decides who is waiting; Herald explains why.
+The panel applies the closed rule to Paseo-only rows too (`isCurrent` in `client/rows.ts`), and adds
+one of its own there (`joinRows`): a Paseo flag that is a **finished** turn with no Herald entry gets
+no row. Paseo keeps such a flag until the next message, so after a restart every turn that finished
+before Herald was watching would otherwise sit in the panel and the sidebar count with no sentence to
+speak and nothing to act on. An entry-less permission flag (a question or a plan arrives as one),
+error or plain flag is still unanswered, so it keeps its row, which says it has no summary because
+the event predates the plugin watching that agent. Net effect: Paseo decides who is waiting, less the
+finished turns Herald never saw; Herald explains why.
 
 `attention.json` mirrors the map so a plugin reload keeps the sentences already written. A summary
 still `pending` at load is marked `failed` with the fallback, because its helper died with the old

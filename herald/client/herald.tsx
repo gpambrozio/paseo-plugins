@@ -7,7 +7,8 @@
  * Two sources, joined by agent id in `client/rows.ts` and loaded by
  * `client/waiting.ts`, which the sidebar row reads too. An agent Paseo flags
  * that Herald has no entry for (an event before the plugin loaded, say) is
- * still listed, with what Paseo knows about the reason.
+ * still listed, with what Paseo knows about the reason — unless the flag is a
+ * finished turn, which has nothing left to act on and is left out.
  *
  * Async **function expressions**, never async arrows, anywhere in this file:
  * the app `eval`s the client bundle, and Hermes's eval compiler on iOS and
