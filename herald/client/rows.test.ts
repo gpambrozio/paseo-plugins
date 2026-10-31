@@ -76,7 +76,7 @@ describe("joinRows", () => {
     const rows = joinRows(
       [],
       [
-        flagged({ id: "closed", status: "closed" }),
+        flagged({ id: "closed", status: "closed", attentionReason: "permission" }),
         flagged({ id: "outran", status: "running", attentionReason: "finished" }),
         flagged({ id: "asking", status: "running", attentionReason: "permission" }),
       ],
