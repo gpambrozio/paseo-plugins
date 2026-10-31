@@ -50,7 +50,9 @@ function isCurrent(agent: FlaggedAgent): boolean {
 
 /**
  * Herald's entries win over Paseo's flags for the same agent, since they carry
- * the reason and the sentence. A *finished* entry on an agent that is working
+ * the reason and the sentence. A Paseo flag Herald has no entry for gets a row
+ * only when something is still waiting on the user, never for a finished turn.
+ * A *finished* entry on an agent that is working
  * again is already withheld by the daemon, which knows each entry's agent
  * without having to enumerate every running one — see `Liveness`.
  */
@@ -69,6 +71,11 @@ export function joinRows(entries: AttentionEntry[], flagged: FlaggedAgent[]): Ro
   });
   flagged.forEach((agent) => {
     if (byAgent.has(agent.id) || !isCurrent(agent)) return;
+    // Paseo keeps a finished agent flagged until the next message, so a finished
+    // turn Herald never recorded would get a card it has nothing to say about.
+    // A question, permission or error Herald never saw is still unanswered, and
+    // keeps its row.
+    if (agent.attentionReason === "finished") return;
     byAgent.set(agent.id, {
       agentId: agent.id,
       title: agent.title,
