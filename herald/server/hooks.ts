@@ -15,7 +15,7 @@
  *    the agent move on: a new turn, the permission answered, the agent
  *    archived. Paseo's own attention flag decides what the panel *lists*.
  */
-import type { PaseoApi } from "./host-types";
+import type { AgentTimelineItem, PaseoApi } from "./host-types";
 import type {
   PluginHookAgent,
   PluginHookContext,
@@ -61,6 +61,35 @@ export interface HookDeps {
    * still writing a summary are by definition the most recent entries.
    */
   liveHelpers?: Set<string>;
+  /**
+   * The agent's recent history, for a `turn_ended` that arrives without one.
+   * Paseo 0.14 always sends that timeline empty; tests pass their own.
+   */
+  fetchTimeline?: (paseo: PaseoApi, agentId: string) => Promise<readonly AgentTimelineItem[]>;
+}
+
+/** How far back to read: enough to reach the user's message past a run of tool calls. */
+export const TIMELINE_TAIL_LIMIT = 50;
+
+/**
+ * Paseo 0.14 sends `agent.turn_ended` with `timeline: []` — the field is
+ * deprecated and the SDK says to fetch history on demand. Without this every
+ * completed turn reads as wordless and is dropped. A failed fetch is an empty
+ * history, which is what the event would have said anyway.
+ */
+export async function fetchRecentTimeline(
+  paseo: PaseoApi,
+  agentId: string,
+): Promise<readonly AgentTimelineItem[]> {
+  try {
+    const page = await paseo.agents
+      .ref(agentId)
+      .timeline.refetch({ direction: "tail", limit: TIMELINE_TAIL_LIMIT, projection: "projected" });
+    return page.entries.map((entry) => entry.item as AgentTimelineItem);
+  } catch (error) {
+    console.error(`[herald] could not read the timeline of agent ${agentId}:`, error);
+    return [];
+  }
 }
 
 /** A second `turn_ended` for the same turn inside this window is a repeat, not a new turn. */
@@ -96,6 +125,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
   const workspaceTitle = deps.workspaceTitle ?? createWorkspaceTitleLookup();
   const publish = deps.publish ?? publishCard;
   const isRunning = deps.isRunning ?? isAgentRunning;
+  const fetchTimeline = deps.fetchTimeline ?? fetchRecentTimeline;
 
   /**
    * Whether the agent has carried on since the summary was commissioned, in
@@ -353,7 +383,10 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       if (isHelper(event.agent)) return;
       if (isRepeatTurn(event.agent.id, event.turnId)) return;
       const generation = generationOf(event.agent.id);
-      const output = latestOutputText(event.timeline);
+      const timeline =
+        event.timeline.length > 0 ? event.timeline : await fetchTimeline(context.paseo, event.agent.id);
+      if (generationOf(event.agent.id) !== generation) return;
+      const output = latestOutputText(timeline);
       let reason: AttentionReason;
       let headline: string;
       switch (event.outcome.kind) {
@@ -392,7 +425,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
         output === "" ? null : firstWords(output, 60),
         config,
         context,
-        { output, lastUser: lastUserMessage(event.timeline) },
+        { output, lastUser: lastUserMessage(timeline) },
       );
     }),
 

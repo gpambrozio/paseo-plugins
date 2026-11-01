@@ -9,7 +9,7 @@ import type {
 import type { AgentPermissionRequest, AgentTimelineItem } from "./host-types";
 
 import { DEFAULT_CONFIG, DEFAULT_SUMMARY_PROMPT, type AttentionEntry, type HeraldConfig } from "../shared/herald";
-import { registerHooks, type HookDeps } from "./hooks";
+import { fetchRecentTimeline, registerHooks, TIMELINE_TAIL_LIMIT, type HookDeps } from "./hooks";
 import { AttentionStore } from "./store";
 import { HELPER_TITLE, type Summary, type SummaryRequest, type SummarizerDeps } from "./summarize";
 
@@ -98,6 +98,8 @@ function setup(
     workspaceTitle: async (workspaceId) => (workspaceId === "w1" ? "Shop" : null),
     // Not running unless a test says so, so the existing ones are unaffected.
     isRunning: async () => false,
+    // The daemon's history is empty unless a test says otherwise.
+    fetchTimeline: async () => [],
     publish,
     ...overrides,
     summarize,
@@ -226,6 +228,55 @@ describe("registerHooks", () => {
     });
     expect(quiet.store.get("a1")).toBeNull();
     expect(quiet.summarize).not.toHaveBeenCalled();
+  });
+
+  it("reads the history from the daemon when turn_ended arrives without one (Paseo 0.14)", async () => {
+    const fetchTimeline = vi.fn(async () => timeline);
+    const { store, summarize, emit } = setup({ fetchTimeline });
+    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline: [] });
+    expect(fetchTimeline).toHaveBeenCalledWith(expect.anything(), "a1");
+    expect(store.get("a1")).toMatchObject({
+      reason: "finished",
+      detail: "I fixed auth.ts and added a test.",
+      lastRequest: "Fix the login bug",
+    });
+    await settle();
+    expect(summarize.mock.calls[0]?.[0]).toMatchObject({
+      output: "I fixed auth.ts and added a test.",
+      lastUser: "Fix the login bug",
+    });
+  });
+
+  it("uses the event's own timeline when there is one", async () => {
+    const fetchTimeline = vi.fn(async () => []);
+    const { store, emit } = setup({ fetchTimeline });
+    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    expect(fetchTimeline).not.toHaveBeenCalled();
+    expect(store.get("a1")).toMatchObject({ reason: "finished" });
+  });
+
+  it("still drops a wordless turn when the fetched history has no reply", async () => {
+    const { store, summarize, emit } = setup({
+      fetchTimeline: async () => [{ type: "user_message", text: "compact" }],
+    });
+    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline: [] });
+    expect(store.get("a1")).toBeNull();
+    expect(summarize).not.toHaveBeenCalled();
+  });
+
+  it("drops a turn whose agent moved on while its history was being fetched", async () => {
+    let release: (items: AgentTimelineItem[]) => void = () => {};
+    const { store, emit } = setup({
+      fetchTimeline: () =>
+        new Promise<AgentTimelineItem[]>((resolve) => {
+          release = resolve;
+        }),
+    });
+    const ended = emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline: [] });
+    await emit("agent.turn_started", { agent, turnId: "t2" });
+    release(timeline);
+    await ended;
+    expect(store.get("a1")).toBeNull();
   });
 
   it("names failed and canceled turns", async () => {
@@ -579,5 +630,24 @@ describe("registerHooks", () => {
     await emit("agent.turn_ended", { agent: { ...agent, id: "a3" }, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(peak).toBe(1);
+  });
+});
+
+describe("fetchRecentTimeline", () => {
+  it("asks for the tail of the projected timeline and returns its items", async () => {
+    const refetch = vi.fn(async () => ({ entries: timeline.map((item) => ({ item })) }));
+    const paseo = { agents: { ref: vi.fn(() => ({ timeline: { refetch } })) } } as unknown as PaseoApi;
+    await expect(fetchRecentTimeline(paseo, "a1")).resolves.toEqual(timeline);
+    expect(paseo.agents.ref).toHaveBeenCalledWith("a1");
+    expect(refetch).toHaveBeenCalledWith({ direction: "tail", limit: TIMELINE_TAIL_LIMIT, projection: "projected" });
+  });
+
+  it("returns an empty history when the daemon cannot be asked", async () => {
+    const paseo = {
+      agents: { ref: () => ({ timeline: { refetch: async () => Promise.reject(new Error("closed")) } }) },
+    } as unknown as PaseoApi;
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(fetchRecentTimeline(paseo, "a1")).resolves.toEqual([]);
+    quiet.mockRestore();
   });
 });

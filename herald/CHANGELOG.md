@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [Unreleased]
+
+### Fixed
+
+- **Herald announces finished turns again on Paseo 0.14.** Paseo 0.14 stopped including the
+  conversation with a finished turn, so Herald took every finished turn for one with nothing to say
+  and stayed quiet; only errors, cancellations and questions still came through. Herald now reads
+  the agent's recent messages from Paseo when the turn arrives without them.
+
 ## [0.6.1] — 2026-10-31
 
 ### Fixed
