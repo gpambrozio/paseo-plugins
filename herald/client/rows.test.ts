@@ -45,16 +45,38 @@ describe("joinRows", () => {
   });
 
   it("adds Paseo-flagged agents Herald has no entry for, newest first", () => {
-    const rows = joinRows([entry()], [flagged({ at: "2026-10-07T11:00:00.000Z" })]);
+    const rows = joinRows(
+      [entry()],
+      [flagged({ at: "2026-10-07T11:00:00.000Z", attentionReason: "permission" })],
+    );
     expect(rows.map((row) => row.agentId)).toEqual(["a2", "a1"]);
     expect(rows[0]?.entry).toBeNull();
+  });
+
+  it("leaves out a finished turn Herald has no entry for, but keeps one that is still unanswered", () => {
+    const rows = joinRows(
+      [],
+      [
+        flagged({ id: "done", attentionReason: "finished" }),
+        flagged({ id: "asking", attentionReason: "permission" }),
+        flagged({ id: "failed", attentionReason: "error" }),
+        flagged({ id: "plain", attentionReason: null }),
+      ],
+    );
+    expect(rows.map((row) => row.agentId).sort()).toEqual(["asking", "failed", "plain"]);
+  });
+
+  it("still lists a finished turn Herald does have an entry for", () => {
+    const rows = joinRows([entry({ agentId: "a3", reason: "finished" })], [flagged({ id: "a3" })]);
+    expect(rows.map((row) => row.agentId)).toEqual(["a3"]);
+    expect(rows[0]?.entry?.reason).toBe("finished");
   });
 
   it("drops a closed session and a finished turn on a running agent", () => {
     const rows = joinRows(
       [],
       [
-        flagged({ id: "closed", status: "closed" }),
+        flagged({ id: "closed", status: "closed", attentionReason: "permission" }),
         flagged({ id: "outran", status: "running", attentionReason: "finished" }),
         flagged({ id: "asking", status: "running", attentionReason: "permission" }),
       ],

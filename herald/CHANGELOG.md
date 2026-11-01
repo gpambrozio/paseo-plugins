@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.6.1] — 2026-10-31
+
+### Fixed
+
+- **Herald no longer lists finished agents it has no record of.** An agent Paseo still marked as
+  finished but Herald never saw finish showed up as a "Finished" card reading "No summary: this
+  happened before Herald was watching this agent", and each one counted toward the number beside
+  Herald in the sidebar. Those are left out now. Agents waiting on a question, a permission or an
+  error still show, whether or not Herald saw them happen.
+
 ## [0.6.0] — 2026-10-07
 
 **Requires Paseo 0.11.** This version does not load on Paseo 0.10 or older; stay on 0.5.1 until you
