@@ -14,6 +14,7 @@ import { useMemo } from "react";
 import { Pressable, Text, View } from "react-native";
 
 import type { BoardTimelineItem } from "../shared/board";
+import { GITHUB_MARK } from "./github-mark";
 
 /**
  * Enough labels to characterise the card, not enough to wrap the row twice.
@@ -87,7 +88,7 @@ export function BoardTimelineCard({
       }}
     >
       <View style={styles.header}>
-        <Icon name="Github" size={14} color={theme.colors.foregroundMuted} />
+        <Icon icon={GITHUB_MARK} size={14} color={theme.colors.foregroundMuted} />
         <Text style={styles.slug} numberOfLines={1}>
           {repository} #{number}
         </Text>

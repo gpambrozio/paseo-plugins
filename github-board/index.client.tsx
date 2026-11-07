@@ -1,6 +1,7 @@
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 
 import { GitHubBoard } from "./client/board";
+import { GITHUB_MARK } from "./client/github-mark";
 import { BOARD_SCREEN_ID, BOARD_TITLE } from "./client/screen";
 import { BoardSettingsScreen } from "./client/settings-screen";
 import { BoardSidebarItem } from "./client/sidebar-item";
@@ -35,7 +36,7 @@ export default function contribute(client: PluginClientContext) {
   client.addSettingsScreen({
     id: "board",
     title: "GitHub board",
-    icon: "Github",
+    icon: GITHUB_MARK,
     Component: BoardSettingsScreen,
   });
   client.addCommandCenterItem({
@@ -51,7 +52,7 @@ export default function contribute(client: PluginClientContext) {
   client.addCommandCenterItem({
     id: "open-board",
     title: "Open GitHub board",
-    icon: "Github",
+    icon: GITHUB_MARK,
     keywords: ["github", "issues", "pull requests", "prs", "discussions"],
     context: "global",
     onSelect({ openScreen }) {

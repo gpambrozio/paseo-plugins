@@ -1,6 +1,7 @@
 import type { PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 
+import { GITHUB_MARK } from "./github-mark";
 import { BOARD_SCREEN_ID } from "./screen";
 
 /**
@@ -12,7 +13,7 @@ import { BOARD_SCREEN_ID } from "./screen";
 export function BoardSidebarItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
   return (
     <SidebarRow
-      icon="Github"
+      icon={GITHUB_MARK}
       active={currentScreen?.screenId === BOARD_SCREEN_ID}
       onPress={() => openScreen({ screenId: BOARD_SCREEN_ID })}
     />

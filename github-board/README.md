@@ -285,7 +285,7 @@ hit.
 
 ## Requirements
 
-- **Paseo 0.11.0 or newer**, for the daemon *and* the app that shows the board.
+- **Paseo 0.13.0 or newer**, for the daemon *and* the app that shows the board.
   Both check the version themselves, so an older one reports the plugin as
   incompatible rather than loading part of it.
 - `gh` installed and authenticated **on the daemon machine**, not the device
@@ -297,8 +297,9 @@ hit.
 paseo plugin install npm:@gpambrozio/paseo-github-board
 ```
 
-That is the shortest route on **Paseo 0.11 or newer**, which installs plugins straight from npm; add
-`@<version>` to pin one. On Paseo 0.9 or 0.10, install the last release that supports them:
+That is the shortest route on **Paseo 0.13 or newer**, which installs plugins straight from npm; add
+`@<version>` to pin one. On Paseo 0.11 or 0.12, install the last release that supports them:
+`paseo plugin install npm:@gpambrozio/paseo-github-board@0.10.2`. On Paseo 0.9 or 0.10:
 `paseo plugin install npm:@gpambrozio/paseo-github-board@0.9.3`. On 0.8, install the last release that supported it from this repository instead:
 
 ```bash
