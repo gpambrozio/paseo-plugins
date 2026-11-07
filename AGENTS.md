@@ -53,8 +53,9 @@ paseo plugin logs skills          # load errors and stderr
 - The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.9.0 or newer** —
   **0.11.0** for a plugin drawn with 0.11's screen and sidebar API. Each plugin's
   `requirements.paseo` says which: `">=0.11.0"` once it has moved to that API, `">=0.9.0"` until
-  then. On an older daemon a plugin does not degrade, it refuses to load. There are no version
-  fallbacks left in this repo — see *Versions* below for why the app-side check made them
+  then — and `github-board` says `">=0.13.0"`, for the inline SVG icon its GitHub logo needs. On
+  an older daemon a plugin does not degrade, it refuses to load. There are no version fallbacks
+  left in this repo — see *Versions* below for why the app-side check made them
   unnecessary.
 - There is no harness for plugin UI. A clean typecheck and a clean reload prove a `client/` change
   compiles and loads, nothing more; a human has to look at the panel. Check a wide window *and* a
@@ -151,8 +152,16 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
   `surface2`, `foreground`, `foregroundMuted`, `border`, `accent`, `accentForeground`,
   `statusSuccess`, `statusWarning`, `statusDanger`. Any other name renders as undefined at runtime.
 - **`icon` is any Lucide component name**, typed as a bare `string`. The host resolves it with
-  `Reflect.get` over the Lucide barrel and throws `Unknown Lucide icon: <name>` at contribution
-  time, so a typo load-fails the plugin. Brand icons are in there too — `Github`.
+  `Reflect.get` over its own `lucide-react-native` (1.50.0 from Paseo 0.11 through 0.15) and
+  rejects an unknown name when the contribution registers, so a typo load-fails the plugin; a host
+  `<Icon name>` with an unknown name draws nothing instead. **That Lucide has no brand icons** —
+  no `Github` — which is how `github-board` 0.10.2 stopped loading (#111). A logo is inline SVG
+  instead, `icon: { svg }` with `fill="currentColor"`, which every contribution and `<Icon icon>`
+  take **from Paseo 0.13** and which the host checks with the SDK's own `findSvgIconProblem`;
+  `github-board/client/github-mark.ts` is the example. `.github/scripts/check-lucide-icons.mjs`
+  (the **Icons exist** check) compares every icon name in the client code against that Lucide
+  set — it reads `icon:`, `icon=` and `name=` values and `*_ICON` / `*_ICONS` constants, so build
+  an icon any other way and it is not checked.
 - **Relative imports are extensionless** — `./frontmatter`, not `./frontmatter.js`.
 - **Browser globals live only in `client/web.ts`.** No `tsconfig` here has `"DOM"` in `lib`, so
   `document` and `window` are type errors everywhere by default. That one module declares the narrow
@@ -261,7 +270,8 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
 `paseo-plugin.json` carries `requirements.paseo`, an npm semver range. **A missing
 `requirements.paseo` means `<0.8.0`**, so 0.8 rejects the plugin outright with a link to the
 migration guide — adding the field is part of migrating, not a substitute for it. A plugin here
-declares `>=0.11.0` once it draws with 0.11's screen and sidebar API, and `>=0.9.0` until then.
+declares `>=0.11.0` once it draws with 0.11's screen and sidebar API, and `>=0.9.0` until then;
+`github-board` declares `>=0.13.0`, the first Paseo to take an inline SVG icon.
 
 **The manifest may only carry what the *oldest* declared version accepts.** `PluginManifestSchema`
 is `.strict()` in every Paseo before 0.11.0, so a key one version added is a load failure on every
@@ -350,7 +360,8 @@ cost per plugin, not per release.
 ### The SDK dependency
 
 All six plugins now depend on the real published `@getpaseo/plugin`, pinned to an exact version —
-`0.11.0` for a plugin on 0.11's screen and sidebar API, `0.9.0` for the rest, at the time of
+`0.11.0` for a plugin on 0.11's screen and sidebar API, `0.13.0` for `github-board`, whose GitHub
+logo is an inline SVG icon that SDK first types, and older pins for the rest, at the time of
 writing. Pin it *exactly*: `npm install --save-dev` writes a caret, and a range here is the same bet
 on an unreleased shape that the prerelease trap below describes. `skills` used to ship a
 hand-written `paseo-plugin.d.ts` shim instead; it was deleted in the 0.8 migration, because every

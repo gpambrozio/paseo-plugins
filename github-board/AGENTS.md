@@ -68,6 +68,13 @@ Two downgrades came with the move, both Paseo's: the screen header no longer dra
 (the host draws one only for a legacy row), and Settings → Sidebar shows a generic plugin icon for
 the row.
 
+**The GitHub logo is inline SVG, `GITHUB_MARK` in `client/github-mark.ts`, and that is why
+`requirements.paseo` is a 0.13 floor.** Paseo's Lucide set has no brand icons, so `"Github"` was
+never a name it could resolve, and 0.15 rejects it when the settings screen registers — 0.10.2
+did not load there at all (#111). The `{ svg }` form and `<Icon icon>` are 0.13's. The mark is
+Primer Octicons' `mark-github-16`, padded to the size of the Lucide icons beside it;
+`client/github-mark.test.ts` runs it through the host's own `findSvgIconProblem`.
+
 ## Checking a `gh` query against reality
 
 There is no UI harness here, and the tests cover the import graph, the branch-status parsing,

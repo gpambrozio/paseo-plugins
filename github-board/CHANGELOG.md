@@ -7,6 +7,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-github-board` and tagged here, so a version is something to install and a line
 to read before you move.
 
+## [0.11.0] — 2026-11-07
+
+### Fixed
+
+- **Loads on Paseo 0.15 again.** Paseo 0.15 refused to load the board at all, because the GitHub
+  logo it used is no longer one of Paseo's built-in icons. The board now brings its own copy of the
+  logo, which shows on its sidebar row, in the Command Center, in Settings, and on the cards it sends
+  to chat.
+
+### Changed
+
+- **Requires Paseo 0.13.** Paseo 0.13 is the first that can draw an icon a plugin brings itself,
+  so this version does not load on 0.12 or older. Stay on 0.10.2 until you update Paseo.
+
 ## [0.10.2] — 2026-10-07
 
 ### Fixed
