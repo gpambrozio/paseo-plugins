@@ -23,6 +23,8 @@ import {
   type PendingAttachment,
 } from "./attachments";
 import { drafts } from "./draft";
+import { prepareDraftSend } from "./draft-send";
+import { useChatDraftPersistence } from "./chat-drafts";
 import { lookupIn, recentCandidates } from "./file-links";
 import { useFollowEnd } from "./follow-end";
 import { isSendKey, type WebKeyPressEvent } from "./keys";
@@ -108,6 +110,7 @@ export function MateChat({
   /** Opens a home file in the Files view, the same way a watch's name does. */
   onOpenFile: (path: string) => void;
 }) {
+  useChatDraftPersistence(mate.id);
   const toast = useToast();
   /** Shared with the surface's suggestion buttons: one message on its way at a time — see `./mate-send`. */
   const { sending, send, command: sendMateCommand } = useMateSender(mate.id);
@@ -283,25 +286,20 @@ export function MateChat({
     };
   }, [theme, compact]);
 
-  /**
-   * The draft and its attachments are cleared as the message goes, not when
-   * the daemon answers: the box stays editable while it is in flight, and a
-   * follow-up typed in that second must not be wiped by the reply. A failed
-   * send puts the text back, unless something new has been typed since, and
-   * its attachments ahead of any attached since.
-   */
+  /** Keep the text durable until delivery succeeds. A follow-up edit wins. */
   function sendDraft(): void {
     const text = draft;
     const attached = attachments;
     if (!hasContent(text, attached) || sending) return;
-    // Through the stores only: this chat may be gone by the time the send fails, and the one on screen follows them.
+    const finish = prepareDraftSend(drafts, mate.id, text);
     const sent = send(captainMessage(text, attached), () => {
-      if (drafts.get(mate.id).trim() === "") drafts.set(mate.id, text);
+      finish(false);
       pendingAttachments.set(mate.id, restoreFailed(pendingAttachments.get(mate.id), attached));
+    }, () => {
+      finish(true);
     });
-    if (!sent) return;
+    if (!sent) { finish(false); return; }
     follow.pin();
-    setDraft("");
     setAttachments([]);
   }
 

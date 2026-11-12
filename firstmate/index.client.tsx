@@ -1,3 +1,4 @@
+import { stopChatDrafts } from "./client/chat-drafts";
 import type { PluginClientContext, PluginWorkspaceCommandContext } from "@getpaseo/plugin/client";
 
 import { FleetSurface, bindSettingsOpener } from "./client/fleet";
@@ -117,6 +118,7 @@ export default function contribute(client: PluginClientContext) {
   });
 
   return () => {
+    stopChatDrafts();
     bindSettingsOpener(null);
   };
 }

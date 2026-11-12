@@ -777,6 +777,19 @@ of those is a host module, so on iOS and Android the attach button is not drawn 
 words only. A phone *browser* gets the button, and its picker offers the photo library and camera.
 Paste takes images only, as Paseo's does, so pasting text or a copied file still pastes text.
 
+The chat's text is also saved through `firstmate.drafts.read/write` in
+`plugin-data/firstmate/chat-drafts/<mate UUID>.txt`, shared by clients of that host.
+The synchronous store stays authoritative during typing; hydration cannot replace
+an edit, and one retained controller per mate serializes writes across navigation
+and plugin re-evaluation. Nonempty edits debounce for 300 ms, clears flush
+immediately, and AppState background, chat unmount and plugin disposal flush.
+The text stays in the composer until a successful send; a changed follow-up is
+kept. A failed send leaves the text intact. Neither lifecycle flush nor an RPC
+guarantees delivery before OS termination: the last 300 ms plus transport time
+can be lost, and offline writes remain memory-only until retried on a later edit,
+mount or lifecycle event. A success whose clear never reaches storage can reappear.
+Attachments and card answers are not persisted. A new mate UUID gets a new draft.
+
 The pending attachments live beside the draft on `globalThis` (`client/attachments.ts`), bytes and
 all, so a lost connection keeps them; a failed send puts them back unless something new was attached.
 

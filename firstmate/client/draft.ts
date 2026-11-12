@@ -7,8 +7,8 @@
  * connection is back, so every module-scope variable starts over and the
  * draft with it. The app evaluates the bundle in its own global scope, though,
  * so a slot on `globalThis` is still there for the new evaluation to find: a
- * draft lasts as long as the app does. Not persisted, and not shared between
- * devices.
+ * draft lasts as long as the app does. The CHAT composer also persists text
+ * through `chat-drafts`; card answers remain memory-only.
  */
 export interface DraftStore {
   get(key: string): string;
@@ -33,17 +33,23 @@ export function createDraftStore(root: object): DraftStore {
     Reflect.set(root, SLOT, drafts);
   }
   const store = drafts;
-  const listeners = new Set<() => void>();
+  const listenerSlot = Symbol.for("paseo.firstmate.draft-listeners");
+  let listeners = Reflect.get(root, listenerSlot) as Set<() => void> | undefined;
+  if (!listeners) {
+    listeners = new Set<() => void>();
+    Reflect.set(root, listenerSlot, listeners);
+  }
+  const sharedListeners = listeners;
   return {
     get: (key) => store.get(key) ?? "",
     set: (key, text) => {
       if (text === "") store.delete(key);
       else store.set(key, text);
-      listeners.forEach((listener) => listener());
+      sharedListeners.forEach((listener) => listener());
     },
     subscribe: (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
+      sharedListeners.add(listener);
+      return () => sharedListeners.delete(listener);
     },
   };
 }
