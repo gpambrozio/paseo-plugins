@@ -1,3 +1,5 @@
+import { readChatDraft, writeChatDraft } from "./server/drafts";
+import { readChatDraft as readChatDraftRpc, writeChatDraft as writeChatDraftRpc } from "./shared/drafts";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 
 import { migrateLegacyFiles, readFirstmateConfig, resolveHome, updateFirstmateConfig } from "./server/config";
@@ -55,6 +57,8 @@ import { displaySettings } from "./shared/settings";
 
 export default function contribute(server: PluginServerContext) {
   migrateLegacyFiles();
+  server.handle(readChatDraftRpc, async ({ agentId }) => ({ text: await readChatDraft(agentId) }));
+  server.handle(writeChatDraftRpc, async ({ agentId, text }) => { await writeChatDraft(agentId, text); return {}; });
   const reports = new ReportCache();
   const steers = new CaptainSteers();
   // The scripts in the home's watches/ folder, run on their schedules; see server/watches.ts.

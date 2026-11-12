@@ -7,6 +7,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.4.1]
+
+- Save unsent chat text on the host so it returns after an app reload or relaunch. Typing is saved after 300 ms and flushed when the app backgrounds or the chat closes; an app killed before delivery can still lose the latest edit. Keep the draft until a send succeeds.
+
 ## [0.4.0] — 2026-10-08
 
 ### Added
