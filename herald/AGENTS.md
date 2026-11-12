@@ -198,6 +198,17 @@ is dropped as well. Claude reports that stop as a failed turn whose message is a
 (`[ede_diagnostic] … stop_reason=tool_use`); the user caused it and does not need to hear about it. A
 plain deny lets the agent carry on, so a failure after one is real and is announced.
 
+## `turn_ended` arrives without a timeline
+
+Since Paseo 0.14 the daemon sends `agent.turn_ended` with `timeline: []` every time; the field is
+deprecated in `@getpaseo/plugin` in favour of fetching history on demand. Read as-is, every completed
+turn looks wordless and is dropped by the rule above, so Herald would announce almost nothing. When
+the event's timeline is empty, the handler reads the tail of the agent's projected timeline
+(`fetchRecentTimeline`, `TIMELINE_TAIL_LIMIT` items) instead. The fetch is an await before
+`record`, so the generation check after it applies: a turn the agent moved on from during the fetch
+is dropped. A fetch that fails yields an empty history, which is what the event said anyway. A host
+that still sends the timeline is used as-is and never fetched.
+
 A streamed reply reaches the `turn_ended` snapshot as several `assistant_message` items that can split
 anywhere, including inside a word, with the whitespace inside the chunks. `latestOutputText`
 concatenates them as they are — the first version added a space at every seam and produced "c utoff".
