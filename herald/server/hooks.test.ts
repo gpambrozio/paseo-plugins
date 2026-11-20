@@ -19,8 +19,18 @@ type Handler<Name extends keyof PluginLifecycleEvents> = (
 ) => void | Promise<void>;
 type Handlers = { [Name in keyof PluginLifecycleEvents]?: Handler<Name> };
 
-function fakeServer(): { server: PluginLifecycleRegistration; emit: <Name extends keyof PluginLifecycleEvents>(name: Name, event: PluginLifecycleEvents[Name]) => Promise<void> } {
+/**
+ * A host whose `turn_ended` events carry no history, as Paseo's never did: the
+ * `timeline` a test writes on the event is what the daemon's timeline holds for
+ * that turn, and the hooks have to read it back with `readTurn`.
+ */
+function fakeServer(): {
+  server: PluginLifecycleRegistration;
+  emit: <Name extends keyof PluginLifecycleEvents>(name: Name, event: PluginLifecycleEvents[Name]) => Promise<void>;
+  turns: Map<string | null, AgentTimelineItem[]>;
+} {
   const handlers: Handlers = {};
+  const turns = new Map<string | null, AgentTimelineItem[]>();
   const context = { paseo: {} as PaseoApi, signal: new AbortController().signal };
   const server = {
     on(name: keyof PluginLifecycleEvents, handler: Handler<keyof PluginLifecycleEvents>) {
@@ -35,9 +45,16 @@ function fakeServer(): { server: PluginLifecycleRegistration; emit: <Name extend
   } as unknown as PluginLifecycleRegistration;
   return {
     server,
+    turns,
     async emit(name, event) {
       const handler = handlers[name] as Handler<typeof name> | undefined;
       if (handler === undefined) throw new Error(`no handler for ${name}`);
+      if (name === "agent.turn_ended") {
+        const ended = event as PluginLifecycleEvents["agent.turn_ended"];
+        turns.set(ended.turnId, [...ended.timeline]);
+        await (handlers["agent.turn_ended"] as Handler<"agent.turn_ended">)({ ...ended, timeline: [] }, context);
+        return;
+      }
       await handler(event, context);
     },
   };
@@ -91,10 +108,11 @@ function setup(
   const publish = vi.fn(
     async (_paseo: PaseoApi, _entry: AttentionEntry, _options?: { superseded?: boolean }) => {},
   );
-  const { server, emit } = fakeServer();
+  const { server, emit, turns } = fakeServer();
   const cleanup = registerHooks(server, {
     store,
     readConfig: async () => config,
+    readTurn: async (_paseo, _agentId, turnId) => turns.get(turnId) ?? [],
     workspaceTitle: async (workspaceId) => (workspaceId === "w1" ? "Shop" : null),
     // Not running unless a test says so, so the existing ones are unaffected.
     isRunning: async () => false,
@@ -579,5 +597,44 @@ describe("registerHooks", () => {
     await emit("agent.turn_ended", { agent: { ...agent, id: "a3" }, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(peak).toBe(1);
+  });
+});
+
+describe("reading the turn that ended", () => {
+  it("still announces a failed turn whose timeline cannot be read", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { store, emit } = setup({
+      readTurn: vi.fn(async () => {
+        throw new Error("daemon went away");
+      }),
+    });
+    await emit("agent.turn_ended", {
+      agent,
+      turnId: "t1",
+      outcome: { kind: "failed", error: { message: "Out of credits" } },
+      timeline,
+    });
+    errorSpy.mockRestore();
+    expect(store.get("a1")).toMatchObject({ reason: "error", headline: "Out of credits", detail: null });
+  });
+
+  it("announces a finished turn it could not read, without its words", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { store, emit } = setup({
+      readTurn: vi.fn(async () => {
+        throw new Error("daemon went away");
+      }),
+    });
+    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline: [] });
+    errorSpy.mockRestore();
+    expect(store.get("a1")).toMatchObject({ reason: "finished", headline: "Finished", detail: null });
+  });
+
+  it("asks for the turn the event names", async () => {
+    const readTurn = vi.fn(async () => timeline);
+    const { store, emit } = setup({ readTurn });
+    await emit("agent.turn_ended", { agent, turnId: "t7", outcome: { kind: "completed" }, timeline: [] });
+    expect(readTurn).toHaveBeenCalledWith(expect.anything(), "a1", "t7");
+    expect(store.get("a1")).toMatchObject({ reason: "finished", detail: "I fixed auth.ts and added a test." });
   });
 });

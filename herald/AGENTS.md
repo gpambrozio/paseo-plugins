@@ -26,6 +26,7 @@ compile time. This file covers only what is specific to `herald`.
 | `server/liveness.ts`         | Asks the daemon whether each entry's agent is still open before the list goes out.     |
 | `server/workspaces.ts`       | The workspace title an entry is named by, cached; agents are usually untitled.         |
 | `server/timeline.ts`         | Pure text: what an agent said, what a permission asks, the no-model fallback sentence. |
+| `server/turn.ts`             | The turn a `turn_ended` is about: the event's history on 0.11–0.12, else read back.    |
 | `server/config.ts`           | `$PASEO_HOME/plugin-data/herald/config.json`, read on every event.                     |
 | `server/data-dir.ts`         | `$PASEO_HOME/plugin-data/herald/`, and moving the plugin's files out of `plugins/`.     |
 | `server/say.ts`              | `say` on the daemon Mac, driven for its voices: text in on stdin, a WAV out, bytes back. |
@@ -198,7 +199,16 @@ is dropped as well. Claude reports that stop as a failed turn whose message is a
 (`[ede_diagnostic] … stop_reason=tool_use`); the user caused it and does not need to hear about it. A
 plain deny lets the agent carry on, so a failure after one is real and is announced.
 
-A streamed reply reaches the `turn_ended` snapshot as several `assistant_message` items that can split
+**The event carries no history since Paseo 0.13.** `turn_ended`'s `timeline` held the agent's history in
+0.11 and 0.12 and has been empty since 0.13; 0.17 dropped it from the SDK's types, though the daemon
+keeps sending it empty until 2027-05-31. `server/turn.ts` uses it while it is
+filled and otherwise reads the turn back: the latest whole turn (`tail`, `limit: 1`, `wholeTurns`). Paseo's
+own example then keeps the entries tagged with the event's `turnId`, but a live 0.16 daemon tagged none,
+so the tags only detect a newer turn that has taken the tail, and an untagged page is used whole. A
+read that fails still announces the turn, without its words — even a completed one, which an empty
+read would have dropped as silent.
+
+A streamed reply reaches the read-back turn as several `assistant_message` items that can split
 anywhere, including inside a word, with the whitespace inside the chunks. `latestOutputText`
 concatenates them as they are — the first version added a space at every seam and produced "c utoff".
 The one exception is a sentence end followed by a capital letter, which is two messages from one turn

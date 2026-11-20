@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.4.2] — 2026-11-20
+
+### Fixed
+
+- **The first mate hears about your steers again.** When you steer a crewmate from the board, the first
+  mate is meant to get what you said and what the crewmate answered once that turn ends. Since Paseo
+  0.13 it has not: the event the first mate listens for no longer carries the turn's messages, so no
+  steer was found. The first mate now reads the turn from the crewmate's history, only while a steer is waiting.
+  This also keeps the first mate working once Paseo stops sending the empty field altogether.
+
 ## [0.4.1]
 
 - Save unsent chat text on the host so it returns after an app reload or relaunch. Typing is saved after 300 ms and flushed when the app backgrounds or the chat closes; an app killed before delivery can still lose the latest edit. Keep the draft until a send succeeds.

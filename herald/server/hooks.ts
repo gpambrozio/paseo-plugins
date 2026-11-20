@@ -15,7 +15,7 @@
  *    the agent move on: a new turn, the permission answered, the agent
  *    archived. Paseo's own attention flag decides what the panel *lists*.
  */
-import type { PaseoApi } from "./host-types";
+import type { AgentTimelineItem, PaseoApi } from "./host-types";
 import type {
   PluginHookAgent,
   PluginHookContext,
@@ -31,6 +31,7 @@ import {
 import { publishCard } from "./card";
 import { isAgentRunning } from "./liveness";
 import type { AttentionStore } from "./store";
+import { carriedTurn, readEndedTurn } from "./turn";
 import { HELPER_TITLE, type Summary, type SummaryRequest, type SummarizerDeps } from "./summarize";
 import { createWorkspaceTitleLookup, type WorkspaceTitleLookup } from "./workspaces";
 import {
@@ -52,6 +53,8 @@ export interface HookDeps {
   publish?: (paseo: PaseoApi, entry: AttentionEntry, options?: { superseded?: boolean }) => Promise<void>;
   /** Whether a turn is in flight right now; a summary the agent outran is dropped. */
   isRunning?: (paseo: PaseoApi, agentId: string) => Promise<boolean>;
+  /** What was said in the turn that ended; since Paseo 0.13 the event carries none of it. */
+  readTurn?: (paseo: PaseoApi, agentId: string, turnId: string | null) => Promise<AgentTimelineItem[]>;
   now?: () => Date;
   /** How many helpers may be writing at once; more agents than this wait their turn. */
   maxConcurrent?: number;
@@ -96,6 +99,20 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
   const workspaceTitle = deps.workspaceTitle ?? createWorkspaceTitleLookup();
   const publish = deps.publish ?? publishCard;
   const isRunning = deps.isRunning ?? isAgentRunning;
+  const readTurnItems = deps.readTurn ?? readEndedTurn;
+
+  /**
+   * Null when the turn's timeline cannot be read. The turn is still announced,
+   * without its words: losing the words is better than losing the notice.
+   */
+  async function readTurn(paseo: PaseoApi, agentId: string, turnId: string | null): Promise<AgentTimelineItem[] | null> {
+    try {
+      return await readTurnItems(paseo, agentId, turnId);
+    } catch (error) {
+      console.error(`[herald] could not read the turn ${agentId} just ended:`, error);
+      return null;
+    }
+  }
 
   /**
    * Whether the agent has carried on since the summary was commissioned, in
@@ -353,14 +370,16 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       if (isHelper(event.agent)) return;
       if (isRepeatTurn(event.agent.id, event.turnId)) return;
       const generation = generationOf(event.agent.id);
-      const output = latestOutputText(event.timeline);
+      const turn = carriedTurn(event) ?? (await readTurn(context.paseo, event.agent.id, event.turnId));
+      if (generationOf(event.agent.id) !== generation) return;
+      const output = turn === null ? "" : latestOutputText(turn);
       let reason: AttentionReason;
       let headline: string;
       switch (event.outcome.kind) {
         case "completed":
           // A turn that produced no words — a compaction, a bare tool run —
-          // gives the user nothing to hear.
-          if (output === "") return;
+          // gives the user nothing to hear. One we could not read may have.
+          if (output === "" && turn !== null) return;
           reason = "finished";
           headline = "Finished";
           break;
@@ -392,7 +411,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
         output === "" ? null : firstWords(output, 60),
         config,
         context,
-        { output, lastUser: lastUserMessage(event.timeline) },
+        { output, lastUser: turn === null ? null : lastUserMessage(turn) },
       );
     }),
 

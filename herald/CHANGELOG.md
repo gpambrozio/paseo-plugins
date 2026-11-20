@@ -7,6 +7,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.6.2] — 2026-11-20
+
+### Fixed
+
+- **Herald announces finished turns again, with what the agent said.** Since Paseo 0.13 the event
+  Herald listens for has carried no messages, so every finished turn looked silent: none was announced,
+  and a failed or canceled one was announced without its last words or the request it answered.
+  Herald now reads the turn from the agent's history, so it keeps working once Paseo stops sending
+  the empty field altogether.
+
 ## [0.6.1] — 2026-10-31
 
 ### Fixed

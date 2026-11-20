@@ -21,8 +21,14 @@ import type {
 
 export type PaseoApi = PluginHandlerContext["paseo"];
 
-export type AgentTimelineItem =
-  PluginLifecycleEvents["agent.turn_ended"]["timeline"][number];
+/** One row of an agent's timeline, as `timeline.refetch` returns it. */
+export type TimelineEntry = Awaited<
+  ReturnType<ReturnType<PaseoApi["agents"]["ref"]>["timeline"]["refetch"]>
+>["entries"][number];
+
+// From the timeline page rather than `agent.turn_ended`, whose `timeline` field
+// Paseo 0.17 removed.
+export type AgentTimelineItem = TimelineEntry["item"];
 
 export type AgentPermissionRequest =
   PluginLifecycleEvents["agent.permission_requested"]["request"];

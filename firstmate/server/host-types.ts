@@ -21,4 +21,6 @@ export type TimelinePage = Awaited<
   ReturnType<ReturnType<PaseoApi["agents"]["ref"]>["timeline"]["refetch"]>
 >;
 
-export type TimelineItem = TimelinePage["entries"][number]["item"];
+export type TimelineEntry = TimelinePage["entries"][number];
+
+export type TimelineItem = TimelineEntry["item"];
