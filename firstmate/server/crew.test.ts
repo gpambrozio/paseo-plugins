@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PluginLifecycleEvents, PluginLifecycleRegistration } from "@getpaseo/plugin/server";
+import type { PluginHookEvents, PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 
 import { CREW_LABELS, type FirstmateConfig } from "../shared/fleet";
 import { CaptainSteers, registerSteerRelay, relaunchText, relayText } from "./crew";
@@ -59,12 +59,13 @@ describe("relaunchText", () => {
 });
 
 describe("registerSteerRelay", () => {
-  type TurnEnded = PluginLifecycleEvents["agent.turn_ended"];
+  type TurnEnded = PluginHookEvents["agent.turn.after"];
 
   function relay(turn: TimelineItem[]) {
     let handler: ((event: TurnEnded, context: { paseo: PaseoApi }) => Promise<void>) | undefined;
     const server = {
-      on: (_name: string, registered: typeof handler) => {
+      addHook: (name: string, registered: typeof handler) => {
+        if (name !== "agent.turn.after") throw new Error(`unexpected hook ${name}`);
         handler = registered;
         return () => {};
       },
@@ -78,7 +79,7 @@ describe("registerSteerRelay", () => {
     registerSteerRelay(server, steers, async () => ({ mateAgentId: "mate" }) as FirstmateConfig, readTurn);
     // The event carries no history, as Paseo's never did; the turn comes from readTurn.
     const end = (outcome: TurnEnded["outcome"] = { kind: "completed" }) =>
-      handler!({ agent: { id: "a1", title: "Fix login" }, turnId: "t1", outcome, timeline: [] } as unknown as TurnEnded, {
+      handler!({ agent: { id: "a1", title: "Fix login" }, turnId: "t1", outcome } as unknown as TurnEnded, {
         paseo,
       });
     return { steers, readTurn, send, end };

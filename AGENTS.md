@@ -53,7 +53,8 @@ paseo plugin logs skills          # load errors and stderr
 - The daemon needs `"pluginsEnabled": true` in its `config.json`, and **Paseo 0.9.0 or newer** —
   **0.11.0** for a plugin drawn with 0.11's screen and sidebar API. Each plugin's
   `requirements.paseo` says which: `">=0.11.0"` once it has moved to that API, `">=0.9.0"` until
-  then — and `github-board` says `">=0.13.0"`, for the inline SVG icon its GitHub logo needs. On
+  then — and `github-board` says `">=0.13.0"`, for the inline SVG icon its GitHub logo needs, and
+  `herald` and `firstmate` say `">=0.16.0"`, for the hook names below. On
   an older daemon a plugin does not degrade, it refuses to load. There are no version fallbacks
   left in this repo — see *Versions* below for why the app-side check made them
   unnecessary.
@@ -227,9 +228,18 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
   Every handler and hook receives the same object, though — the plugin process creates one `PaseoApi`
   and hands it to all of them — so keeping the first one seen is sound; until something calls in after
   a start, the timer has to wait. See `firstmate/server/watch-service.ts`.
+- **Subscribe to lifecycle hooks with `addHook` and the dotted names, not `on` or `before`.** Paseo
+  0.15 renamed every hook — `agent.turn_ended` is `agent.turn.after`, `agent.turn_started` is
+  `agent.turn.before`, `agent.created` is `agent.create.after`, and so on; `legacyEvents` in the SDK's
+  `server/lifecycle.d.ts` is the full map — and kept `on`/`before` as aliases that Paseo may remove
+  after **2027-04-30**. The payloads are the same; an `addHook` handler must return a promise, so a
+  synchronous one is written `async`. `agent.turn.after` carries no history (since 0.13 its `timeline`
+  was always empty, and 0.16's types drop it): read the turn back with
+  `timeline.refetch({ direction: "tail", limit: 1, wholeTurns: true })`, which `PaseoApi` types from
+  0.16 — see `herald/server/turn.ts`.
 - **Paseo's `<paseo-system>` notes never reach a timeline.** The daemon drops a user message that is a
   whole `<paseo-system>` envelope — a finish note, a schedule fire, a chat mention — before recording
-  it, so a hook's `timeline`, a timeline fetch and `paseo logs` all omit it, though the provider's own
+  it, so a timeline fetch and `paseo logs` omit it, though the provider's own
   session has it. Code that reacts to one has to go by what caused it; see `firstmate/server/crew-seen.ts`.
 - **`useWorkspace` and `useAgent` work only inside workspace panels.** Called from a sidebar surface
   they throw "Plugin state hooks must run inside a workspace panel" on mount, and the surface renders
@@ -271,7 +281,8 @@ server-side `read()` arrived with the 0.9 SDK, after that split was made; nothin
 `requirements.paseo` means `<0.8.0`**, so 0.8 rejects the plugin outright with a link to the
 migration guide — adding the field is part of migrating, not a substitute for it. A plugin here
 declares `>=0.11.0` once it draws with 0.11's screen and sidebar API, and `>=0.9.0` until then;
-`github-board` declares `>=0.13.0`, the first Paseo to take an inline SVG icon.
+`github-board` declares `>=0.13.0`, the first Paseo to take an inline SVG icon; `herald` and
+`firstmate` declare `>=0.16.0`, the first Paseo whose SDK types both `addHook` and `wholeTurns`.
 
 **The manifest may only carry what the *oldest* declared version accepts.** `PluginManifestSchema`
 is `.strict()` in every Paseo before 0.11.0, so a key one version added is a load failure on every
@@ -361,7 +372,8 @@ cost per plugin, not per release.
 
 All six plugins now depend on the real published `@getpaseo/plugin`, pinned to an exact version —
 `0.11.0` for a plugin on 0.11's screen and sidebar API, `0.13.0` for `github-board`, whose GitHub
-logo is an inline SVG icon that SDK first types, and older pins for the rest, at the time of
+logo is an inline SVG icon that SDK first types, `0.16.0` for `herald` and `firstmate`, which
+subscribe with `addHook`, and older pins for the rest, at the time of
 writing. Pin it *exactly*: `npm install --save-dev` writes a caret, and a range here is the same bet
 on an unreleased shape that the prerelease trap below describes. `skills` used to ship a
 hand-written `paseo-plugin.d.ts` shim instead; it was deleted in the 0.8 migration, because every

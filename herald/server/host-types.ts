@@ -16,7 +16,7 @@
  */
 import type {
   PluginHandlerContext,
-  PluginLifecycleEvents,
+  PluginHookEvents,
 } from "@getpaseo/plugin/server";
 
 export type PaseoApi = PluginHandlerContext["paseo"];
@@ -26,9 +26,9 @@ export type TimelineEntry = Awaited<
   ReturnType<ReturnType<PaseoApi["agents"]["ref"]>["timeline"]["refetch"]>
 >["entries"][number];
 
-// From the timeline page rather than `agent.turn_ended`, whose `timeline` field
-// Paseo 0.17 removed.
+// From the timeline page rather than `agent.turn.after`, whose `timeline` field
+// is always empty and off the SDK's types since Paseo 0.16.
 export type AgentTimelineItem = TimelineEntry["item"];
 
 export type AgentPermissionRequest =
-  PluginLifecycleEvents["agent.permission_requested"]["request"];
+  PluginHookEvents["agent.permission.before"]["request"];

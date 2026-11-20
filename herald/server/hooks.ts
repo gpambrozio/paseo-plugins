@@ -6,9 +6,10 @@
  *    a `pending` entry and returns; the summary lands later through the store.
  * 2. **Ignore our own helpers.** The summariser is a visible agent and fires
  *    these same hooks. It is known by the id `summarize` reports and by its
- *    title, either of which is enough — the id can be missed when `created`
- *    fires before `create()` resolves, and the title survives a plugin reload.
- * 3. **Dedupe `turn_ended`.** The docs say a turn id can repeat, and the `top`
+ *    title, either of which is enough — the id can be missed when
+ *    `agent.create.after` fires before `create()` resolves, and the title
+ *    survives a plugin reload.
+ * 3. **Dedupe `agent.turn.after`.** The docs say a turn id can repeat, and the `top`
  *    plugin has seen it fire twice for one turn; a repeat inside the window
  *    is dropped rather than summarised twice.
  * 4. **Follow the agent, not the plugin.** An entry lives until the hooks see
@@ -31,7 +32,7 @@ import {
 import { publishCard } from "./card";
 import { isAgentRunning } from "./liveness";
 import type { AttentionStore } from "./store";
-import { carriedTurn, readEndedTurn } from "./turn";
+import { readEndedTurn } from "./turn";
 import { HELPER_TITLE, type Summary, type SummaryRequest, type SummarizerDeps } from "./summarize";
 import { createWorkspaceTitleLookup, type WorkspaceTitleLookup } from "./workspaces";
 import {
@@ -53,7 +54,7 @@ export interface HookDeps {
   publish?: (paseo: PaseoApi, entry: AttentionEntry, options?: { superseded?: boolean }) => Promise<void>;
   /** Whether a turn is in flight right now; a summary the agent outran is dropped. */
   isRunning?: (paseo: PaseoApi, agentId: string) => Promise<boolean>;
-  /** What was said in the turn that ended; since Paseo 0.13 the event carries none of it. */
+  /** What was said in the turn that ended; the event carries none of it. */
   readTurn?: (paseo: PaseoApi, agentId: string, turnId: string | null) => Promise<AgentTimelineItem[]>;
   now?: () => Date;
   /** How many helpers may be writing at once; more agents than this wait their turn. */
@@ -66,7 +67,7 @@ export interface HookDeps {
   liveHelpers?: Set<string>;
 }
 
-/** A second `turn_ended` for the same turn inside this window is a repeat, not a new turn. */
+/** A second `agent.turn.after` for the same turn inside this window is a repeat, not a new turn. */
 export const TURN_REPEAT_WINDOW_MS = 15_000;
 
 /**
@@ -175,7 +176,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
   }
 
   /**
-   * An id is normally dropped when `agent.archived` arrives — but a *deleted*
+   * An id is normally dropped when `agent.archive.after` arrives — but a *deleted*
    * helper fires no such event, and the daemon deletes one per summary when the
    * user has asked it to. So the set is capped the way `resolvedRequests` is.
    * The oldest goes first, and a helper still writing is always the newest.
@@ -323,11 +324,11 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
   }
 
   const unsubscribers = [
-    server.on("agent.created", (event) => {
+    server.addHook("agent.create.after", async (event) => {
       if (event.agent.title === HELPER_TITLE) rememberHelper(event.agent.id);
     }),
 
-    server.on("agent.permission_requested", async (event, context) => {
+    server.addHook("agent.permission.before", async (event, context) => {
       if (isHelper(event.agent)) return;
       const described = describePermission(event.request);
       const generation = generationOf(event.agent.id);
@@ -351,7 +352,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       );
     }),
 
-    server.on("agent.permission_resolved", (event) => {
+    server.addHook("agent.permission.after", async (event) => {
       if (isHelper(event.agent)) return;
       deps.store.removeIf(event.agent.id, (entry) => entry.requestId === event.requestId);
       markResolved(`${event.agent.id}:${event.requestId}`);
@@ -360,17 +361,17 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       }
     }),
 
-    server.on("agent.turn_started", (event) => {
+    server.addHook("agent.turn.before", async (event) => {
       if (isHelper(event.agent)) return;
       movedOn(event.agent.id);
       deps.store.remove(event.agent.id);
     }),
 
-    server.on("agent.turn_ended", async (event, context) => {
+    server.addHook("agent.turn.after", async (event, context) => {
       if (isHelper(event.agent)) return;
       if (isRepeatTurn(event.agent.id, event.turnId)) return;
       const generation = generationOf(event.agent.id);
-      const turn = carriedTurn(event) ?? (await readTurn(context.paseo, event.agent.id, event.turnId));
+      const turn = await readTurn(context.paseo, event.agent.id, event.turnId);
       if (generationOf(event.agent.id) !== generation) return;
       const output = turn === null ? "" : latestOutputText(turn);
       let reason: AttentionReason;
@@ -415,7 +416,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
       );
     }),
 
-    server.on("agent.archived", (event) => {
+    server.addHook("agent.archive.after", async (event) => {
       helpers.delete(event.agent.id);
       interruptedAt.delete(event.agent.id);
       movedOn(event.agent.id);

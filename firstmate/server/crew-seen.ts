@@ -108,10 +108,10 @@ export function registerCrewSeen(
   now: () => Date = () => new Date(),
 ): () => void {
   const startedAt = new Map<string, Date>();
-  const unregisterStart = server.on("agent.turn_started", (event) => {
+  const unregisterStart = server.addHook("agent.turn.before", async (event) => {
     startedAt.set(event.agent.id, now());
   });
-  const unregisterEnd = server.on("agent.turn_ended", async (event, { paseo }) => {
+  const unregisterEnd = server.addHook("agent.turn.after", async (event, { paseo }) => {
     const readSince = startedAt.get(event.agent.id);
     startedAt.delete(event.agent.id);
     if (event.outcome.kind !== "completed" || readSince === undefined) return;

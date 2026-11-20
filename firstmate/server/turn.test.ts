@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { PaseoApi, TimelineEntry } from "./host-types";
-import { carriedTurn, endedTurnItems, readEndedTurn } from "./turn";
+import { endedTurnItems, readEndedTurn } from "./turn";
 
 function entry(item: TimelineEntry["item"], turnId?: string): TimelineEntry {
   return {
@@ -46,15 +46,10 @@ describe("readEndedTurn", () => {
     expect(ref).toHaveBeenCalledWith("a1");
     expect(refetch).toHaveBeenCalledWith({ direction: "tail", limit: 1, projection: "projected", wholeTurns: true });
   });
-});
 
-describe("carriedTurn", () => {
-  it("uses the history a 0.11 or 0.12 daemon put on the event", () => {
-    expect(carriedTurn({ timeline: [prompt, reply] })).toEqual([prompt, reply]);
-  });
-
-  it("reads back when the field is empty, as since 0.13, or gone, as in 0.17", () => {
-    expect(carriedTurn({ timeline: [] })).toBeNull();
-    expect(carriedTurn({})).toBeNull();
+  it("reads nothing when a newer turn started before the read", async () => {
+    const refetch = vi.fn(async () => ({ entries: [entry(prompt, "t2"), entry(reply, "t2")] }));
+    const paseo = { agents: { ref: () => ({ timeline: { refetch } }) } } as unknown as PaseoApi;
+    expect(await readEndedTurn(paseo, "a1", "t1")).toEqual([]);
   });
 });

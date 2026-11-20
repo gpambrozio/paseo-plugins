@@ -154,11 +154,13 @@ export function describeTool(item: ToolCallItem): Pick<
     case "sub_agent": {
       // What the sub-agent did, one line a tool, when the provider lists it; its log otherwise.
       const actions = detail.actions?.map((action) => `${action.toolName}${action.summary === undefined ? "" : ` ${action.summary}`}`);
+      // The log is optional, so there may be neither.
+      const log = actions === undefined ? detail.log : actions.join("\n");
       return {
         icon: "Bot",
         label: "Agent",
         summary: clip(detail.description ?? detail.subAgentType ?? ""),
-        detail: withFailure(clipLines(actions === undefined ? detail.log : actions.join("\n"), DETAIL_LINES, "tail")),
+        detail: withFailure(log === undefined ? null : clipLines(log, DETAIL_LINES, "tail")),
         markdown: false,
       };
     }

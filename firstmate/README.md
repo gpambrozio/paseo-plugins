@@ -28,7 +28,8 @@ There is nothing else to install.
 
 ## What you need
 
-- Paseo **0.11 or newer**, on the daemon and on the device running the app.
+- Paseo **0.16 or newer**, on the daemon and on the device running the app. On Paseo 0.11 to 0.15,
+  install the last release that supports them: `paseo plugin install npm:@gpambrozio/paseo-firstmate@0.4.2`.
 - **Paseo's agent tools turned on.** They are how the first mate starts its workers and hears back from
   them, and Paseo ships with them off. The panel says so and turns them on with one press; it is the
   *Agent tools* switch in the FirstMate settings too.

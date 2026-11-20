@@ -26,7 +26,7 @@ composer sits below it.](docs/timeline-card.png)
 
 ## What you need
 
-- Paseo **0.11 or newer**, on the daemon and on the device running the app.
+- Paseo **0.16 or newer**, on the daemon and on the device running the app.
 - Speech comes out of the device running the Paseo app, not the daemon machine. The voice, by
   default, is the daemon Mac's: it renders each sentence with `say` and the app plays the audio, so
   you hear the Mac's voices rather than a browser's. If the daemon is not a Mac, the browser's own
@@ -46,8 +46,9 @@ composer sits below it.](docs/timeline-card.png)
 paseo plugin install npm:@gpambrozio/paseo-herald
 ```
 
-That is the shortest route on **Paseo 0.11 or newer**, which installs plugins straight from npm; add
-`@<version>` to pin one. On Paseo 0.9 or 0.10, install the last release that supports them:
+That is the shortest route on **Paseo 0.16 or newer**, which installs plugins straight from npm; add
+`@<version>` to pin one. On Paseo 0.11 to 0.15, install the last release that supports them:
+`paseo plugin install npm:@gpambrozio/paseo-herald@0.6.2`. On Paseo 0.9 or 0.10:
 `paseo plugin install npm:@gpambrozio/paseo-herald@0.5.1`. On 0.8, install the last release that
 supported it from this repository instead:
 
