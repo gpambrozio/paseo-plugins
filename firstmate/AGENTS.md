@@ -29,6 +29,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
+| `server/turn.ts`              | The turn a `turn_ended` is about: the event's history on 0.11–0.12, else read back.               |
 | `server/crew-seen.ts`         | Clears a crewmate's "finished" flag once a later first-mate turn has completed.            |
 | `server/watches.ts`           | The watch runner: the minute timer, runs, the queue, `<firstmate-watch>` notes, `watches.json`. |
 | `server/watch-service.ts`     | The runner wired to Paseo: the kept Paseo handle, delivery to the first mate, the on/off switch. |
@@ -111,8 +112,9 @@ Two gaps, and what fills them:
 - **A turn the captain started from the board** was prompted by nobody Paseo knows to notify.
   `registerSteerRelay` remembers each steer (`CaptainSteers`, in memory, an hour at most) and sends
   the first mate a `<firstmate-board>` note with what was said and answered — on the first
-  `agent.turn_ended` whose timeline **contains** the steer as a user message, and never on a cancelled
-  one. The first turn to end is not always the answer: the one that was running may end first, and a
+  `agent.turn_ended` whose turn **contains** the steer as a user message, and never on a cancelled
+  one. Since Paseo 0.13 the event carries no history (its `timeline` is empty, and gone in 0.17), so
+  `server/turn.ts` reads the latest whole turn back, only while a steer is waiting. The first turn to end is not always the answer: the one that was running may end first, and a
   provider that cannot steer cancels it. A steer whose send failed is taken back, so it is never
   relayed as said.
 - **Nothing wakes a first mate whose crew went quiet.** The charter has it keep one `create_heartbeat`
@@ -705,7 +707,7 @@ ever ran piled up there.
 
 **The note is not in any timeline a plugin can read.** The daemon drops every user message that is a
 whole `<paseo-system>` envelope (`isSystemInjectedEnvelope` in Paseo's agent manager) before recording
-it, so neither `turn_ended`'s `timeline` nor `paseo logs` ever shows one, even though the provider's
+it, so neither the agent's timeline nor `paseo logs` ever shows one, even though the provider's
 own session holds every note. The first version parsed the notes out of the hook's timeline and so
 never cleared anything. Checked on the live 0.9.1 daemon: the first mate's Claude session held 23 notes,
 its Paseo timeline none.

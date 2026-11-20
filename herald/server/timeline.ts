@@ -1,5 +1,5 @@
 /**
- * Turns what the hooks hand us — a timeline snapshot or a permission request —
+ * Turns what the hooks see — a turn read back from the timeline, or a permission request —
  * into the plain text an entry carries and a summary is written from. Nothing
  * here touches the network or a model, which is what makes it the part with
  * tests.

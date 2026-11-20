@@ -15,10 +15,11 @@ import type { PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 import { CREW_LABELS, type FirstmateConfig } from "../shared/fleet";
 import { stopAgent } from "./cli";
 import { closingText, fetchLiveAgent, resolveMate } from "./fleet";
-import type { PaseoAgent, PaseoApi } from "./host-types";
+import type { PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
 import { askMate } from "./mate";
 import { sendWithoutInterrupting } from "./send";
 import { TEMPLATES, message } from "./templates";
+import { carriedTurn, readEndedTurn } from "./turn";
 
 /** The most of a crewmate's answer relayed to the first mate; the same cap Paseo's own notification uses. */
 const MAX_RELAYED_CHARS = 4000;
@@ -61,6 +62,11 @@ export class CaptainSteers {
     const kept = this.fresh(agentId).filter((entry) => entry.text !== text);
     if (kept.length === 0) this.pending.delete(agentId);
     else this.pending.set(agentId, kept);
+  }
+
+  /** Whether any steer to this crewmate is still waiting to be relayed. */
+  has(agentId: string): boolean {
+    return this.fresh(agentId).length > 0;
   }
 
   /** The steers `userMessages` shows were read, removed; null when it shows none of them. */
@@ -149,21 +155,22 @@ export function registerSteerRelay(
   server: PluginLifecycleRegistration,
   steers: CaptainSteers,
   readConfig: () => Promise<FirstmateConfig>,
+  readTurn: (paseo: PaseoApi, agentId: string, turnId: string | null) => Promise<TimelineItem[]> = readEndedTurn,
 ): () => void {
   return server.on("agent.turn_ended", async (event, { paseo }) => {
     // A cancelled turn is the one a steer replaced, not the one that answers it.
     if (event.outcome.kind === "canceled") return;
-    const userMessages = event.timeline.flatMap((item) => (item.type === "user_message" ? [item.text] : []));
-    const captain = steers.take(event.agent.id, userMessages);
-    if (captain === null) return;
+    // Since Paseo 0.13 the event carries no history, so the turn is read back —
+    // only when there is a steer it could answer, which is rarely.
+    if (!steers.has(event.agent.id)) return;
     try {
+      const turn = carriedTurn(event) ?? (await readTurn(paseo, event.agent.id, event.turnId));
+      const userMessages = turn.flatMap((item) => (item.type === "user_message" ? [item.text] : []));
+      const captain = steers.take(event.agent.id, userMessages);
+      if (captain === null) return;
       const mate = await resolveMate(paseo, await readConfig());
       if (mate.agent === null) return;
-      await sendWithoutInterrupting(
-        paseo,
-        mate.agent.id,
-        await relayText(event.agent, captain, closingText(event.timeline)),
-      );
+      await sendWithoutInterrupting(paseo, mate.agent.id, await relayText(event.agent, captain, closingText(turn)));
     } catch (error) {
       console.error(`[firstmate] could not tell the first mate about the captain's words to ${event.agent.id}:`, error);
     }
