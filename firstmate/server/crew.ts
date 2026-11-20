@@ -8,7 +8,7 @@
  *
  * Steering goes straight to the crewmate — the captain's words are
  * authoritative, as if typed into its tab — and the first mate hears about it
- * when that turn ends, through `CaptainSteers` and the `turn_ended` hook.
+ * when that turn ends, through `CaptainSteers` and the `agent.turn.after` hook.
  */
 import type { PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 
@@ -19,7 +19,7 @@ import type { PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
 import { askMate } from "./mate";
 import { sendWithoutInterrupting } from "./send";
 import { TEMPLATES, message } from "./templates";
-import { carriedTurn, readEndedTurn } from "./turn";
+import { readEndedTurn } from "./turn";
 
 /** The most of a crewmate's answer relayed to the first mate; the same cap Paseo's own notification uses. */
 const MAX_RELAYED_CHARS = 4000;
@@ -43,7 +43,7 @@ const STEER_TTL_MS = 60 * 60 * 1000;
  * learns of the exchange the next time it looks at that crewmate.
  *
  * A steer is handed over only by a turn that *contains* it — its text is one
- * of the ended turn's user messages. The first `turn_ended` after a steer is
+ * of the ended turn's user messages. The first `agent.turn.after` after a steer is
  * not always the answer: the turn that was running when it was sent may end
  * first, and a provider that cannot join a running turn cancels it and starts
  * a new one, so the ended turn has to show it read the words.
@@ -157,14 +157,14 @@ export function registerSteerRelay(
   readConfig: () => Promise<FirstmateConfig>,
   readTurn: (paseo: PaseoApi, agentId: string, turnId: string | null) => Promise<TimelineItem[]> = readEndedTurn,
 ): () => void {
-  return server.on("agent.turn_ended", async (event, { paseo }) => {
+  return server.addHook("agent.turn.after", async (event, { paseo }) => {
     // A cancelled turn is the one a steer replaced, not the one that answers it.
     if (event.outcome.kind === "canceled") return;
-    // Since Paseo 0.13 the event carries no history, so the turn is read back —
-    // only when there is a steer it could answer, which is rarely.
+    // The event carries no history, so the turn is read back — only when there
+    // is a steer it could answer, which is rarely.
     if (!steers.has(event.agent.id)) return;
     try {
-      const turn = carriedTurn(event) ?? (await readTurn(paseo, event.agent.id, event.turnId));
+      const turn = await readTurn(paseo, event.agent.id, event.turnId);
       const userMessages = turn.flatMap((item) => (item.type === "user_message" ? [item.text] : []));
       const captain = steers.take(event.agent.id, userMessages);
       if (captain === null) return;

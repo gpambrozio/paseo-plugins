@@ -9,7 +9,7 @@
  * and what they print waits in the queue; the board opening, or any agent's turn, releases it.
  *
  * Delivery waits while the first mate is mid-turn, asking Paseo afresh before every send. The end of
- * its turn (`agent.turn_ended`) tries the queue a few times over the next seconds
+ * its turn (`agent.turn.after`) tries the queue a few times over the next seconds
  * (`WatchRunner.flushAfterTurn`), and every minute's tick tries again, so a turn whose end the plugin
  * missed delays a note by a minute at most.
  */
@@ -75,8 +75,8 @@ export function startWatches(
     scriptStateRoot: join(pluginDir(), "watch-state"),
   });
 
-  const offStarted = server.on("agent.turn_started", (_event, context) => remember(context.paseo));
-  const offEnded = server.on("agent.turn_ended", async (event, context) => {
+  const offStarted = server.addHook("agent.turn.before", async (_event, context) => remember(context.paseo));
+  const offEnded = server.addHook("agent.turn.after", async (event, context) => {
     remember(context.paseo);
     const config = await readConfig();
     if (event.agent.id === config.mateAgentId.trim()) runner.flushAfterTurn();

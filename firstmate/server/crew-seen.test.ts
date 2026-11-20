@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CREW_LABELS, type FirstmateConfig } from "../shared/fleet";
 import { isClearableCrew, markCrewSeen, registerCrewSeen } from "./crew-seen";
-import type { PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
+import type { PaseoAgent, PaseoApi } from "./host-types";
 
 const MATE = "020789e4-a3ca-4b30-894e-f5b3af46818f";
 const CREW = { [CREW_LABELS.role]: CREW_LABELS.crewRole, "paseo.parent-agent-id": MATE };
@@ -110,26 +110,14 @@ describe("registerCrewSeen", () => {
   });
 
   type Handler = (
-    event: { agent: { id: string }; outcome?: { kind: string }; timeline?: readonly TimelineItem[] },
+    event: { agent: { id: string }; outcome?: { kind: string } },
     context: { paseo: PaseoApi },
   ) => void | Promise<void>;
-
-  /**
-   * The first mate's timeline as the daemon hands it to `turn_ended`: Paseo
-   * keeps every `<paseo-system>` note out of it, so the turn that read
-   * 5bd93f94's finish shows only the captain, the tools and the replies.
-   */
-  const REAL_TIMELINE = [
-    { type: "user_message", text: "land 42" },
-    { type: "tool_call", name: "Bash", status: "completed" },
-    { type: "assistant_message", text: "Landed #42." },
-    { type: "assistant_message", text: "Worker 5bd93f9 finished: PR opened." },
-  ] as unknown as TimelineItem[];
 
   function setup(agents: readonly PaseoAgent[] = [agent()]) {
     const handlers = new Map<string, Handler>();
     const server = {
-      on(name: string, registered: Handler) {
+      addHook(name: string, registered: Handler) {
         handlers.set(name, registered);
         return () => handlers.delete(name);
       },
@@ -153,11 +141,10 @@ describe("registerCrewSeen", () => {
     }
     async function start(agentId: string, at: Date): Promise<void> {
       clock = at;
-      await handler("agent.turn_started")({ agent: { id: agentId } }, { paseo });
+      await handler("agent.turn.before")({ agent: { id: agentId } }, { paseo });
     }
     async function end(agentId: string, kind: string): Promise<void> {
-      const event = { agent: { id: agentId }, outcome: { kind }, timeline: REAL_TIMELINE };
-      await handler("agent.turn_ended")(event, { paseo });
+      await handler("agent.turn.after")({ agent: { id: agentId }, outcome: { kind } }, { paseo });
     }
     return { clear, start, end, log, handlers, unregister };
   }

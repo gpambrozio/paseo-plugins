@@ -7,6 +7,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.5.0] — 2026-11-20
+
+**Requires Paseo 0.16.** This version does not load on Paseo 0.15 or older; stay on 0.4.2 until you
+update Paseo.
+
+### Changed
+
+- **The first mate keeps hearing about your crew after Paseo retires the old way plugins listen.**
+  Relaying your steers, clearing crewmates the first mate has read about, and delivering watch
+  results after its turns now use the way Paseo 0.16 expects, ahead of Paseo removing the older way
+  next year. Nothing changes in how the first mate or the board behaves.
+
 ## [0.4.2] — 2026-11-20
 
 ### Fixed

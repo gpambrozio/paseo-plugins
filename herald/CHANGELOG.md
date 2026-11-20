@@ -7,6 +7,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.7.0] — 2026-11-20
+
+**Requires Paseo 0.16.** This version does not load on Paseo 0.15 or older; stay on 0.6.2 until you
+update Paseo.
+
+### Changed
+
+- **Herald keeps working after Paseo retires the old way plugins hear about agents.** Herald now
+  listens for agents finishing, asking and starting the way Paseo 0.16 expects, ahead of Paseo
+  removing the older way next year. Nothing changes in what Herald announces or lists.
+
 ## [0.6.2] — 2026-11-20
 
 ### Fixed

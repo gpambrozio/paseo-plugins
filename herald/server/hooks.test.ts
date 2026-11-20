@@ -3,7 +3,7 @@ import type { PaseoApi } from "./host-types";
 import type {
   PluginHookAgent,
   PluginHookContext,
-  PluginLifecycleEvents,
+  PluginHookEvents,
   PluginLifecycleRegistration,
 } from "@getpaseo/plugin/server";
 import type { AgentPermissionRequest, AgentTimelineItem } from "./host-types";
@@ -13,34 +13,39 @@ import { registerHooks, type HookDeps } from "./hooks";
 import { AttentionStore } from "./store";
 import { HELPER_TITLE, type Summary, type SummaryRequest, type SummarizerDeps } from "./summarize";
 
-type Handler<Name extends keyof PluginLifecycleEvents> = (
-  event: PluginLifecycleEvents[Name],
+type Handler<Name extends keyof PluginHookEvents> = (
+  event: PluginHookEvents[Name],
   context: PluginHookContext,
-) => void | Promise<void>;
-type Handlers = { [Name in keyof PluginLifecycleEvents]?: Handler<Name> };
+) => Promise<void>;
+type Handlers = { [Name in keyof PluginHookEvents]?: Handler<Name> };
 
 /**
- * A host whose `turn_ended` events carry no history, as Paseo's never did: the
- * `timeline` a test writes on the event is what the daemon's timeline holds for
- * that turn, and the hooks have to read it back with `readTurn`.
+ * What a test emits: the hook's payload, plus — for `agent.turn.after` — the
+ * `timeline` the daemon's timeline holds for that turn.
+ */
+type Emitted<Name extends keyof PluginHookEvents> = Name extends "agent.turn.after"
+  ? PluginHookEvents[Name] & { timeline: AgentTimelineItem[] }
+  : PluginHookEvents[Name];
+
+/**
+ * A host whose `agent.turn.after` payloads carry no history, as Paseo's never
+ * did: the `timeline` a test writes on the event is what the daemon's timeline
+ * holds for that turn, and the hooks have to read it back with `readTurn`.
  */
 function fakeServer(): {
   server: PluginLifecycleRegistration;
-  emit: <Name extends keyof PluginLifecycleEvents>(name: Name, event: PluginLifecycleEvents[Name]) => Promise<void>;
+  emit: <Name extends keyof PluginHookEvents>(name: Name, event: Emitted<Name>) => Promise<void>;
   turns: Map<string | null, AgentTimelineItem[]>;
 } {
   const handlers: Handlers = {};
   const turns = new Map<string | null, AgentTimelineItem[]>();
   const context = { paseo: {} as PaseoApi, signal: new AbortController().signal };
   const server = {
-    on(name: keyof PluginLifecycleEvents, handler: Handler<keyof PluginLifecycleEvents>) {
+    addHook(name: keyof PluginHookEvents, handler: Handler<keyof PluginHookEvents>) {
       (handlers as Record<string, unknown>)[name] = handler;
       return () => {
         delete (handlers as Record<string, unknown>)[name];
       };
-    },
-    before() {
-      return () => {};
     },
   } as unknown as PluginLifecycleRegistration;
   return {
@@ -49,13 +54,13 @@ function fakeServer(): {
     async emit(name, event) {
       const handler = handlers[name] as Handler<typeof name> | undefined;
       if (handler === undefined) throw new Error(`no handler for ${name}`);
-      if (name === "agent.turn_ended") {
-        const ended = event as PluginLifecycleEvents["agent.turn_ended"];
-        turns.set(ended.turnId, [...ended.timeline]);
-        await (handlers["agent.turn_ended"] as Handler<"agent.turn_ended">)({ ...ended, timeline: [] }, context);
+      if (name === "agent.turn.after") {
+        const { timeline, ...ended } = event as Emitted<"agent.turn.after">;
+        turns.set(ended.turnId, [...timeline]);
+        await (handlers["agent.turn.after"] as Handler<"agent.turn.after">)(ended, context);
         return;
       }
-      await handler(event, context);
+      await handler(event as PluginHookEvents[typeof name], context);
     },
   };
 }
@@ -67,6 +72,8 @@ const agent: PluginHookAgent = {
   provider: "claude",
   cwd: "/repo",
   title: "Login fix",
+  background: false,
+  metadata: {},
 };
 
 const question: AgentPermissionRequest = {
@@ -134,7 +141,7 @@ describe("registerHooks", () => {
           }),
       ),
     });
-    await emit("agent.permission_requested", { agent, request: question });
+    await emit("agent.permission.before", { agent, request: question });
     expect(store.get("a1")).toMatchObject({
       reason: "question",
       requestId: "p1",
@@ -167,7 +174,7 @@ describe("registerHooks", () => {
   it("passes the user's choice about keeping helper sessions to the summariser", async () => {
     const config: HeraldConfig = { ...DEFAULT_CONFIG, cleanup: { deleteHelpers: false } };
     const { summarize, emit } = setup({}, config);
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     expect(summarize.mock.calls[0]?.[1]).toMatchObject({ deleteHelper: false });
   });
@@ -181,7 +188,7 @@ describe("registerHooks", () => {
         return { text: "Summary.", model: "m" };
       }),
     });
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     expect(liveHelpers.has("h1")).toBe(true);
   });
@@ -196,7 +203,7 @@ describe("registerHooks", () => {
           }),
       ),
     });
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     expect(publish.mock.calls.map((call) => call[1].summary.status)).toEqual(["pending"]);
     release({ text: "Shop finished the login fix.", model: "m" });
     await settle();
@@ -213,7 +220,7 @@ describe("registerHooks", () => {
       }),
     });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    await failing.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await failing.emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     errorSpy.mockRestore();
     expect(failing.publish.mock.calls.map((call) => call[1].summary.status)).toEqual(["pending", "failed"]);
@@ -221,7 +228,7 @@ describe("registerHooks", () => {
 
   it("turns a finished turn into an entry and ignores a silent one", async () => {
     const { store, summarize, emit } = setup();
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     expect(store.get("a1")).toMatchObject({
       reason: "finished",
       headline: "Finished",
@@ -236,7 +243,7 @@ describe("registerHooks", () => {
     });
 
     const quiet = setup();
-    await quiet.emit("agent.turn_ended", {
+    await quiet.emit("agent.turn.after", {
       agent,
       turnId: "t2",
       outcome: { kind: "completed" },
@@ -248,26 +255,26 @@ describe("registerHooks", () => {
 
   it("names failed and canceled turns", async () => {
     const { store, emit } = setup();
-    await emit("agent.turn_ended", {
+    await emit("agent.turn.after", {
       agent,
       turnId: "t1",
       outcome: { kind: "failed", error: { message: "Out of credits" } },
       timeline: [],
     });
     expect(store.get("a1")).toMatchObject({ reason: "error", headline: "Out of credits", detail: null });
-    await emit("agent.turn_ended", { agent, turnId: "t2", outcome: { kind: "canceled", reason: "" }, timeline: [] });
+    await emit("agent.turn.after", { agent, turnId: "t2", outcome: { kind: "canceled", reason: "" }, timeline: [] });
     expect(store.get("a1")).toMatchObject({ reason: "canceled", headline: "The turn was canceled" });
   });
 
   it("does not announce the failure that follows the user's own interrupting deny", async () => {
     const { store, summarize, emit } = setup();
-    await emit("agent.permission_requested", { agent, request: question });
-    await emit("agent.permission_resolved", {
+    await emit("agent.permission.before", { agent, request: question });
+    await emit("agent.permission.after", {
       agent,
       requestId: "p1",
       resolution: { behavior: "deny", interrupt: true, message: "stop" },
     });
-    await emit("agent.turn_ended", {
+    await emit("agent.turn.after", {
       agent,
       turnId: "t1",
       outcome: { kind: "failed", error: { message: "[ede_diagnostic] stop_reason=tool_use" } },
@@ -278,9 +285,9 @@ describe("registerHooks", () => {
     expect(summarize).toHaveBeenCalledTimes(1);
 
     // A plain deny lets the agent carry on; a failure after that is a real one.
-    await emit("agent.permission_requested", { agent, request: { ...question, id: "p2" } });
-    await emit("agent.permission_resolved", { agent, requestId: "p2", resolution: { behavior: "deny" } });
-    await emit("agent.turn_ended", {
+    await emit("agent.permission.before", { agent, request: { ...question, id: "p2" } });
+    await emit("agent.permission.after", { agent, requestId: "p2", resolution: { behavior: "deny" } });
+    await emit("agent.turn.after", {
       agent,
       turnId: "t2",
       outcome: { kind: "failed", error: { message: "Out of credits" } },
@@ -299,8 +306,8 @@ describe("registerHooks", () => {
 
     // A question answered while the config and workspace title were loading.
     const answered = setup({ readConfig: heldConfig });
-    const askedThenAnswered = answered.emit("agent.permission_requested", { agent, request: question });
-    await answered.emit("agent.permission_resolved", { agent, requestId: "p1", resolution: { behavior: "allow" } });
+    const askedThenAnswered = answered.emit("agent.permission.before", { agent, request: question });
+    await answered.emit("agent.permission.after", { agent, requestId: "p1", resolution: { behavior: "allow" } });
     releaseConfig(DEFAULT_CONFIG);
     await askedThenAnswered;
     await settle();
@@ -310,8 +317,8 @@ describe("registerHooks", () => {
 
     // A turn the user replied to while the same loading was in flight.
     const replied = setup({ readConfig: heldConfig });
-    const ended = replied.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
-    await replied.emit("agent.turn_started", { agent, turnId: "t2" });
+    const ended = replied.emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await replied.emit("agent.turn.before", { agent, turnId: "t2" });
     releaseConfig(DEFAULT_CONFIG);
     await ended;
     await settle();
@@ -320,8 +327,8 @@ describe("registerHooks", () => {
 
     // A different pending question is not collateral damage.
     const other = setup({ readConfig: heldConfig });
-    const asked = other.emit("agent.permission_requested", { agent, request: question });
-    await other.emit("agent.permission_resolved", { agent, requestId: "p9", resolution: { behavior: "allow" } });
+    const asked = other.emit("agent.permission.before", { agent, request: question });
+    await other.emit("agent.permission.after", { agent, requestId: "p9", resolution: { behavior: "allow" } });
     releaseConfig(DEFAULT_CONFIG);
     await asked;
     await settle();
@@ -332,7 +339,7 @@ describe("registerHooks", () => {
     // A turn reported as finished, and the agent is working again by the time
     // the summary comes back.
     const running = setup({ isRunning: vi.fn(async () => true) });
-    await running.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await running.emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     expect(running.store.get("a1")).toBeNull();
     const cards = running.publish.mock.calls.map((call) => [call[1].summary.status, call[2]?.superseded]);
@@ -349,15 +356,15 @@ describe("registerHooks", () => {
         return { text: "Never said.", model: "m" };
       }),
     });
-    await restarted.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
-    await restarted.emit("agent.turn_started", { agent, turnId: "t2" });
+    await restarted.emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await restarted.emit("agent.turn.before", { agent, turnId: "t2" });
     await settle();
     expect(restarted.store.get("a1")).toBeNull();
     expect(restarted.publish.mock.calls.at(-1)?.[2]?.superseded).toBe(true);
 
     // An agent that really did stop keeps its summary.
     const stopped = setup({ isRunning: vi.fn(async () => false) });
-    await stopped.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await stopped.emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     expect(stopped.store.get("a1")?.summary.status).toBe("ready");
     expect(stopped.publish.mock.calls.at(-1)?.[2]?.superseded).toBeUndefined();
@@ -369,7 +376,7 @@ describe("registerHooks", () => {
     // about one would suppress the very thing the plugin is for.
     const isRunning = vi.fn(async () => true);
     const asking = setup({ isRunning });
-    await asking.emit("agent.permission_requested", { agent, request: question });
+    await asking.emit("agent.permission.before", { agent, request: question });
     await settle();
     expect(isRunning).not.toHaveBeenCalled();
     expect(asking.store.get("a1")?.summary.status).toBe("ready");
@@ -384,8 +391,8 @@ describe("registerHooks", () => {
         return false;
       }),
     });
-    startTurn = () => raced.emit("agent.turn_started", { agent, turnId: "t2" });
-    await raced.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    startTurn = () => raced.emit("agent.turn.before", { agent, turnId: "t2" });
+    await raced.emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     expect(raced.store.get("a1")).toBeNull();
     expect(raced.publish.mock.calls.at(-1)?.[2]?.superseded).toBe(true);
@@ -405,10 +412,10 @@ describe("registerHooks", () => {
       ),
     });
     const second: PluginHookAgent = { ...agent, id: "a2" };
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
-    await emit("agent.turn_ended", { agent: second, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent: second, turnId: "t1", outcome: { kind: "completed" }, timeline });
     // The user replies to the queued one before its summary ever starts.
-    await emit("agent.turn_started", { agent: second, turnId: "t2" });
+    await emit("agent.turn.before", { agent: second, turnId: "t2" });
     releases[0]?.({ text: "Shop finished the login fix.", model: "m" });
     await settle();
 
@@ -431,11 +438,11 @@ describe("registerHooks", () => {
     expect(store.get("a2")).toBeNull();
   });
 
-  it("drops a repeated turn_ended for the same turn", async () => {
+  it("drops a repeated agent.turn.after for the same turn", async () => {
     const { summarize, emit } = setup();
     const event = { agent, turnId: "t1", outcome: { kind: "completed" as const }, timeline };
-    await emit("agent.turn_ended", event);
-    await emit("agent.turn_ended", event);
+    await emit("agent.turn.after", event);
+    await emit("agent.turn.after", event);
     await settle();
     expect(summarize).toHaveBeenCalledTimes(1);
   });
@@ -447,13 +454,13 @@ describe("registerHooks", () => {
         return { text: "Summary.", model: "m" };
       }),
     });
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     const byId: PluginHookAgent = { ...agent, id: "h1", title: null, parentAgentId: "a1" };
     const byTitle: PluginHookAgent = { ...agent, id: "h2", title: HELPER_TITLE, parentAgentId: "a1" };
-    await emit("agent.turn_ended", { agent: byId, turnId: "t9", outcome: { kind: "completed" }, timeline });
-    await emit("agent.turn_ended", { agent: byTitle, turnId: "t8", outcome: { kind: "completed" }, timeline });
-    await emit("agent.turn_started", { agent: byTitle, turnId: "t8" });
+    await emit("agent.turn.after", { agent: byId, turnId: "t9", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent: byTitle, turnId: "t8", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.before", { agent: byTitle, turnId: "t8" });
     await settle();
     expect(store.list().map((entry) => entry.agentId)).toEqual(["a1"]);
     expect(summarize).toHaveBeenCalledTimes(1);
@@ -462,7 +469,7 @@ describe("registerHooks", () => {
   it("records without summarising when the event kind is switched off", async () => {
     const config: HeraldConfig = { ...DEFAULT_CONFIG, announce: { ...DEFAULT_CONFIG.announce, finished: false } };
     const { store, summarize, publish, emit } = setup({}, config);
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     expect(store.get("a1")?.summary).toEqual({
       status: "off",
@@ -475,7 +482,7 @@ describe("registerHooks", () => {
   it("leaves an agent another agent started to the one that started it", async () => {
     const child: PluginHookAgent = { ...agent, parentAgentId: "mate" };
     const { store, summarize, publish, emit } = setup();
-    await emit("agent.turn_ended", { agent: child, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent: child, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await settle();
     expect(store.get("a1")?.summary).toEqual({
       status: "off",
@@ -491,9 +498,9 @@ describe("registerHooks", () => {
   it("mutes a subagent's later turns too, though its parent is no longer told", async () => {
     const child: PluginHookAgent = { ...agent, parentAgentId: "mate" };
     const { store, summarize, publish, emit } = setup();
-    await emit("agent.turn_ended", { agent: child, turnId: "t1", outcome: { kind: "completed" }, timeline });
-    await emit("agent.turn_started", { agent: child, turnId: "t2" });
-    await emit("agent.turn_ended", { agent: child, turnId: "t2", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent: child, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.before", { agent: child, turnId: "t2" });
+    await emit("agent.turn.after", { agent: child, turnId: "t2", outcome: { kind: "completed" }, timeline });
     await settle();
     expect(store.get("a1")?.summary.status).toBe("off");
     expect(summarize).not.toHaveBeenCalled();
@@ -503,7 +510,7 @@ describe("registerHooks", () => {
   it("mutes a subagent whatever it waits on, though its parent may never be told", async () => {
     const child: PluginHookAgent = { ...agent, parentAgentId: "mate" };
     const { store, summarize, publish, emit } = setup();
-    await emit("agent.permission_requested", { agent: child, request: question });
+    await emit("agent.permission.before", { agent: child, request: question });
     await settle();
     expect(store.get("a1")?.summary.status).toBe("off");
     expect(summarize).not.toHaveBeenCalled();
@@ -514,7 +521,7 @@ describe("registerHooks", () => {
     const child: PluginHookAgent = { ...agent, parentAgentId: "mate" };
     const config: HeraldConfig = { ...DEFAULT_CONFIG, subagents: { announce: true } };
     const { store, summarize, emit } = setup({}, config);
-    await emit("agent.permission_requested", { agent: child, request: question });
+    await emit("agent.permission.before", { agent: child, request: question });
     await settle();
     expect(summarize).toHaveBeenCalledOnce();
     expect(store.get("a1")?.summary.status).toBe("ready");
@@ -522,18 +529,18 @@ describe("registerHooks", () => {
 
   it("clears an entry when the agent moves on", async () => {
     const { store, emit } = setup();
-    await emit("agent.permission_requested", { agent, request: question });
-    await emit("agent.permission_resolved", { agent, requestId: "other", resolution: { behavior: "allow" } });
+    await emit("agent.permission.before", { agent, request: question });
+    await emit("agent.permission.after", { agent, requestId: "other", resolution: { behavior: "allow" } });
     expect(store.get("a1")).not.toBeNull();
-    await emit("agent.permission_resolved", { agent, requestId: "p1", resolution: { behavior: "allow" } });
+    await emit("agent.permission.after", { agent, requestId: "p1", resolution: { behavior: "allow" } });
     expect(store.get("a1")).toBeNull();
 
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
-    await emit("agent.turn_started", { agent, turnId: "t2" });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.before", { agent, turnId: "t2" });
     expect(store.get("a1")).toBeNull();
 
-    await emit("agent.turn_ended", { agent, turnId: "t3", outcome: { kind: "completed" }, timeline });
-    await emit("agent.archived", { agent, archivedAt: "now" });
+    await emit("agent.turn.after", { agent, turnId: "t3", outcome: { kind: "completed" }, timeline });
+    await emit("agent.archive.after", { agent, archivedAt: "now" });
     expect(store.get("a1")).toBeNull();
   });
 
@@ -544,7 +551,7 @@ describe("registerHooks", () => {
       }),
     });
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    await failing.emit("agent.permission_requested", { agent, request: question });
+    await failing.emit("agent.permission.before", { agent, request: question });
     await settle();
     expect(failing.store.get("a1")?.summary).toEqual({
       status: "failed",
@@ -562,9 +569,9 @@ describe("registerHooks", () => {
           }),
       ),
     });
-    await slow.emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
-    await slow.emit("agent.turn_started", { agent, turnId: "t2" });
-    await slow.emit("agent.turn_ended", {
+    await slow.emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await slow.emit("agent.turn.before", { agent, turnId: "t2" });
+    await slow.emit("agent.turn.after", {
       agent,
       turnId: "t2",
       outcome: { kind: "failed", error: { message: "boom" } },
@@ -592,9 +599,9 @@ describe("registerHooks", () => {
         return { text: "S.", model: "m" };
       }),
     });
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
-    await emit("agent.turn_ended", { agent: { ...agent, id: "a2" }, turnId: "t1", outcome: { kind: "completed" }, timeline });
-    await emit("agent.turn_ended", { agent: { ...agent, id: "a3" }, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent: { ...agent, id: "a2" }, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", { agent: { ...agent, id: "a3" }, turnId: "t1", outcome: { kind: "completed" }, timeline });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(peak).toBe(1);
   });
@@ -608,7 +615,7 @@ describe("reading the turn that ended", () => {
         throw new Error("daemon went away");
       }),
     });
-    await emit("agent.turn_ended", {
+    await emit("agent.turn.after", {
       agent,
       turnId: "t1",
       outcome: { kind: "failed", error: { message: "Out of credits" } },
@@ -625,7 +632,7 @@ describe("reading the turn that ended", () => {
         throw new Error("daemon went away");
       }),
     });
-    await emit("agent.turn_ended", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline: [] });
+    await emit("agent.turn.after", { agent, turnId: "t1", outcome: { kind: "completed" }, timeline: [] });
     errorSpy.mockRestore();
     expect(store.get("a1")).toMatchObject({ reason: "finished", headline: "Finished", detail: null });
   });
@@ -633,7 +640,7 @@ describe("reading the turn that ended", () => {
   it("asks for the turn the event names", async () => {
     const readTurn = vi.fn(async () => timeline);
     const { store, emit } = setup({ readTurn });
-    await emit("agent.turn_ended", { agent, turnId: "t7", outcome: { kind: "completed" }, timeline: [] });
+    await emit("agent.turn.after", { agent, turnId: "t7", outcome: { kind: "completed" }, timeline: [] });
     expect(readTurn).toHaveBeenCalledWith(expect.anything(), "a1", "t7");
     expect(store.get("a1")).toMatchObject({ reason: "finished", detail: "I fixed auth.ts and added a test." });
   });

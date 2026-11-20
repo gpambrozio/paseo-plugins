@@ -29,7 +29,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
-| `server/turn.ts`              | The turn a `turn_ended` is about: the event's history on 0.11–0.12, else read back.               |
+| `server/turn.ts`              | The turn an `agent.turn.after` is about, read back from the agent's timeline.                     |
 | `server/crew-seen.ts`         | Clears a crewmate's "finished" flag once a later first-mate turn has completed.            |
 | `server/watches.ts`           | The watch runner: the minute timer, runs, the queue, `<firstmate-watch>` notes, `watches.json`. |
 | `server/watch-service.ts`     | The runner wired to Paseo: the kept Paseo handle, delivery to the first mate, the on/off switch. |
@@ -112,8 +112,8 @@ Two gaps, and what fills them:
 - **A turn the captain started from the board** was prompted by nobody Paseo knows to notify.
   `registerSteerRelay` remembers each steer (`CaptainSteers`, in memory, an hour at most) and sends
   the first mate a `<firstmate-board>` note with what was said and answered — on the first
-  `agent.turn_ended` whose turn **contains** the steer as a user message, and never on a cancelled
-  one. Since Paseo 0.13 the event carries no history (its `timeline` is empty, and off the SDK's types since 0.17), so
+  `agent.turn.after` whose turn **contains** the steer as a user message, and never on a cancelled
+  one. The event carries no history (its `timeline` has been empty since Paseo 0.13, and off the SDK's types since 0.16), so
   `server/turn.ts` reads the latest whole turn back, only while a steer is waiting. The first turn to end is not always the answer: the one that was running may end first, and a
   provider that cannot steer cancels it. A steer whose send failed is taken back, so it is never
   relayed as said.
@@ -134,7 +134,7 @@ handle passed it through undeclared. Everything the plugin sends goes through it
 can take one mid-turn; where it cannot, the daemon's `steerOrReplaceActiveTurn` **cancels** the turn
 and starts a new one from the message. That is the same path Paseo's own finish notifications take,
 so it is no worse than what the first mate already lives with, but it is not a guarantee — and it is
-why the steer relay above cannot assume the first `turn_ended` after a steer is the answer to it.
+why the steer relay above cannot assume the first `agent.turn.after` after a steer is the answer to it.
 
 ## The crew is found by label
 
@@ -319,7 +319,7 @@ local time, and a minute the daemon missed is not made up.
 queue as one message, from `templates/messages/watch-*.md`, through `sendWithoutInterrupting`. It waits
 while the first mate is `running` or `initializing`, or absent, and asks Paseo afresh before every send —
 never assumes, since a note sent into a newer turn can replace that turn where the provider cannot steer.
-The first mate's own `agent.turn_ended` tries the queue 1, 5 and 15 seconds later (`flushAfterTurn`: its
+The first mate's own `agent.turn.after` tries the queue 1, 5 and 15 seconds later (`flushAfterTurn`: its
 snapshot can still say running for a moment, and a crewmate's finish note may start a turn at once), and
 every tick tries again. The queue holds `MAX_QUEUED` and counts what it drops, and one message holds at
 most `MAX_MESSAGE_CHARS` (32,000), tags included: `fitWatchNote` keeps the newest blocks that fit and drops
@@ -352,7 +352,7 @@ Two defences keep a watch message honest, and both are needed:
 **The timer has no Paseo handle of its own.** The plugin API passes `paseo` only to RPC handlers and hooks —
 but it is one object per plugin process (`plugin-process.ts` in Paseo creates it once), so
 `server/watch-service.ts` keeps the first it sees from `firstmate.fleet.load`, the toggle RPC, or any
-agent's `turn_started`/`turn_ended`. Until then, after a plugin start, watches run and their output waits.
+agent's `agent.turn.before`/`agent.turn.after`. Until then, after a plugin start, watches run and their output waits.
 
 What the card shows and the queue itself are in `$PASEO_HOME/plugin-data/firstmate/watches.json`, so a
 reload neither loses an output the script has already moved past (the PR watch's baseline has advanced)
@@ -712,14 +712,14 @@ own session holds every note. The first version parsed the notes out of the hook
 never cleared anything. Checked on the live 0.9.1 daemon: the first mate's Claude session held 23 notes,
 its Paseo timeline none.
 
-So `server/crew-seen.ts` goes by time. It hooks **the first mate's** `agent.turn_started` and
-`agent.turn_ended`: when a first-mate turn *completes*, every crewmate the first mate created
+So `server/crew-seen.ts` goes by time. It hooks **the first mate's** `agent.turn.before` and
+`agent.turn.after`: when a first-mate turn *completes*, every crewmate the first mate created
 (`firstmate.role=crew` and Paseo's own `paseo.parent-agent-id` set to the first mate — the note goes to
 the creator) whose `attentionTimestamp` is no later than that turn's start is cleared, the same way
 `markMateSeen` clears the first mate. The daemon sets the flag before it sends the note, and the note
 either starts a turn or is steered into a running one, so a finish from before a turn started has
 reached the first mate by the time that turn completes. A finish during a turn waits for the next one.
-The first-mate hooks rather than the crewmate's own `turn_ended`, because that fires from the
+The first-mate hooks rather than the crewmate's own `agent.turn.after`, because that fires from the
 crewmate's stream and can run before the daemon sets the flag. A cancelled or failed turn leaves the
 work for the next completed one, and a turn whose start the plugin did not see — one running across a
 reload — is skipped. Each clear logs `cleared N crewmates` to `paseo plugin logs firstmate`.

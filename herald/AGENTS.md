@@ -26,7 +26,7 @@ compile time. This file covers only what is specific to `herald`.
 | `server/liveness.ts`         | Asks the daemon whether each entry's agent is still open before the list goes out.     |
 | `server/workspaces.ts`       | The workspace title an entry is named by, cached; agents are usually untitled.         |
 | `server/timeline.ts`         | Pure text: what an agent said, what a permission asks, the no-model fallback sentence. |
-| `server/turn.ts`             | The turn a `turn_ended` is about: the event's history on 0.11–0.12, else read back.    |
+| `server/turn.ts`             | The turn an `agent.turn.after` is about, read back from the agent's timeline.          |
 | `server/config.ts`           | `$PASEO_HOME/plugin-data/herald/config.json`, read on every event.                     |
 | `server/data-dir.ts`         | `$PASEO_HOME/plugin-data/herald/`, and moving the plugin's files out of `plugins/`.     |
 | `server/say.ts`              | `say` on the daemon Mac, driven for its voices: text in on stdin, a WAV out, bytes back. |
@@ -59,10 +59,10 @@ rather than spawning a helper per agent.
 The SDK's create-agent request has no `internal` flag, so the summariser is an ordinary agent. It is
 created with `parent` set to the agent it describes (so it shows in that agent's subagent track, not
 as a tab) and `autoArchive: true` (so the daemon archives it after its one turn). It still triggers
-`agent.created`, `agent.turn_started` and `agent.turn_ended` on this plugin.
+`agent.create.after`, `agent.turn.before` and `agent.turn.after` on this plugin.
 
 Two things identify it, and `isHelper` accepts either: the id `summarize` reports through
-`onHelperCreated`, and the title `HELPER_TITLE`. The title matters because `agent.created` can fire
+`onHelperCreated`, and the title `HELPER_TITLE`. The title matters because `agent.create.after` can fire
 before `create()` resolves, and because the id set is lost on a plugin reload while a helper from
 the old process may still be finishing. **Do not rename the title without checking both sides.**
 
@@ -105,7 +105,7 @@ Three things about the sweep are load-bearing:
 - **`-q` prints short ids, `--json` prints full ones.** The sweep reads `--json`; `paseo delete`
   accepts either, but a prefix is a prefix.
 
-A **deleted** agent fires no `agent.archived`, which is what used to drop its id from the hooks'
+A **deleted** agent fires no `agent.archive.after`, which is what used to drop its id from the hooks'
 `helpers` set. `rememberHelper` therefore caps that set the way `resolvedRequests` is capped —
 oldest out first, and a helper still writing is always the newest. Do *not* "fix" the growth by
 forgetting the id when the summary settles: the id is how a helper whose title the hook never saw is
@@ -182,12 +182,12 @@ whoever called it, parent or not. So two kinds of event are muted with nobody to
   which is muted from its first event.
 
 Herald cannot tell these apart from the covered case: `PluginHookAgent` carries the parent id and
-nothing about subscriptions, `agent.turn_started` does not say who prompted the turn, and a
+nothing about subscriptions, `agent.turn.before` does not say who prompted the turn, and a
 `user_message` timeline item has no origin. Muting by parentage was chosen over announcing by default
 (or guessing from the parent's timeline) and is pinned by the tests in `server/hooks.test.ts`. If the
 plugin API ever exposes the subscription or a turn's origin, gate on that instead.
 
-## `turn_ended` can repeat
+## `agent.turn.after` can repeat
 
 The reference says a turn id can repeat after a session reopens, and the community `top` plugin has
 seen the event fire twice for one turn. `isRepeatTurn` drops a second event for the same
@@ -199,10 +199,10 @@ is dropped as well. Claude reports that stop as a failed turn whose message is a
 (`[ede_diagnostic] … stop_reason=tool_use`); the user caused it and does not need to hear about it. A
 plain deny lets the agent carry on, so a failure after one is real and is announced.
 
-**The event carries no history since Paseo 0.13.** `turn_ended`'s `timeline` held the agent's history in
-0.11 and 0.12 and has been empty since 0.13; 0.17 dropped it from the SDK's types, though the daemon
-keeps sending it empty until 2027-05-31. `server/turn.ts` uses it while it is
-filled and otherwise reads the turn back: the latest whole turn (`tail`, `limit: 1`, `wholeTurns`). Paseo's
+**The event carries no history.** The hook's `timeline` held the agent's history in 0.11 and 0.12,
+has been empty since 0.13, and is off the SDK's types since 0.16, though the daemon keeps sending it
+empty until 2027-05-31. Since the plugin requires 0.16, `server/turn.ts` always reads the turn back:
+the latest whole turn (`tail`, `limit: 1`, `wholeTurns`). Paseo's
 own example then keeps the entries tagged with the event's `turnId`, but a live 0.16 daemon tagged none,
 so the tags only detect a newer turn that has taken the tail, and an untagged page is used whole. A
 read that fails still announces the turn, without its words — even a completed one, which an empty
@@ -282,8 +282,8 @@ same way, right after its label.
 ## What the store means
 
 One entry per agent, the most recent reason it is waiting. Entries are removed when the hooks see the
-agent move on: `turn_started` (the user replied), `permission_resolved` for the entry's request,
-`archived`. They are *not* removed when the user merely looks at the agent — Paseo's
+agent move on: `agent.turn.before` (the user replied), `agent.permission.after` for the entry's
+request, `agent.archive.after`. They are *not* removed when the user merely looks at the agent — Paseo's
 `requiresAttention` flag handles that, and the panel lists the union of Paseo's flagged agents and
 Herald's entries, joined by agent id — less any flag that is a finished turn Herald has no entry for.
 Herald explains; Paseo decides who is listed, but for that one exception.
