@@ -14,8 +14,8 @@ read before you move.
 - **Herald announces finished turns again, with what the agent said.** Since Paseo 0.13 the event
   Herald listens for has carried no messages, so every finished turn looked silent: none was announced,
   and a failed or canceled one was announced without its last words or the request it answered.
-  Herald now reads the turn from the agent's history. This also keeps Herald working on Paseo 0.17,
-  which removed the empty field outright and would otherwise have made every turn end in an error.
+  Herald now reads the turn from the agent's history, so it keeps working once Paseo stops sending
+  the empty field altogether.
 
 ## [0.6.1] — 2026-10-31
 

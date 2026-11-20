@@ -3,7 +3,8 @@
  * timeline.
  *
  * Paseo 0.11 and 0.12 put the agent's timeline on the event; 0.13 left the
- * field empty to keep the payload small, and 0.17 removed it. So the event's
+ * field empty to keep the payload small, and 0.17 dropped it from the SDK's
+ * types, though the daemon keeps sending it empty until 2027-05-31. So the event's
  * own history is used while it has one, and otherwise the turn is read back:
  * the latest whole turn (`direction: "tail", limit: 1, wholeTurns: true`),
  * Paseo's documented way in, which daemons since 0.14 widen from one row back

@@ -15,8 +15,7 @@ read before you move.
   mate is meant to get what you said and what the crewmate answered once that turn ends. Since Paseo
   0.13 it has not: the event the first mate listens for no longer carries the turn's messages, so no
   steer was found. The first mate now reads the turn from the crewmate's history, only while a steer is waiting.
-  This also keeps the first mate working on Paseo 0.17, which removed the empty field outright and would
-  otherwise have made every turn end in an error.
+  This also keeps the first mate working once Paseo stops sending the empty field altogether.
 
 ## [0.4.1]
 

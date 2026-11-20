@@ -200,7 +200,8 @@ is dropped as well. Claude reports that stop as a failed turn whose message is a
 plain deny lets the agent carry on, so a failure after one is real and is announced.
 
 **The event carries no history since Paseo 0.13.** `turn_ended`'s `timeline` held the agent's history in
-0.11 and 0.12, has been empty since 0.13 and is gone in 0.17. `server/turn.ts` uses it while it is
+0.11 and 0.12 and has been empty since 0.13; 0.17 dropped it from the SDK's types, though the daemon
+keeps sending it empty until 2027-05-31. `server/turn.ts` uses it while it is
 filled and otherwise reads the turn back: the latest whole turn (`tail`, `limit: 1`, `wholeTurns`). Paseo's
 own example then keeps the entries tagged with the event's `turnId`, but a live 0.16 daemon tagged none,
 so the tags only detect a newer turn that has taken the tail, and an untagged page is used whole. A

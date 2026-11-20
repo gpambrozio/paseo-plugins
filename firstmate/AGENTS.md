@@ -113,7 +113,7 @@ Two gaps, and what fills them:
   `registerSteerRelay` remembers each steer (`CaptainSteers`, in memory, an hour at most) and sends
   the first mate a `<firstmate-board>` note with what was said and answered — on the first
   `agent.turn_ended` whose turn **contains** the steer as a user message, and never on a cancelled
-  one. Since Paseo 0.13 the event carries no history (its `timeline` is empty, and gone in 0.17), so
+  one. Since Paseo 0.13 the event carries no history (its `timeline` is empty, and off the SDK's types since 0.17), so
   `server/turn.ts` reads the latest whole turn back, only while a steer is waiting. The first turn to end is not always the answer: the one that was running may end first, and a
   provider that cannot steer cancels it. A steer whose send failed is taken back, so it is never
   relayed as said.
