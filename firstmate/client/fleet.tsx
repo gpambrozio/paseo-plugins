@@ -1,6 +1,6 @@
 /**
- * The FirstMate surface: the conversation with the first mate beside the
- * board of its crew.
+ * The FirstMate surface: the board of topics and the general chat with the
+ * first mate in the main pane, and the panel of its crew beside them.
  *
  * Everything on it comes from one RPC, `firstmate.fleet.load`, polled at the
  * interval in the display settings and refetched right after any action. The
@@ -13,7 +13,7 @@
  * Crew tab: they are looked at now and then, not acted on, so they get no tab.
  *
  * A surface is unmounted whenever the captain opens a workspace, so the last
- * fleet, the compact tab and the crewmate being watched live in module scope
+ * fleet, the compact tab and the card being opened live in module scope
  * and the board comes back drawn rather than empty.
  */
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
@@ -37,14 +37,26 @@ import {
 import { displaySettings, type DisplaySettings } from "../shared/settings";
 import { Board } from "./board";
 import { FilesView, type FilesRequest } from "./files";
-import { MateChat } from "./chat";
 import { captainMessage } from "./attachments";
 import { CrewmateView } from "./crewmate";
-import { agentStatusLabel, agentStatusTone, groupCards, orderedColumns, revealFilesPatch, shortPath } from "./format";
+import {
+  agentStatusLabel,
+  agentStatusTone,
+  findOpenCard,
+  headerCounts,
+  openId,
+  orderedColumns,
+  readPatch,
+  revealFilesPatch,
+  shortPath,
+} from "./format";
 import { LaunchPanel } from "./launch";
 import { useMateSender } from "./mate-send";
 import type { MateAsk } from "./card-answer";
 import { ResizeHandle, clampShare } from "./resize-handle";
+import { TopicView } from "./topic";
+import { doneRecently } from "./topic-format";
+import { TopicsMain, type OpenTopic, type TopicsView } from "./topics-main";
 import { SuggestionList } from "./suggestions";
 import { Banner, Chip, IconButton, Segmented, errorText } from "./ui";
 import { FONT_SIZE } from "./type-scale";
@@ -54,10 +66,15 @@ export const FLEET_QUERY_KEY = ["firstmate", "fleet"] as const;
 let cachedFleet: Fleet | null = null;
 type Tab = "chat" | "suggestions" | "board" | "files";
 let cachedTab: Tab = "chat";
+/** What the main pane shows: the board of topics, or the general chat. */
+let cachedMainView: TopicsView = "board";
+let cachedMainTopic: OpenTopic | null = null;
 /** What the right-hand pane shows on a wide layout: the crew, or the home's files. */
 let cachedRightPane: "board" | "files" = "board";
-/** The crewmate shown in the board's place — card and transcript — by agent id. */
+/** The card shown in the board's place, by `openId`: its thread, or its crewmate's transcript. */
 let cachedWatching: string | null = null;
+/** The open card's task id when it was opened, to find it again once an agent changes its `openId`. */
+let cachedWatchingTask: string | null = null;
 
 /**
  * A surface is given no way to open a settings screen, so the entry lends it
@@ -71,6 +88,8 @@ export function bindSettingsOpener(opener: ((id: string) => void) | null): void 
 
 const DEFAULT_DISPLAY: DisplaySettings = displaySettings.schema.parse({});
 const SAVE_DELAY_MS = 400;
+/** A main pane narrower than this cannot hold four readable columns, so its board is one list. */
+const NARROW_MAIN_WIDTH = 760;
 
 /**
  * The fleet query, shared by the screen, the workspace panels and the sidebar item so they poll once
@@ -91,7 +110,7 @@ export function useFleet(pollSeconds: number) {
   });
 }
 
-export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
+export function FleetSurface({ theme, layout, navigation, host }: PluginScreenProps) {
   const compact = layout.compact;
   const enable = useRpc(enableAgentTools);
   const compareCharters = useRpc(compareCharter);
@@ -108,8 +127,11 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
   const [share, setShare] = useState<number | null>(null);
   const [width, setWidth] = useState(0);
   const [tab, setTabState] = useState<Tab>(cachedTab);
+  const [mainView, setMainViewState] = useState(cachedMainView);
+  const [mainTopic, setMainTopicState] = useState(cachedMainTopic);
   const [rightPane, setRightPaneState] = useState(cachedRightPane);
   const [watching, setWatchingState] = useState(cachedWatching);
+  const [watchingTask, setWatchingTaskState] = useState(cachedWatchingTask);
   const [enabling, setEnabling] = useState(false);
   const [charterBusy, setCharterBusy] = useState(false);
   /** A file the Files view should open; not kept across a remount, or it would open again on return. */
@@ -188,28 +210,37 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
     setTabState(next);
   }
 
+  function setMainTopic(next: OpenTopic | null): void {
+    cachedMainTopic = next;
+    setMainTopicState(next);
+  }
+
+  function setMainView(next: TopicsView): void {
+    cachedMainView = next;
+    setMainViewState(next);
+    setMainTopic(null);
+  }
+
   function setRightPane(next: "board" | "files"): void {
-    // Choosing Crew while it is already showing is the way back from a watched crewmate to the board.
+    // Choosing Crew while it is already showing is the way back from an open card to the board.
     if (next === "board" && rightPane === "board") setWatching(null);
     cachedRightPane = next;
     setRightPaneState(next);
   }
 
   function setWatching(next: string | null): void {
+    const task = next === null ? null : (data?.cards.find((card) => openId(card) === next)?.taskId ?? watchingTask);
     cachedWatching = next;
+    cachedWatchingTask = task;
     setWatchingState(next);
+    setWatchingTaskState(task);
   }
 
   const order = orderedColumns(values.columnOrder);
-  const counts = useMemo(() => {
-    const groups = groupCards(data?.cards ?? []);
-    return {
-      working: groups.get("working")?.length ?? 0,
-      blocked: groups.get("blocked")?.length ?? 0,
-      queued: groups.get("queued")?.length ?? 0,
-      done: groups.get("done")?.length ?? 0,
-    };
-  }, [data]);
+  const counts = useMemo(
+    () => headerCounts(data?.cards ?? [], doneRecently(data?.cards ?? [])),
+    [data],
+  );
 
   const styles = useMemo(() => {
     const { colors } = theme;
@@ -285,17 +316,39 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
   /**
    * A suggestion, a card's action or a held card's answer is sent to the first
    * mate at once, through the chat's own path, and the chat comes into view to
-   * show it going out. The draft the captain was typing is left as it was.
+   * show it going out, unless the sender asked to keep the tab: a reply written
+   * on a topic stays on it. The draft the captain was typing is left as it was.
    * While a message is on its way the buttons are disabled, and a press that
    * still gets through is refused by the sender, so a double press sends once.
    */
-  function tellMate(text: string, onFailure?: () => void, onSent?: () => void): boolean {
+  function tellMate(text: string, onFailure?: () => void, onSent?: () => void, options?: { keepTab?: boolean }): boolean {
     if (mate === null || !mateSender.send(captainMessage(text, []), onFailure, onSent)) return false;
+    if (options?.keepTab === true) return true;
+    setMainView("general");
     if (compact) setTab("chat");
     else if (values.chatCollapsed) save({ chatCollapsed: false });
     return true;
   }
   const toMate: MateAsk = { sending: mateSender.sending, send: tellMate };
+  const openCard = watching === null ? null : findOpenCard(data?.cards ?? [], watching, watchingTask);
+  /** Set only while the thread itself is on screen: an open agent shows its transcript, not the thread. */
+  const openTopic = openCard?.agent === null ? openCard.backlog?.id : undefined;
+  const openLastAt = openCard?.lastMessage?.at;
+  // A thread whose line gained an agent is now that agent's card: follow it to its new id.
+  useEffect(() => {
+    const now = openCard === null ? null : openId(openCard);
+    if (now !== null && now !== watching) setWatching(now);
+  }, [openCard, watching]);
+  // A card that has left the board closes its view, rather than showing a task id as an agent's.
+  useEffect(() => {
+    if (data !== null && watching !== null && openCard === null) setWatching(null);
+  }, [data, watching, openCard]);
+  /** Opening a topic reads it, and so does each newer message that arrives while it stays open. */
+  useEffect(() => {
+    if (display.status !== "ready" || openTopic === undefined || openLastAt === undefined) return;
+    const next = readPatch(values.topicsRead, openTopic, openLastAt);
+    if (next !== null) save({ topicsRead: next });
+  }, [display.status, openTopic, openLastAt, values.topicsRead]);
 
   /**
    * A suggestion's trash: the daemon records it as dismissed and its line leaves the first mate's file,
@@ -405,8 +458,8 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
     );
   }
   // The question itself is in the chat; the banner is for when the chat is
-  // out of sight — folded away, or behind the Crew tab on a phone.
-  const chatHidden = compact ? shownTab !== "chat" : values.chatCollapsed;
+  // out of sight — behind the board or a topic, folded away, or behind the Crew tab on a phone.
+  const chatHidden = mainView !== "general" || mainTopic !== null || (compact ? shownTab !== "chat" : values.chatCollapsed);
   if (mate !== null && mate.pendingPermissions > 0 && chatHidden) {
     banners.push(
       <Banner
@@ -417,7 +470,11 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
         action={{
           label: "Show",
           icon: "MessageSquare",
-          onPress: () => (compact ? setTab("chat") : save({ chatCollapsed: false })),
+          onPress: () => {
+            setMainView("general");
+            if (compact) setTab("chat");
+            else if (values.chatCollapsed) save({ chatCollapsed: false });
+          },
         }}
       />,
     );
@@ -464,13 +521,13 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
           <>
             <IconButton
               icon={values.chatCollapsed ? "PanelLeftOpen" : "PanelLeftClose"}
-              label={values.chatCollapsed ? "Show the chat" : "Hide the chat"}
+              label={values.chatCollapsed ? "Show the topics and chat" : "Hide the topics and chat"}
               theme={theme}
               onPress={() => save({ chatCollapsed: !values.chatCollapsed, boardCollapsed: false })}
             />
             <IconButton
               icon={values.boardCollapsed ? "PanelRightOpen" : "PanelRightClose"}
-              label={values.boardCollapsed ? "Show the board" : "Hide the board"}
+              label={values.boardCollapsed ? "Show the crew panel" : "Hide the crew panel"}
               theme={theme}
               onPress={() => save({ boardCollapsed: !values.boardCollapsed, chatCollapsed: false })}
             />
@@ -492,13 +549,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
       </View>
       {data === null ? null : (
         <Text style={styles.meta} numberOfLines={1}>
-          {[
-            `${counts.working} working`,
-            `${counts.blocked} blocked`,
-            `${counts.queued} queued`,
-            `${counts.done} done`,
-            shortPath(data.home, compact ? 28 : 56),
-          ].join(" · ")}
+          {[...counts, shortPath(data.home, compact ? 28 : 56)].join(" · ")}
         </Text>
       )}
     </View>
@@ -538,7 +589,8 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
       onRemoveSuggestion={dismissSuggestion}
       watches={data.watches}
       onOpenFile={openFile}
-      onWatch={setWatching}
+      topicsRead={values.topicsRead}
+      onOpen={setWatching}
       onChanged={refresh}
       onToggleColumn={(id: ColumnId) =>
         save({
@@ -550,28 +602,56 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
       onReorder={(next: ColumnId[]) => save({ columnOrder: next })}
     />
   );
-  const chat = (
-    <MateChat
-      key={mate.id}
+  const mainWidth = values.boardCollapsed ? width : Math.round(clampShare(share ?? values.chatWidthFraction) * width);
+  const main = (
+    <TopicsMain
+      fleet={data}
       mate={mate}
       theme={theme}
       compact={compact}
-      onChanged={refresh}
+      narrow={compact || (mainWidth > 0 && mainWidth < NARROW_MAIN_WIDTH)}
+      hostLabel={host.label}
+      view={mainView}
+      onView={setMainView}
+      open={mainTopic}
+      onOpen={setMainTopic}
+      pollSeconds={values.pollSeconds}
+      hiddenChatKinds={values.hiddenChatKinds}
+      topicsRead={display.status === "ready" ? values.topicsRead : null}
+      onRead={(topicsRead) => save({ topicsRead })}
+      toMate={toMate}
+      onOpenAgent={navigation === undefined ? null : (agentId) => navigation.openAgent({ agentId })}
       onOpenFile={openFile}
+      onChanged={refresh}
     />
   );
+  const openAgentId = openCard?.agent?.id ?? null;
   const crew =
-    watching === null ? (
+    watching === null || openCard === null ? (
+      board
+    ) : openTopic !== undefined ? (
+      <TopicView
+        key={watching}
+        card={openCard}
+        topicId={openTopic}
+        theme={theme}
+        compact={compact}
+        pollSeconds={values.pollSeconds}
+        onBack={() => setWatching(null)}
+        onChanged={refresh}
+        toMate={toMate}
+      />
+    ) : openAgentId === null ? (
       board
     ) : (
       <CrewmateView
         key={watching}
-        agentId={watching}
-        card={data.cards.find((card) => card.agent?.id === watching) ?? null}
+        agentId={openAgentId}
+        card={openCard}
         theme={theme}
         compact={compact}
         onBack={() => setWatching(null)}
-        onOpen={navigation === undefined ? null : () => navigation.openAgent({ agentId: watching })}
+        onOpen={navigation === undefined ? null : () => navigation.openAgent({ agentId: openAgentId })}
         onChanged={refresh}
         toMate={toMate}
       />
@@ -607,7 +687,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
         </View>
         <View style={{ flex: 1, minHeight: 0 }}>
           {shownTab === "chat" ? (
-            chat
+            main
           ) : shownTab === "suggestions" ? (
             <ScrollView contentContainerStyle={styles.suggestions}>
               <SuggestionList
@@ -638,13 +718,13 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
           <View style={[styles.rail, { borderRightWidth: 1 }]}>
             <IconButton
               icon="PanelLeftOpen"
-              label="Show the chat"
+              label="Show the topics and chat"
               theme={theme}
               onPress={() => save({ chatCollapsed: false })}
             />
           </View>
         ) : (
-          <View style={values.boardCollapsed ? { flex: 1 } : { width: Math.round(chatShare * width) }}>{chat}</View>
+          <View style={values.boardCollapsed ? { flex: 1 } : { width: Math.round(chatShare * width) }}>{main}</View>
         )}
         {values.chatCollapsed || values.boardCollapsed ? null : (
           <ResizeHandle
@@ -662,7 +742,7 @@ export function FleetSurface({ theme, layout, navigation }: PluginScreenProps) {
           <View style={[styles.rail, { borderLeftWidth: 1 }]}>
             <IconButton
               icon="PanelRightOpen"
-              label="Show the board"
+              label="Show the crew panel"
               theme={theme}
               onPress={() => save({ boardCollapsed: false })}
             />

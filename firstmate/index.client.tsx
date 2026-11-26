@@ -57,7 +57,7 @@ export default function contribute(client: PluginClientContext) {
     id: "open-fleet",
     title: "Open FirstMate",
     icon: "Ship",
-    keywords: ["firstmate", "first mate", "fleet", "crew", "captain", "board"],
+    keywords: ["firstmate", "first mate", "fleet", "crew", "captain", "board", "topics", "needs you", "general chat"],
     context: "global",
     onSelect({ openScreen }) {
       openScreen({ screenId: FLEET_SCREEN_ID });

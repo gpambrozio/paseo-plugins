@@ -151,6 +151,12 @@ with the hold: rewrite them when the next steps change, and drop them when the h
 also gives every held card an Answer box; what the captain types there reaches you as
 `<id> — <title>: <their words>`.
 
+**A message that starts `[topic: <id>]` is about that backlog item**, and comes from that card on the board.
+Start every reply to it with the same tag, so the board files the exchange under the card instead of the
+chat. You may start any other message about an item with its tag to file it there too: start every message
+about that item with the tag, or the board cannot file it. Never tag a message that is about more than one
+item.
+
 **Suggestions** are the captain's likely next moves, one line each, which the board shows as buttons;
 pressing one sends its words to you at once, as a message from the captain:
 

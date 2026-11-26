@@ -56,6 +56,11 @@ export function useAgentTimeline(agentId: string | null, revision = "", limit = 
     let queued = false;
     let quiet: ReturnType<typeof setTimeout> | undefined;
     let ceiling: ReturnType<typeof setTimeout> | undefined;
+    // Another agent's page must not stay on screen as this one's: its pending requests would be answered here.
+    setEntries([]);
+    setAgent(null);
+    setError(null);
+    setHasOlder(false);
     setLoading(true);
 
     function clearTimers(): void {

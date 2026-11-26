@@ -6,7 +6,7 @@
  * an agent reliably reproduces — three headings and one line per item — and the
  * parser is lenient about everything else: unknown `(key: value)` groups are
  * kept as notes, a missing field is `null`, and a line it cannot read is
- * skipped rather than failing the board.
+ * skipped rather than failing the board. A ticked item is done whichever heading it is still under.
  *
  *     ## In flight
  *     - [ ] fix-flaky-login - Fix the flaky login test (project: web) (kind: ship) (mode: direct-PR) (agent: 3f2a…)
@@ -30,7 +30,8 @@ const SECTION_HEADINGS: ReadonlyArray<[RegExp, BacklogSection]> = [
 ];
 
 const ITEM_LINE = /^\s*[-*]\s+\[([ xX~-])\]\s+(.+)$/;
-const GROUP = /\(([a-zA-Z][\w-]*)\s*:\s*([^()]*)\)/g;
+/** What is between a group's parentheses: its key, a colon, and its text. */
+const GROUP_BODY = /^([a-zA-Z][\w-]*)\s*:\s*([\s\S]*)$/;
 const OUTCOME = /\((merged|done|landed|closed|failed|abandoned)\s+([^()]*)\)/i;
 /** `(since 2026-09-20)`, which the charter spells without a colon. */
 const SINCE = /\(since\s+([^():]*)\)/i;
@@ -151,17 +152,54 @@ function field(groups: Map<string, string>, ...names: string[]): string | null {
   return null;
 }
 
+/** The index of the `)` that closes the `(` at `open`, counting the pairs between; -1 when none does. */
+function closingParenthesis(body: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < body.length; index += 1) {
+    if (body[index] === "(") depth += 1;
+    if (body[index] === ")") depth -= 1;
+    if (depth === 0) return index;
+  }
+  return -1;
+}
+
+/**
+ * Takes every `(key: text)` group out of a backlog line, returning the line without them and the groups in
+ * order, keys in lower case. A group runs to its matching `)`, so its text may hold balanced parentheses:
+ * a note that says `(see section 3)` stays one note and never reaches the title. Any other parenthesis is
+ * left in the line as written.
+ */
+function takeGroups(body: string): { rest: string; groups: [key: string, text: string][] } {
+  const groups: [string, string][] = [];
+  let rest = "";
+  let index = 0;
+  while (index < body.length) {
+    if (body[index] === "(") {
+      const end = closingParenthesis(body, index);
+      const group = end === -1 ? null : GROUP_BODY.exec(body.slice(index + 1, end));
+      if (group !== null) {
+        groups.push([(group[1] ?? "").toLowerCase(), group[2] ?? ""]);
+        index = end + 1;
+        continue;
+      }
+    }
+    rest += body[index];
+    index += 1;
+  }
+  return { rest, groups };
+}
+
 function parseItem(section: BacklogSection, line: string): BacklogItem | null {
   // First, so a prompt's URLs and parentheses never reach the fields or the title below.
   const { rest: body, actions } = takeActions(line);
-  const groups = new Map<string, string>();
-  for (const match of body.matchAll(GROUP)) {
-    groups.set((match[1] ?? "").toLowerCase(), match[2] ?? "");
-  }
+  const taken = takeGroups(body);
+  const groups = new Map(taken.groups);
   // `blocked-by: x` is written bare as often as in parentheses.
-  const bareBlocker = /\bblocked-by:\s*([\w.-]+)/i.exec(body.replace(GROUP, ""));
+  const bareBlocker = /\bblocked-by:\s*([\w.-]+)/i.exec(taken.rest);
 
-  const withoutGroups = body.replace(GROUP, "").replace(OUTCOME, "").replace(SINCE, "").trim();
+  const notes = taken.groups.flatMap(([key, text]) => (key === "note" && text.trim() !== "" ? [text.trim()] : []));
+
+  const withoutGroups = taken.rest.replace(OUTCOME, "").replace(SINCE, "").trim();
   const head = ID_AND_TITLE.exec(withoutGroups);
   const id = head?.[1] ?? withoutGroups.split(/\s+/)[0] ?? "";
   if (id === "") return null;
@@ -187,6 +225,7 @@ function parseItem(section: BacklogSection, line: string): BacklogItem | null {
     agentId: field(groups, "agent", "crewmate"),
     hold: field(groups, "hold"),
     actions,
+    notes,
     blockedBy: field(groups, "blocked-by") ?? bareBlocker?.[1] ?? null,
     since: field(groups, "since") ?? SINCE.exec(body)?.[1]?.trim() ?? null,
     url,
@@ -208,7 +247,8 @@ export function parseBacklog(markdown: string): BacklogItem[] {
     if (section === null) continue;
     const item = ITEM_LINE.exec(line);
     if (item === null) continue;
-    const parsed = parseItem(section, item[2] ?? "");
+    const ticked = (item[1] ?? "").toLowerCase() === "x";
+    const parsed = parseItem(ticked ? "done" : section, item[2] ?? "");
     if (parsed !== null) items.push(parsed);
   }
   return items;

@@ -5,7 +5,7 @@
  * waiting on, answered here.
  *
  * It takes the board's place — the right-hand pane, or the Crew tab on a
- * phone — so the chat with the first mate stays beside it. Paseo's own view of
+ * phone — so the main pane stays beside it. Paseo's own view of
  * the agent is one press away, for what this leaves out: attachments, the
  * model and mode pickers, the full history.
  */
@@ -22,6 +22,8 @@ import type { MateAsk } from "./card-answer";
 import { useFollowEnd } from "./follow-end";
 import { agentStatusLabel, agentStatusTone } from "./format";
 import { Markdown } from "./markdown";
+import { ReplyBox } from "./reply-box";
+import { replyTarget } from "./reply-target";
 import { PermissionCard, usePendingRequests } from "./permission-card";
 import { Chip, IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useAgentTimeline } from "./use-timeline";
@@ -61,8 +63,7 @@ export function CrewmateView({
   toMate,
 }: {
   agentId: string;
-  /** Null once the crewmate has left the board — ended, or archived. */
-  card: FleetCard | null;
+  card: FleetCard;
   theme: PluginTheme;
   compact: boolean;
   onBack: () => void;
@@ -72,7 +73,8 @@ export function CrewmateView({
   toMate: MateAsk | null;
 }) {
   const [width, setWidth] = useState(0);
-  const agent = card?.agent ?? null;
+  const agent = card.agent;
+  const target = replyTarget(card);
   const sideBySide = !compact && width >= SIDE_BY_SIDE_WIDTH;
 
   const styles = useMemo(() => {
@@ -92,7 +94,6 @@ export function CrewmateView({
       bodySide: { flexDirection: "row" as const },
       cardColumn: { width: CARD_COLUMN_WIDTH, flexGrow: 0, flexShrink: 0 },
       cardStacked: { flexGrow: 0, maxHeight: "45%" as const },
-      gone: { color: colors.foregroundMuted, fontSize: FONT_SIZE.small, lineHeight: lineHeightFor(FONT_SIZE.small) },
       transcriptFrame: {
         flex: 1,
         minHeight: 0,
@@ -106,19 +107,16 @@ export function CrewmateView({
     };
   }, [theme, compact]);
 
-  const cardView =
-    card === null ? (
-      <Text style={styles.gone}>This worker is no longer on the board — it was ended or archived.</Text>
-    ) : (
-      <CrewCard card={card} theme={theme} compact={compact} opener={null} onChanged={onChanged} toMate={toMate} startExpanded={!compact} />
-    );
+  const cardView = (
+    <CrewCard card={card} theme={theme} compact={compact} opener={null} onChanged={onChanged} toMate={toMate} hideAnswer startExpanded={!compact} />
+  );
 
   return (
     <View style={styles.screen}>
       <View style={styles.bar}>
         <IconButton icon="ChevronLeft" label="Crew" showLabel theme={theme} onPress={onBack} />
         <Text style={styles.title} numberOfLines={1}>
-          {card?.title ?? "Worker"}
+          {card.title}
         </Text>
         {agent === null ? null : <Chip theme={theme} text={agentStatusLabel(agent)} color={agentStatusTone(theme, agent)} />}
         {onOpen === null ? null : (
@@ -144,6 +142,9 @@ export function CrewmateView({
             compact={compact}
             onOpen={onOpen}
           />
+          {target === null ? null : (
+            <ReplyBox target={target} theme={theme} compact={compact} toMate={toMate} onSent={onChanged} />
+          )}
         </View>
       </View>
     </View>
@@ -384,6 +385,7 @@ function ActivityTranscript({
           <View key={request.id} onLayout={(event) => follow.reveal(request.id, event.nativeEvent.layout)}>
             <PermissionCard
               request={request}
+              who={timeline.agent?.title ?? "The agent"}
               theme={theme}
               compact={compact}
               onRespond={(response) => respond(request.id, response)}

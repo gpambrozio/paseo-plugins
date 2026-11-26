@@ -7,6 +7,62 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-firstmate` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.6.0] — 2026-11-26
+
+The FirstMate screen now opens on a board of what you and the first mate are talking about, one topic
+per backlog item, with the chat one switch away.
+
+### Added
+
+- **A board of topics.** The main part of the screen has a **Board / General chat** switch. *Board*
+  shows *Needs you*, *Working*, *Queued* and *Done*. A card is a title, its project and a date, then
+  either the question with the first mate's answer buttons or the last thing said, and a dot marks
+  words you have not opened. *Done* shows the newest 10 with **Show 10 more**. In a narrow pane the
+  columns are one list, and a phone leaves *Done* out.
+- **Open a topic.** One click on a card shows its messages, each with who said it, a box that sends the
+  next one and says who gets it, and a panel of details: status, project, links, what it waits for and
+  the first mate's notes. A topic with its own worker shows what you and that worker said, without
+  tool calls, and you answer its questions and permission requests there.
+- **Messages are filed by topic.** A message that starts `[topic: <id>]` belongs to that backlog item,
+  and the first mate starts its reply with the same tag. The reply box and the answer buttons on the
+  board of topics add the tag for you. The plugin keeps the newest 200 messages per item, so last
+  week's are still there. The charter has a new paragraph about the tag: a home that never edited its
+  charter gets it by itself, an edited one gets the usual **Compare** notice.
+- **Threads and a reply box in the crew panel.** A card without a worker has an **Open** button that
+  shows its thread beside the card. A reply box sits under the thread and under a worker's transcript
+  in **Watch**. A card with no status line shows the last message, with a dot when you have not opened
+  it. *Done* shows the newest 10 there too.
+- **A backlog item's own worker on its card.** An item whose line names a running agent by its full id,
+  `(agent: <id>)`, shows that agent on its card, with Steer and Interrupt. The first mate is not told
+  about a steer to such a worker, since it never dispatched it.
+- **`(note: …)` on a backlog line** is read as a note on the item, as often as it is written.
+- **Settings › FirstMate › Hide in the chat** hides messages from other agents, Paseo and board
+  notices, watch output and tool calls, each on its own. Nothing is hidden to start with.
+
+### Changed
+
+- **The crew panel starts hidden.** The crew's columns, Suggestions, Watches, Watch and the Files view
+  are on the right, behind **Show the crew panel** in the header. A host that already saved its layout
+  keeps the panel as it was.
+- **General chat is for general conversation.** It says who wrote each message and leaves out the
+  messages of every backlog item on the board. A suggestion or an answer button pressed in the crew
+  panel switches to it so you see the message go out; a message sent from a topic leaves you where you
+  are.
+- **The sidebar badge counts the topics that wait on you**, in the warning colour, instead of the
+  working and idle workers.
+- **The line under the title counts what you can act on**: "2 need you · 1 working · 3 queued · 4 done
+  in 7 days".
+- The "waiting for your answer" banner also shows while the board covers the chat, and a question or a
+  permission card names the agent that asks.
+- A backlog item that is ticked counts as done under any heading. On the board of topics, so does one
+  whose line says `(merged …)`, `(done …)`, `(landed …)` or `(closed …)`.
+- On a phone, the **First mate** tab holds the switch, the board of topics and the chat.
+
+### Fixed
+
+- A `(note: …)` or `(hold: …)` whose text has parentheses of its own was left in the card's title. It is
+  now read as one group.
+
 ## [0.5.0] — 2026-11-20
 
 **Requires Paseo 0.16.** This version does not load on Paseo 0.15 or older; stay on 0.4.2 until you

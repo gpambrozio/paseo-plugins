@@ -1,6 +1,6 @@
 /**
- * The sidebar item: the FirstMate row, with a badge counting the crewmates
- * that are working or idle, and none while that is zero.
+ * The sidebar item: the FirstMate row, with a count in the warning colour of the topics that wait on the
+ * captain, and none while that is zero.
  *
  * It reads the board's own fleet query, so with the screen or a panel open the
  * three poll once between them; with neither open, it is what keeps the poll
@@ -14,14 +14,14 @@ import { Text, View } from "react-native";
 
 import { displaySettings } from "../shared/settings";
 import { useFleet } from "./fleet";
-import { FLEET_SCREEN_ID, activeCrewCount } from "./screen";
+import { FLEET_SCREEN_ID, needsYouCount } from "./screen";
 import { FONT_SIZE } from "./type-scale";
 
 export function FleetSidebarItem({ theme, currentScreen, openScreen }: PluginSidebarItemProps) {
   const display = useSettings(displaySettings);
   const fleet = useFleet(display.status === "ready" ? display.values.pollSeconds : 5);
-  const count = activeCrewCount(fleet.data?.cards ?? []);
-
+  // Before there is a first mate the screen is the launch panel, with no topic to answer.
+  const count = fleet.data?.mate == null ? 0 : needsYouCount(fleet.data.cards);
   const styles = useMemo(
     () => ({
       badge: {
@@ -30,9 +30,9 @@ export function FleetSidebarItem({ theme, currentScreen, openScreen }: PluginSid
         paddingVertical: 1,
         borderRadius: 9,
         alignItems: "center" as const,
-        backgroundColor: theme.colors.surface2,
+        backgroundColor: theme.colors.statusWarning,
       },
-      badgeText: { color: theme.colors.foregroundMuted, fontSize: FONT_SIZE.caption, fontWeight: "600" as const },
+      badgeText: { color: theme.colors.surface0, fontSize: FONT_SIZE.caption, fontWeight: "700" as const },
     }),
     [theme],
   );
@@ -43,10 +43,7 @@ export function FleetSidebarItem({ theme, currentScreen, openScreen }: PluginSid
       active={currentScreen?.screenId === FLEET_SCREEN_ID}
       trailing={
         count === 0 ? undefined : (
-          <View
-            style={styles.badge}
-            accessibilityLabel={`${count} ${count === 1 ? "crewmate" : "crewmates"} working or idle`}
-          >
+          <View style={styles.badge} accessibilityLabel={`${count} ${count === 1 ? "topic needs" : "topics need"} you`}>
             <Text style={styles.badgeText}>{count}</Text>
           </View>
         )

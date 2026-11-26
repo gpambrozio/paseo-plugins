@@ -11,6 +11,9 @@ import { COLUMN_IDS } from "./fleet";
 
 export const POLL_SECONDS = [3, 5, 10, 30] as const;
 
+/** What the chat can hide, in the order the settings screen lists them: each source of an injected message, then tool calls. */
+export const CHAT_KINDS = ["agent", "notice", "watch", "tool"] as const;
+
 export const displaySettings = defineSettings({
   id: "display",
   scope: "host",
@@ -26,8 +29,13 @@ export const displaySettings = defineSettings({
      */
     chatWidthFraction: z.number().min(0.2).max(0.8).default(0.36),
     chatCollapsed: z.boolean().default(false),
-    boardCollapsed: z.boolean().default(false),
+    /** The crew panel beside the topics: hidden until asked for, so the board of topics has the width. */
+    boardCollapsed: z.boolean().default(true),
     pollSeconds: z.number().int().min(1).max(120).default(5),
+    /** Kinds of row the chat leaves out, from `CHAT_KINDS`. */
+    hiddenChatKinds: z.array(z.string()).default([]),
+    /** When the newest message the captain has had open was said, by topic id or, for a topic with no backlog item, agent id: what an unread dot is judged against. */
+    topicsRead: z.record(z.string(), z.string()).default({}),
   }),
 });
 

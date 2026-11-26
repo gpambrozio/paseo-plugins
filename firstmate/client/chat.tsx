@@ -31,8 +31,9 @@ import { isSendKey, type WebKeyPressEvent } from "./keys";
 import { MateControls } from "./mate-controls";
 import { useMateSender } from "./mate-send";
 import { Markdown } from "./markdown";
+import { ThreadBubble } from "./thread-bubble";
 import { PermissionCard, usePendingRequests } from "./permission-card";
-import { transcriptRows, type TranscriptRow } from "./transcript-rows";
+import { chatRows, transcriptRows, visibleRows, type TranscriptRow } from "./transcript-rows";
 import { IconButton, JumpToEnd, MONOSPACE, Spinner, errorText } from "./ui";
 import { useKeyboardOverlap } from "./keyboard";
 import { useAgentTimeline } from "./use-timeline";
@@ -99,12 +100,18 @@ export function MateChat({
   mate,
   theme,
   compact,
+  hiddenKinds,
+  threads,
   onChanged,
   onOpenFile,
 }: {
   mate: AgentSummary;
   theme: PluginTheme;
   compact: boolean;
+  /** Kinds of row to leave out — `hiddenChatKinds` in the display settings. */
+  hiddenKinds: readonly string[];
+  /** Topics that open as a thread on the board; their messages are drawn there, not here. */
+  threads: ReadonlySet<string>;
   /** After a compact or a restart, so the board catches up without waiting for its poll. */
   onChanged: () => void;
   /** Opens a home file in the Files view, the same way a watch's name does. */
@@ -115,7 +122,10 @@ export function MateChat({
   /** Shared with the surface's suggestion buttons: one message on its way at a time — see `./mate-send`. */
   const { sending, send, command: sendMateCommand } = useMateSender(mate.id);
   const timeline = useAgentTimeline(mate.id, `${mate.updatedAt}:${mate.pendingPermissions}`);
-  const rows = useMemo(() => transcriptRows(timeline.entries), [timeline.entries]);
+  const rows = useMemo(
+    () => chatRows(visibleRows(transcriptRows(timeline.entries), hiddenKinds), threads),
+    [timeline.entries, hiddenKinds, threads],
+  );
   const groups = useMemo(() => groupRows(rows), [rows]);
   const files = useHomeFileLinks(rows);
   const follow = useFollowEnd();
@@ -226,18 +236,9 @@ export function MateChat({
       transcript: { flex: 1 },
       scroller: { flex: 1 },
       transcriptBody: { padding: compact ? 10 : 14, gap: 10 },
-      captain: {
-        alignSelf: "flex-end" as const,
-        maxWidth: "88%" as const,
-        backgroundColor: colors.surface2,
-        borderRadius: 10,
-        paddingHorizontal: 10,
-        paddingVertical: 7,
-      },
-      captainText: { color: colors.foreground, fontSize: FONT_SIZE.body, lineHeight: lineHeightFor(FONT_SIZE.body) },
-      mate: { alignSelf: "stretch" as const },
       line: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
       lineText: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
+      sendsTo: { color: colors.foregroundMuted, fontSize: FONT_SIZE.caption },
       toolText: { flex: 1, color: colors.foregroundMuted, fontSize: FONT_SIZE.caption, fontFamily: MONOSPACE },
       more: { color: colors.accent, fontSize: FONT_SIZE.caption },
       error: { color: colors.statusDanger, fontSize: FONT_SIZE.small },
@@ -351,17 +352,15 @@ export function MateChat({
     switch (row.kind) {
       case "captain":
         return (
-          <View key={row.key} style={styles.captain}>
-            <Text selectable style={styles.captainText}>
-              {row.text}
-            </Text>
-          </View>
+          <ThreadBubble key={row.key} theme={theme} who="You" mine>
+            {row.text}
+          </ThreadBubble>
         );
       case "mate":
         return (
-          <View key={row.key} style={styles.mate}>
+          <ThreadBubble key={row.key} theme={theme} who="First mate" mine={false}>
             <Markdown source={row.text} theme={theme} onOpenLink={openLink} files={files} onOpenFile={onOpenFile} />
-          </View>
+          </ThreadBubble>
         );
       case "error":
         return (
@@ -394,6 +393,7 @@ export function MateChat({
             <View key={request.id} onLayout={(event) => follow.reveal(request.id, event.nativeEvent.layout)}>
               <PermissionCard
                 request={request}
+                who="The first mate"
                 theme={theme}
                 compact={compact}
                 onRespond={(response) => respond(request.id, response)}
@@ -416,6 +416,7 @@ export function MateChat({
       */}
       <SafeAreaView style={styles.composerFrame}>
         <View style={styles.composer}>
+          <Text style={styles.sendsTo}>Sends to the first mate. Not about a topic.</Text>
           <View style={styles.quick}>
             <IconButton
               icon="Compass"

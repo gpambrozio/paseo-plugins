@@ -18,7 +18,8 @@ import { join } from "node:path";
 
 import type { PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 
-import { WATCH_MESSAGE_ID_PREFIX, type FirstmateConfig } from "../shared/fleet";
+import { WATCH_MESSAGE_ID_PREFIX } from "../shared/chat-messages";
+import type { FirstmateConfig } from "../shared/fleet";
 import { resolveHome, updateFirstmateConfig } from "./config";
 import { pluginDir } from "./data-dir";
 import { resolveMate } from "./fleet";

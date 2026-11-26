@@ -2,12 +2,15 @@ import type { PluginTheme } from "@getpaseo/plugin";
 
 import {
   COLUMN_IDS,
+  CREW_LABELS,
   type AgentSummary,
   type ColumnId,
   type FleetCard,
   type WatchResult,
   type WatchSummary,
 } from "../shared/fleet";
+import type { TopicMessage } from "../shared/topics";
+import { isHeld } from "./card-answer";
 
 export interface ColumnMeta {
   id: ColumnId;
@@ -25,6 +28,105 @@ export const COLUMNS: Readonly<Record<ColumnId, ColumnMeta>> = {
   failed: { id: "failed", title: "Failed", icon: "AlertTriangle" },
   idle: { id: "idle", title: "Idle", icon: "CircleDot" },
 };
+
+/** The captain's four columns, in the one order they are drawn. */
+export const CAPTAIN_COLUMN_IDS = ["needs-you", "working", "queued", "done"] as const;
+export type CaptainColumnId = (typeof CAPTAIN_COLUMN_IDS)[number];
+
+export const CAPTAIN_COLUMN_TITLES: Readonly<Record<CaptainColumnId, string>> = {
+  "needs-you": "Needs you",
+  working: "Working",
+  queued: "Queued",
+  done: "Done",
+};
+
+/** Whether a line's outcome says the work is finished: `(failed …)` and `(abandoned …)` still want the captain. */
+function landed(outcome: string | null): boolean {
+  return outcome !== null && /^(merged|done|landed|closed)\b/.test(outcome);
+}
+
+/**
+ * Where a card sits when the board is read as "what do I have to do": a
+ * finished item is Done whatever its line still says; anything held, blocked or
+ * failed waits on the captain; a crewmate at work or at rest is Working; the
+ * rest has not started.
+ */
+export function captainColumn(card: FleetCard): CaptainColumnId {
+  const item = card.backlog;
+  if (item?.section === "done" || landed(item?.outcome ?? null) || card.column === "done") return "done";
+  if (isHeld(card) || card.column === "blocked" || card.column === "failed") return "needs-you";
+  if (card.column === "working" || card.column === "idle") return "working";
+  return "queued";
+}
+
+/**
+ * What the board remembers an open card by: its agent's id, or its task id when it has no agent. Never
+ * `card.key`, whose backlog form holds the line's index, which moves when the first mate edits the file above
+ * it. The agent comes first because two crewmates can share a task label, and a Done line can share its id
+ * with a live crewmate's card.
+ */
+export function openId(card: FleetCard): string | null {
+  return card.agent?.id ?? card.taskId;
+}
+
+/**
+ * Whether the captain has something to read on a card: the first mate spoke last and its message is newer
+ * than the one the captain last had open (`read`, topic id to when it was said). A card with an agent goes by the agent
+ * alone, since it opens the agent's transcript and never the thread that would mark the topic read.
+ */
+export function isUnread(card: FleetCard, read: Readonly<Record<string, string>>): boolean {
+  if (card.agent !== null) return card.agent.requiresAttention === true;
+  const last = card.lastMessage;
+  const topicId = card.backlog?.id;
+  if (last === null || last.from !== "mate" || topicId === undefined) return false;
+  return last.at > (read[topicId] ?? "");
+}
+
+/** The read map with `topicId` read up to the message said at `at`; null when it already was, so nothing is saved for it. */
+export function readPatch(
+  read: Readonly<Record<string, string>>,
+  topicId: string,
+  at: string,
+): Record<string, string> | null {
+  if (at <= (read[topicId] ?? "")) return null;
+  return { ...read, [topicId]: at };
+}
+
+/**
+ * The card an open view is about. Found by the id it was opened under; failing that by the task id it had
+ * then, because a backlog line that gains an `(agent: …)` changes its card's `openId` from the task id to
+ * the agent's. Null only when neither is on the board any more.
+ */
+export function findOpenCard(cards: readonly FleetCard[], id: string, taskId: string | null): FleetCard | null {
+  return (
+    cards.find((card) => openId(card) === id) ??
+    (taskId === null ? null : cards.find((card) => card.taskId === taskId)) ??
+    null
+  );
+}
+
+/**
+ * A card's last message as one line: who said it, then the words with their line breaks folded away.
+ * `agentTitle` names the card's agent when it is the one that spoke.
+ */
+export function lastMessageLine(message: TopicMessage, agentTitle: string | null = null): string {
+  const who = message.from === "mate" ? "First mate" : message.from === "agent" ? agentTitle ?? "Agent" : "You";
+  return `${who}: ${message.text.replace(/\s+/g, " ").trim()}`;
+}
+
+/** How far back the header's count of finished topics looks. */
+export const DONE_RECENT_DAYS = 7;
+
+/**
+ * The counts under the screen's title, as the board of topics groups them. Done is what finished lately
+ * (`doneRecently`), since the count of everything ever finished tells the captain nothing.
+ */
+export function headerCounts(cards: readonly FleetCard[], doneRecently: number): string[] {
+  const groups = groupCaptainCards(cards);
+  const count = (id: CaptainColumnId) => groups.get(id)?.length ?? 0;
+  const needsYou = count("needs-you");
+  return [`${needsYou} ${needsYou === 1 ? "needs" : "need"} you`, `${count("working")} working`, `${count("queued")} queued`, `${doneRecently} done in ${DONE_RECENT_DAYS} days`];
+}
 
 /** The saved order, known ids only, followed by any column it does not mention. */
 export function orderedColumns(saved: readonly string[]): ColumnId[] {
@@ -255,6 +357,13 @@ export function groupCards(cards: readonly FleetCard[]): Map<ColumnId, FleetCard
   return groups;
 }
 
+/** Cards grouped into the captain's four columns, each in the order the daemon sent them. */
+export function groupCaptainCards(cards: readonly FleetCard[]): Map<CaptainColumnId, FleetCard[]> {
+  const groups = new Map<CaptainColumnId, FleetCard[]>(CAPTAIN_COLUMN_IDS.map((id) => [id, []]));
+  for (const card of cards) groups.get(captainColumn(card))?.push(card);
+  return groups;
+}
+
 /**
  * The sentence a failure is worth showing. An RPC that fails in the daemon
  * reaches the app as "Request failed: <the handler's message>
@@ -268,4 +377,12 @@ export function errorText(caught: unknown): string {
     .replace(/\s+requestType=\S+(\s+code=\S+)?\s*$/, "")
     .trim();
   return clean === "" ? raw : clean;
+}
+
+/**
+ * Whether End and Relaunch are offered for this agent: only for one the first mate made as crew. A backlog
+ * item's own agent has no crew label, and the daemon refuses both for it.
+ */
+export function canEndOrRelaunch(agent: Pick<AgentSummary, "labels">): boolean {
+  return agent.labels[CREW_LABELS.role] === CREW_LABELS.crewRole;
 }

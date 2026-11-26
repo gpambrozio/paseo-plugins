@@ -80,11 +80,15 @@ export function Segmented<Value extends string>({
   value,
   options,
   onChange,
+  quiet = false,
 }: {
   theme: PluginTheme;
-  value: Value;
+  /** Null selects no segment: the switch is beside a view that is none of its options. */
+  value: Value | null;
   options: ReadonlyArray<{ value: Value; label: string }>;
   onChange: (value: Value) => void;
+  /** Marks the selected segment with a raised surface instead of the accent colour, for a switch between views. */
+  quiet?: boolean;
 }) {
   const colors = theme.colors;
   const styles = useMemo(
@@ -99,11 +103,11 @@ export function Segmented<Value extends string>({
         overflow: "hidden" as const,
       },
       segment: { justifyContent: "center" as const, paddingHorizontal: 12 },
-      selected: { backgroundColor: colors.accent },
-      label: { color: colors.foreground, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
-      labelSelected: { color: colors.accentForeground, fontWeight: "600" as const },
+      selected: { backgroundColor: quiet ? colors.surface2 : colors.accent },
+      label: { color: quiet ? colors.foregroundMuted : colors.foreground, fontSize: FONT_SIZE.small, fontWeight: "500" as const },
+      labelSelected: { color: quiet ? colors.foreground : colors.accentForeground, fontWeight: "600" as const },
     }),
-    [colors],
+    [colors, quiet],
   );
   return (
     <View style={styles.frame} accessibilityRole="tablist">
@@ -121,6 +125,32 @@ export function Segmented<Value extends string>({
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+/** The captain's words as a bubble on the right, on a thread in the crew panel. */
+export function CaptainBubble({ theme, text }: { theme: PluginTheme; text: string }) {
+  const colors = theme.colors;
+  const styles = useMemo(
+    () => ({
+      bubble: {
+        alignSelf: "flex-end" as const,
+        maxWidth: "88%" as const,
+        backgroundColor: colors.surface2,
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+      },
+      text: { color: colors.foreground, fontSize: FONT_SIZE.body, lineHeight: lineHeightFor(FONT_SIZE.body) },
+    }),
+    [colors],
+  );
+  return (
+    <View style={styles.bubble}>
+      <Text selectable style={styles.text}>
+        {text}
+      </Text>
     </View>
   );
 }
@@ -172,6 +202,22 @@ export function Spinner({ size, color }: { size: number; color: string }) {
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
       <ActivityIndicator size="small" color={color} style={{ transform: [{ scale: size / SMALL_SPINNER }] }} />
     </View>
+  );
+}
+
+/** The foot of a list cut short: draws `count` more of it. */
+export function ShowMore({ theme, count, onPress }: { theme: PluginTheme; count: number; onPress: () => void }) {
+  const styles = useMemo(
+    () => ({
+      button: { alignSelf: "flex-start" as const, paddingHorizontal: 2, paddingVertical: 4 },
+      label: { color: theme.colors.accent, fontSize: FONT_SIZE.caption },
+    }),
+    [theme],
+  );
+  return (
+    <Pressable accessibilityRole="button" style={styles.button} onPress={onPress}>
+      <Text style={styles.label}>Show {count} more</Text>
+    </Pressable>
   );
 }
 

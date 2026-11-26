@@ -10,6 +10,7 @@ import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 
 import { CaptainMessageSchema } from "./attachments";
+import { TopicMessageSchema } from "./topics";
 
 /**
  * The labels a crewmate is created with. The charter tells the first mate to
@@ -91,6 +92,8 @@ export const BacklogItemSchema = z.object({
   agentId: z.string().nullable(),
   hold: z.string().nullable(),
   actions: z.array(CardActionSchema),
+  /** What the first mate wrote in each `(note: …)` group on the item's line, in order. */
+  notes: z.array(z.string()),
   blockedBy: z.string().nullable(),
   since: z.string().nullable(),
   url: z.string().nullable(),
@@ -116,6 +119,8 @@ export const FleetCardSchema = z.object({
   report: CrewReportSchema.nullable(),
   /** A pull request, from the report or the backlog line. */
   url: z.string().nullable(),
+  /** The newest message about the card: one filed under its backlog item, or its own agent's closing words when those are newer. */
+  lastMessage: TopicMessageSchema.nullable(),
 });
 export type FleetCard = z.infer<typeof FleetCardSchema>;
 
@@ -137,18 +142,6 @@ export const SuggestionSchema = z.object({
   prompt: z.string(),
 });
 export type Suggestion = z.infer<typeof SuggestionSchema>;
-
-/**
- * How a watch message is told from the captain's words in a timeline: the plugin sends it with a
- * `messageId` starting with this, which the daemon records as the timeline item's `clientMessageId`.
- * Text alone cannot tell them apart — the captain can paste a watch block — so the chat folds a message
- * as a watch message only when it carries this id.
- */
-export const WATCH_MESSAGE_ID_PREFIX = "firstmate-watch-";
-
-export function isWatchMessageId(id: string | null | undefined): boolean {
-  return typeof id === "string" && id.startsWith(WATCH_MESSAGE_ID_PREFIX);
-}
 
 /** The home's folder of watch scripts, relative to the home. */
 export const WATCHES_DIR = "watches";
@@ -466,4 +459,15 @@ export const relaunchCrew = defineRpc({
   name: "firstmate.crew.relaunch",
   input: crewInput.extend({ note: z.string().min(1) }),
   output: z.object({ agentId: z.string() }),
+});
+
+// ---------------------------------------------------------------------------
+// Topics
+// ---------------------------------------------------------------------------
+
+/** The messages filed under one backlog item, oldest first. */
+export const topicMessages = defineRpc({
+  name: "firstmate.topic.messages",
+  input: z.object({ topicId: z.string().min(1) }),
+  output: z.object({ messages: z.array(TopicMessageSchema) }),
 });

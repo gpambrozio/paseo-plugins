@@ -14,9 +14,10 @@ export interface MateAsk {
   sending: boolean;
   /**
    * Sends `text` as the captain's message; false when refused. `onFailure` runs after the failure
-   * toast, `onSent` once the daemon has taken it.
+   * toast, `onSent` once the daemon has taken it. By default the chat comes into view to show it going
+   * out; `keepTab` leaves the captain where they are, for a reply written on a topic.
    */
-  send: (text: string, onFailure?: () => void, onSent?: () => void) => boolean;
+  send: (text: string, onFailure?: () => void, onSent?: () => void, options?: { keepTab?: boolean }) => boolean;
 }
 
 /** A card waiting on the captain: its backlog line carries a `(hold: …)`. */

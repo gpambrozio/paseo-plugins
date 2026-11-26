@@ -25,7 +25,9 @@ import { resolveHome } from "./config";
 import { parseCrewReport, reportUrl } from "./crew-report";
 import { readCharterState } from "./charter-file";
 import { isHomeReady, readBacklog, readProjects, readSuggestions } from "./home";
+import type { TopicMessage } from "../shared/topics";
 import type { AgentListOptions, PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
+import type { TopicLog } from "./topic-log";
 
 const PAGE_SIZE = 200;
 /** Enough of a timeline to reach back past a turn's last tool calls to its closing message. */
@@ -110,12 +112,19 @@ export async function fetchLiveAgent(paseo: PaseoApi, agentId: string): Promise<
  * other item — a tool call, the user's message — ends the search.
  */
 export function closingText(items: readonly TimelineItem[]): string | null {
+  return closingRun(items)?.text ?? null;
+}
+
+/** Where the closing text starts, and the text. */
+function closingRun(items: readonly TimelineItem[]): { start: number; text: string } | null {
   const parts: string[] = [];
+  let start = items.length;
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
     if (item === undefined) break;
     if (item.type === "assistant_message") {
       parts.unshift(item.text);
+      start = index;
       continue;
     }
     // Plugin rows and notices can land after a turn without being part of it.
@@ -123,17 +132,34 @@ export function closingText(items: readonly TimelineItem[]): string | null {
     break;
   }
   const text = parts.join("");
-  return text.trim() === "" ? null : text;
+  return text.trim() === "" ? null : { start, text };
+}
+
+/** `closingText` as a message from agent `agentId`, identified and dated by the entry it starts at. */
+export function closingMessage(
+  agentId: string,
+  entries: readonly { item: TimelineItem; seqStart: number; timestamp: string }[],
+): TopicMessage | null {
+  const run = closingRun(entries.map((entry) => entry.item));
+  const first = run === null ? undefined : entries[run.start];
+  if (run === null || first === undefined) return null;
+  return { id: `${agentId}:${first.seqStart}`, from: "agent", text: run.text, at: first.timestamp };
 }
 
 interface CachedReport {
   updatedAt: string;
   report: CrewReportSummary | null;
+  closing: TopicMessage | null;
 }
 
 /** Each crewmate's last status line, re-read only when the agent has moved. */
 export class ReportCache {
   private readonly reports = new Map<string, CachedReport>();
+
+  /** The agent's closing words as of the last read, for a card with no status line to show. */
+  closingFor(agentId: string): TopicMessage | null {
+    return this.reports.get(agentId)?.closing ?? null;
+  }
 
   async reportFor(paseo: PaseoApi, agent: PaseoAgent): Promise<CrewReportSummary | null> {
     const cached = this.reports.get(agent.id);
@@ -144,8 +170,9 @@ export class ReportCache {
     const page = await paseo.agents
       .ref(agent.id)
       .timeline.refetch({ direction: "tail", limit: REPORT_TAIL, projection: "projected" });
-    const report = parseCrewReport(closingText(page.entries.map((entry) => entry.item)));
-    this.reports.set(agent.id, { updatedAt: agent.updatedAt, report });
+    const closing = closingMessage(agent.id, page.entries);
+    const report = parseCrewReport(closing?.text ?? null);
+    this.reports.set(agent.id, { updatedAt: agent.updatedAt, report, closing });
     return report;
   }
 
@@ -191,17 +218,44 @@ export function backlogColumn(item: BacklogItem): ColumnId {
   return "queued";
 }
 
+const AGENT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The agents unfinished backlog items name by a full UUID that no crewmate or the first mate already is, once each. An item
+ * made by hand, or by a first mate that skipped the crew labels, has its own agent with no label for the
+ * board to find it by. A prefix or a note about another daemon is no UUID and is left alone.
+ */
+export function ownAgentIds(backlog: readonly BacklogItem[], takenIds: ReadonlySet<string>): string[] {
+  const ids = backlog.flatMap((item) =>
+    item.section !== "done" && item.agentId !== null && AGENT_UUID.test(item.agentId) ? [item.agentId] : [],
+  );
+  return [...new Set(ids)].filter((id) => !takenIds.has(id));
+}
+
 export interface CrewMember {
   agent: AgentSummary;
   report: CrewReportSummary | null;
+  /** What the agent last said; shown on its card only while the card has no status line. */
+  closing?: TopicMessage | null;
+}
+
+/** The later of two messages by time; either may be absent. */
+function newerMessage(a: TopicMessage | null, b: TopicMessage | null): TopicMessage | null {
+  if (a === null || b === null) return a ?? b;
+  return Date.parse(b.at) > Date.parse(a.at) ? b : a;
 }
 
 /**
  * Crewmates and backlog items joined into cards. A crewmate is matched to its
  * item by the task label, or by the agent id the item recorded; whatever is
- * left over on either side is a card of its own.
+ * left over on either side is a card of its own. `latest` is the newest message filed under each backlog
+ * item, by its id.
  */
-export function buildCards(backlog: readonly BacklogItem[], crew: readonly CrewMember[]): FleetCard[] {
+export function buildCards(
+  backlog: readonly BacklogItem[],
+  crew: readonly CrewMember[],
+  latest: ReadonlyMap<string, TopicMessage> = new Map(),
+): FleetCard[] {
   const cards: FleetCard[] = [];
   const claimed = new Set<number>();
 
@@ -227,6 +281,10 @@ export function buildCards(backlog: readonly BacklogItem[], crew: readonly CrewM
       agent: member.agent,
       report: member.report,
       url: (member.report === null ? null : reportUrl(member.report.text)) ?? item?.url ?? null,
+      lastMessage: newerMessage(
+        (item === null ? null : latest.get(item.id)) ?? null,
+        member.report === null ? member.closing ?? null : null,
+      ),
     });
   }
 
@@ -243,6 +301,7 @@ export function buildCards(backlog: readonly BacklogItem[], crew: readonly CrewM
       agent: null,
       report: null,
       url: item.url,
+      lastMessage: latest.get(item.id) ?? null,
     });
   });
   return cards;
@@ -272,11 +331,18 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Files the first mate's conversation, when there is a first mate, and returns the newest message of each topic. */
+async function fileTopics(topics: TopicLog, paseo: PaseoApi, mate: PaseoAgent | null) {
+  if (mate !== null) await topics.sync(paseo, mate);
+  return topics.latest();
+}
+
 export async function loadFleet(
   paseo: PaseoApi,
   config: FirstmateConfig,
   reports: ReportCache,
   watchSummaries: () => Promise<WatchSummary[]> = async () => [],
+  topics: TopicLog | null = null,
 ): Promise<Fleet> {
   const home = resolveHome(config);
   const warnings: string[] = [];
@@ -295,7 +361,17 @@ export async function loadFleet(
       warnings.push(`The suggestions could not be read: ${describe(error)}`);
       return [];
     }),
-    resolveMate(paseo, config),
+    (async function mateWithTopics() {
+      const resolved = await resolveMate(paseo, config);
+      const latest =
+        topics === null
+          ? new Map<string, TopicMessage>()
+          : await fileTopics(topics, paseo, resolved.agent).catch((error: unknown) => {
+              warnings.push(`The topics could not be filed: ${describe(error)}`);
+              return new Map<string, TopicMessage>();
+            });
+      return { ...resolved, latest };
+    })(),
     listAgents(paseo, { labels: { [CREW_LABELS.role]: CREW_LABELS.crewRole } }).catch((error: unknown) => {
       warnings.push(`Paseo could not list the crew: ${describe(error)}`);
       return [];
@@ -311,14 +387,27 @@ export async function loadFleet(
     }),
   ]);
 
-  reports.retain(new Set(crewAgents.map((agent) => agent.id)));
+  const ownAgents = (
+    await Promise.all(
+      ownAgentIds(backlog, new Set([...crewAgents.map((agent) => agent.id), ...(mate.agent === null ? [] : [mate.agent.id])])).map((id) =>
+        fetchLiveAgent(paseo, id).catch((error: unknown) => {
+          warnings.push(`Paseo could not look up agent ${id}: ${describe(error)}`);
+          return null;
+        }),
+      ),
+    )
+  ).filter((agent): agent is PaseoAgent => agent !== null);
+  const boardAgents = [...crewAgents, ...ownAgents];
+
+  reports.retain(new Set(boardAgents.map((agent) => agent.id)));
   const crew = await Promise.all(
-    crewAgents.map(async (agent) => ({
+    boardAgents.map(async (agent) => ({
       agent: summarizeAgent(agent),
       report: await reports.reportFor(paseo, agent).catch((error: unknown) => {
         console.error(`[firstmate] could not read the status line of ${agent.id}:`, error);
         return null;
       }),
+      closing: reports.closingFor(agent.id),
     })),
   );
 
@@ -328,7 +417,7 @@ export async function loadFleet(
     mate: mate.agent === null ? null : summarizeAgent(mate.agent),
     mateMissing: mate.missing,
     mateInHome: mate.agent === null ? true : await sameDirectory(mate.agent.cwd, home),
-    cards: buildCards(backlog, crew),
+    cards: buildCards(backlog, crew, mate.latest),
     projects,
     suggestions,
     watches,

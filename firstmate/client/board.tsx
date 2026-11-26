@@ -17,7 +17,7 @@
  */
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import type { ColumnId, FleetCard, Suggestion, WatchSummary } from "../shared/fleet";
@@ -29,13 +29,17 @@ import {
   COLUMNS,
   columnTone,
   groupCards,
+  isUnread,
   moveColumn,
+  openId,
   SUGGESTIONS_CARD,
   WATCHES_CARD,
 } from "./format";
 import { SUGGESTIONS_ICON, SUGGESTIONS_TITLE, SuggestionList } from "./suggestions";
 import { WATCHES_ICON, WATCHES_TITLE, WatchList } from "./watches";
+import { DONE_SHOWN, shownDone } from "./topic-format";
 import { FONT_SIZE } from "./type-scale";
+import { ShowMore } from "./ui";
 
 const COLLAPSED_WIDTH = 40;
 
@@ -55,8 +59,10 @@ interface BoardProps {
   watches: readonly WatchSummary[];
   /** Opens a home file in the Files view: the tab on a phone, the right-hand pane on a wide layout. */
   onOpenFile: (path: string) => void;
-  /** Shows one crewmate's card and transcript in place of the board. */
-  onWatch: (agentId: string) => void;
+  /** The newest first-mate message the captain has had open, by topic id; an unread dot is judged against it. */
+  topicsRead: Readonly<Record<string, string>>;
+  /** Shows a card's thread, or its crewmate's transcript, in place of the board; `id` is `openId`'s. */
+  onOpen: (id: string) => void;
   onToggleColumn: (id: ColumnId) => void;
   /** Saves a new whole column order, hidden columns included. */
   onReorder: (order: ColumnId[]) => void;
@@ -65,6 +71,7 @@ interface BoardProps {
 
 export function Board(props: BoardProps) {
   const { cards, order, collapsed, theme, compact, suggestions, watches } = props;
+  const [doneLimit, setDoneLimit] = useState(DONE_SHOWN);
   const groups = useMemo(() => groupCards(cards), [cards]);
   const shown = useMemo(() => order.filter((id) => (groups.get(id)?.length ?? 0) > 0), [order, groups]);
   const styles = useMemo(() => {
@@ -171,18 +178,39 @@ export function Board(props: BoardProps) {
     );
   }
 
+  /** A column's cards; Done draws its newest and offers the rest, since it only ever grows. */
+  function renderColumn(id: ColumnId, entries: readonly FleetCard[]) {
+    if (id !== "done") return renderCards(entries);
+    const { shown: newest, older } = shownDone(entries, doneLimit);
+    return (
+      <>
+        {renderCards(newest)}
+        {older === 0 ? null : (
+          <ShowMore theme={theme} count={Math.min(DONE_SHOWN, older)} onPress={() => setDoneLimit(doneLimit + DONE_SHOWN)} />
+        )}
+      </>
+    );
+  }
+
   function renderCards(entries: readonly FleetCard[]) {
     return entries.map((card) => {
-      const agentId = card.agent?.id ?? null;
+      const id = openId(card);
       return (
         <CrewCard
           key={card.key}
           card={card}
           theme={theme}
           compact={compact}
-          opener={agentId === null ? null : { icon: "Eye", label: "Watch", onPress: () => props.onWatch(agentId) }}
+          opener={
+            id === null
+              ? null
+              : card.agent === null
+                ? { icon: "MessageSquare", label: "Open", onPress: () => props.onOpen(id) }
+                : { icon: "Eye", label: "Watch", onPress: () => props.onOpen(id) }
+          }
           onChanged={props.onChanged}
           toMate={props.toMate}
+          unread={isUnread(card, props.topicsRead)}
         />
       );
     });
@@ -217,7 +245,7 @@ export function Board(props: BoardProps) {
           return (
             <View key={id} style={styles.columnStacked}>
               {renderHeader(id, folded, entries.length)}
-              {folded ? null : <View style={styles.body}>{renderCards(entries)}</View>}
+              {folded ? null : <View style={styles.body}>{renderColumn(id, entries)}</View>}
             </View>
           );
         })}
@@ -278,7 +306,7 @@ export function Board(props: BoardProps) {
                     {COLUMNS[id].title}
                   </Text>
                 ) : (
-                  <ScrollView contentContainerStyle={styles.body}>{renderCards(entries)}</ScrollView>
+                  <ScrollView contentContainerStyle={styles.body}>{renderColumn(id, entries)}</ScrollView>
                 )}
               </View>
             );

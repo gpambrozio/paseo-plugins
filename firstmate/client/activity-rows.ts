@@ -7,7 +7,8 @@
  * what came back, and the plan — the latest one only, since each update
  * restates the whole list.
  */
-import { clip, injectedSummary, pushCompaction, rowKey, toolDisplayName, type TimelineEntry } from "./transcript-rows";
+import { classifyUserMessage, clip } from "../shared/chat-messages";
+import { pushCompaction, rowKey, toolDisplayName, type TimelineEntry } from "./transcript-rows";
 
 type TimelineItem = TimelineEntry["item"];
 type ToolCallItem = Extract<TimelineItem, { type: "tool_call" }>;
@@ -217,8 +218,12 @@ export function activityRows(entries: readonly TimelineEntry[]): ActivityRow[] {
     const last = rows[rows.length - 1];
     switch (item.type) {
       case "user_message": {
-        const summary = injectedSummary(item.text, item.clientMessageId);
-        rows.push(summary === null ? { key, kind: "prompt", text: item.text } : { key, kind: "event", text: summary });
+        const classified = classifyUserMessage(item.text, item.clientMessageId);
+        // A crewmate's own inbox shows other agents' and daemons' messages in full: they are its brief.
+        const injected = classified?.source === "watch" || classified?.source === "notice" ? classified : null;
+        rows.push(
+          injected === null ? { key, kind: "prompt", text: item.text } : { key, kind: "event", text: injected.summary },
+        );
         break;
       }
       case "assistant_message":

@@ -49,9 +49,11 @@ import {
   restartMate as restartMateRpc,
   steerCrew as steerCrewRpc,
   toggleWatch,
+  topicMessages,
   writeConfig,
 } from "./shared/fleet";
 import { findHomeFiles, listHomeFiles, readHomeFile, writeHomeFile } from "./shared/files";
+import { TopicLog, registerTopicSync } from "./server/topic-log";
 import { startWatches } from "./server/watch-service";
 import { displaySettings } from "./shared/settings";
 
@@ -61,6 +63,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(writeChatDraftRpc, async ({ agentId, text }) => { await writeChatDraft(agentId, text); return {}; });
   const reports = new ReportCache();
   const steers = new CaptainSteers();
+  const topics = new TopicLog();
   // The scripts in the home's watches/ folder, run on their schedules; see server/watches.ts.
   const watches = startWatches(server, readFirstmateConfig);
 
@@ -79,12 +82,13 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(loadFleetRpc, async (_input, { paseo }) => {
     watches.remember(paseo);
-    const fleet = await loadFleet(paseo, await readFirstmateConfig(), reports, () => watches.runner.summaries());
+    const fleet = await loadFleet(paseo, await readFirstmateConfig(), reports, () => watches.runner.summaries(), topics);
     // A first mate launched before the plugin named its home gets its name the first time the board looks.
     const workspaceId = fleet.mate?.workspaceId ?? null;
     if (workspaceId !== null && fleet.mateInHome) nameHomeOnce(paseo, workspaceId, fleet.home);
     return fleet;
   });
+  server.handle(topicMessages, async ({ topicId }) => ({ messages: await topics.messages(topicId) }));
   server.handle(enableAgentTools, async (_input, { paseo }) => {
     await paseo.config.patch({ mcp: { injectIntoAgents: true } });
     return { agentTools: (await readAgentTools(paseo)) === true };
@@ -108,11 +112,11 @@ export default function contribute(server: PluginServerContext) {
   });
 
   server.handle(steerCrewRpc, async ({ agentId, text }, { paseo }) => {
-    await steerCrew(paseo, steers, agentId, text);
+    await steerCrew(paseo, steers, agentId, text, resolveHome(await readFirstmateConfig()));
     return {};
   });
   server.handle(interruptCrewRpc, async ({ agentId }, { paseo }) => {
-    await interruptCrew(paseo, agentId);
+    await interruptCrew(paseo, agentId, resolveHome(await readFirstmateConfig()));
     return {};
   });
   server.handle(exitCrewRpc, async ({ agentId }, { paseo }) => {
@@ -160,6 +164,9 @@ export default function contribute(server: PluginServerContext) {
   // A crewmate whose finish the first mate has been told about leaves Paseo's "Ready to review"; see server/crew-seen.ts.
   const unregisterCrewSeen = registerCrewSeen(server, readFirstmateConfig);
 
+  // A turn of the first mate's that ends with no app open is filed by topic all the same; see server/topic-log.ts.
+  const unregisterTopicSync = registerTopicSync(server, topics, readFirstmateConfig);
+
   // A charter change reaches a home already in use on the next reload, rather
   // than waiting for the next launch. Only a home a launch has prepared: this
   // never creates one.
@@ -170,6 +177,7 @@ export default function contribute(server: PluginServerContext) {
   return () => {
     unregisterRelay();
     unregisterCrewSeen();
+    unregisterTopicSync();
     watches.stop();
   };
 }

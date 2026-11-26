@@ -1,7 +1,8 @@
 # AGENTS.md
 
-A Paseo plugin that adds a **FirstMate** screen: a conversation with one "first mate" agent
-beside a board of the "crew" of agents it runs, each in its own git worktree. A Paseo-native port of
+A Paseo plugin that adds a **FirstMate** screen: a board of what the captain and one "first mate" agent
+are talking about, with their general chat behind a switch, beside a panel of the "crew" of agents the
+first mate runs, each in its own git worktree. A Paseo-native port of
 [kunchenguid/firstmate](https://github.com/kunchenguid/firstmate) — the agent distro — by way of
 [ABorakati/paseo-firstmate](https://github.com/ABorakati/paseo-firstmate), which was a dashboard over
 that distro's bash scripts and does not install on Paseo 0.9.
@@ -17,7 +18,9 @@ compile time. This file covers only what is specific to `firstmate`.
 | `index.server.ts`             | Wiring — the RPCs, the display settings document, the steer relay hook.                    |
 | `index.client.tsx`            | Wiring — the screen, sidebar item, two panels, settings screen, ⌘K items, `/fm` `/bearings` `/ahoy`. |
 | `shared/fleet.ts`             | Every RPC contract, the card/fleet shapes, the daemon config shape, and `CREW_LABELS`.     |
-| `shared/settings.ts`          | The host settings document: column order and folds, the chat's width, the poll interval.   |
+| `shared/settings.ts`          | The host settings document: column order and folds, the main pane's width, which pane is hidden (the crew panel, to start with), the crew panel's seven or four columns, the poll interval, hidden chat kinds, what is read. |
+| `shared/topics.ts`            | A backlog item as a topic: the `[topic: <id>]` tag, a topic message's shape, and the rule that files a conversation by topic. Pure. |
+| `shared/chat-messages.ts`     | Which user messages are the captain's and which were injected (another daemon, another agent, a notice, a watch), and the one line that says what each is. Pure. |
 | `templates/`                  | **Every file the plugin writes into the home**, as Markdown laid out as it lands there, and the parts that go inside them. The first mate's behaviour is `templates/data/charter.md`. |
 | `server/templates.ts`         | Finds `templates/` — through `paseo plugin ls`, since the compiled plugin cannot say where it lives — and reads it. |
 | `server/charter.ts`           | Renders `AGENTS.md`: the charter's placeholders filled, under its heading note.            |
@@ -27,6 +30,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/suggestions.ts`       | `data/suggestions.md` → `Suggestion[]`, the board's next-step buttons, taking one out, and the dismissed list that hides it after. Lenient, likewise. |
 | `server/crew-report.ts`       | A crewmate's closing status line (`done: PR …`) → state and text.                          |
 | `server/fleet.ts`             | The board: first mate, crew by label, backlog, status lines → cards in columns.            |
+| `server/topic-log.ts`         | The first mate's conversation filed by topic, kept in `topics.json`; filed on the board's poll and when a first-mate turn ends. |
 | `server/mate.ts`              | Launching, adopting and releasing the first mate; carrying the captain's words to it.      |
 | `server/crew.ts`              | Steer, interrupt, end, relaunch one crewmate; the relay that tells the first mate about a steer. |
 | `server/turn.ts`              | The turn an `agent.turn.after` is about, read back from the agent's timeline.                     |
@@ -46,27 +50,36 @@ compile time. This file covers only what is specific to `firstmate`.
 | `server/data-dir.ts`          | `$PASEO_HOME/plugin-data/firstmate/`, and moving the plugin's files out of `plugins/`.     |
 | `server/serialize.ts`         | Runs the config update and each home file's save one at a time, per file.                  |
 | `server/host-types.ts`        | Paseo types projected out of `@getpaseo/plugin`; see the root AGENTS.md.                    |
-| `client/fleet.tsx`            | The screen: header, banners, chat/board split, compact tabs, the shared fleet query.       |
-| `client/screen.ts`            | The screen's id, and the count of working and idle crewmates on its sidebar row. Pure.     |
+| `client/fleet.tsx`            | The screen: header and its counts, banners, the main pane/crew panel split, which view the main pane shows, compact tabs, the shared fleet query. |
+| `client/screen.ts`            | The screen's id, and the count of topics that wait on the captain on its sidebar row. Pure. |
 | `client/sidebar.tsx`          | The sidebar item: the FirstMate row and its badge.                                         |
-| `client/chat.tsx`             | The first mate's conversation, folded to the words, and the composer.                      |
+| `client/chat.tsx`             | The general chat: the first mate's conversation, folded to the words and drawn as a thread, and the composer. |
 | `client/draft.ts`, `attachments.ts` | The unsent message and what is attached to it, kept on `globalThis` across reloads.  |
 | `shared/files.ts`, `server/files.ts` | The home as files: list, read, write — confined to the home, saved against the version opened. |
 | `client/files.tsx`            | The Files view: the home's folders, a text editor, a Markdown preview.                     |
 | `client/open-file.ts`         | The file open in the Files view, and what a save changes about it. Pure.                   |
-| `client/permission-card.tsx`  | What an agent is waiting on — a question, a permission, a plan — answered in the chat or in Watch. |
+| `client/permission-card.tsx`  | What an agent is waiting on — a question, a permission, a plan — answered in the chat, in a topic's thread or in Watch. |
 | `client/questions.ts`         | The question form's rules, ported from Paseo's own card. Pure.                             |
 | `client/keyboard.ts`          | How far the on-screen keyboard covers a view, measured in window coordinates.              |
 | `client/keys.ts`              | Enter sends, Shift+Enter is a new line — web and wide layouts only, as in Paseo. Pure.     |
 | `client/transcript-rows.ts`   | Timeline entries → chat rows. Pure.                                                        |
-| `client/board.tsx`, `card.tsx`| The columns, and one card with its actions.                                                |
+| `client/board.tsx`, `card.tsx`| The crew panel's columns, and one card with its actions.                                   |
 | `client/card-answer.ts`       | A card's `(actions: …)` buttons and a held card's Answer box: what they send, the kept drafts. Pure. |
-| `client/suggestions.tsx`      | The first mate's suggestions as buttons: a card on the wide board, a tab on a phone.       |
+| `client/suggestions.tsx`      | The first mate's suggestions as buttons: a card on the crew panel's board, a tab on a phone. |
 | `client/suggestion-removals.ts` | Which suggestions have a removal on its way, by label and prompt. Pure.                  |
 | `client/suggestion-fold.ts`   | Whether a folded suggestion card cuts its text, measured against an invisible twin. Pure. |
 | `client/watches.tsx`          | The Watches card: each watch's schedule, last run and output, and its on/off switch.       |
 | `client/mate-send.ts`         | Sending to the first mate — Send, Bearings, Ahoy, a suggestion — one message at a time.    |
-| `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the board's place.               |
+| `client/crewmate.tsx`         | Watch: one crewmate's card beside its live transcript, in the crew board's place.          |
+| `client/topic.tsx`            | Open, in the crew panel: a card with no agent, beside the daemon's thread of messages filed under its item. |
+| `client/topics-main.tsx`      | The screen's main pane: the Board / General chat switch, then the board of topics, one open topic, or the general chat. |
+| `client/topics-board.tsx`, `topic-card.tsx` | The four columns across the main pane, and one topic's card with its answer buttons. |
+| `client/topic-detail.tsx`     | An open topic: its thread, what its agent waits on, the reply box, and the panel of its details. |
+| `client/use-topic-messages.ts` | The query for one topic's filed messages, and its key for a refetch after a send.        |
+| `client/thread-bubble.tsx`    | One message of a thread: who said it, over a bubble.                                       |
+| `client/topic-format.ts`      | What a topic card says, who a topic talks to, the Done column's cut, what finished in the last 7 days, an agent's conversation as a thread. Pure. |
+| `client/reply-box.tsx`        | The box under a thread or a transcript: who gets it, the text, Send; the draft kept on `globalThis`. |
+| `client/reply-target.ts`      | Who a reply goes to, what it says above the box, the tagged text, the draft's slot. Pure.  |
 | `client/activity-rows.ts`     | Timeline entries → Watch rows, machinery kept: reasoning, tool detail, the latest plan. Pure. |
 | `client/mate-controls.tsx`    | The context meter, Compact and Restart (with its confirmation), at the end of the chat's buttons. |
 | `client/context-meter.tsx`    | How full the first mate's context is: Paseo's ring, built from views; the numbers in a tooltip. |
@@ -79,7 +92,7 @@ compile time. This file covers only what is specific to `firstmate`.
 | `client/file-links.ts`        | A reply's inline tokens, and the home files it names that the daemon (`firstmate.files.find`) says exist. Pure. |
 | `client/type-scale.ts`        | Every font size, by role, at Paseo's default sizes; the one file to change when the theme carries Paseo's font setting. |
 | `client/option-picker.tsx`    | A copy of `herald`'s searchable picker, for the model lists.                               |
-| `client/web.ts`, `resize-handle.tsx` | The chat/board split's drag (a copy of `github-board`'s); the chat's file picker, paste and drop. |
+| `client/web.ts`, `resize-handle.tsx` | The main pane/crew panel split's drag (a copy of `github-board`'s); the chat's file picker, paste and drop. |
 
 ## The plugin never dispatches a crewmate
 
@@ -146,6 +159,13 @@ the first thing to check when the board is empty and the first mate says otherwi
 
 A card joins a crewmate to its backlog line by the task label, or by the `(agent: …)` the line records;
 whatever is left on either side is a card of its own.
+
+**An agent a backlog line names is drawn without the label.** `ownAgentIds` (`server/fleet.ts`) takes
+the full UUIDs that unfinished lines name and that are neither a crewmate nor the first mate, and
+`loadFleet` looks each up and draws it on its item's card. `requireSteerable` (`server/crew.ts`) lets
+Steer and Interrupt reach such an agent. End and Relaunch are for labelled crew only
+(`canEndOrRelaunch` hides them, and the daemon refuses), and a steer to one is not relayed to the first
+mate, which never dispatched it (`steerCrew` records only labelled crewmates).
 
 **The first mate itself is found only by `config.mateAgentId`.** It is labelled
 `firstmate.role=first-mate` at launch, for `paseo ls --label`, but the label is not consulted: the SDK
@@ -343,7 +363,7 @@ Two defences keep a watch message honest, and both are needed:
   those.
 - **The chat folds only what the plugin sent.** A watch message goes out with a `messageId` starting
   `firstmate-watch-` (`WATCH_MESSAGE_ID_PREFIX`), which the daemon records as the timeline item's
-  `clientMessageId` (`agent-prompt.ts` in Paseo). `watchSummary` (`client/transcript-rows.ts`) folds a
+  `clientMessageId` (`agent-prompt.ts` in Paseo). `watchSummary` (`shared/chat-messages.ts`) folds a
   message into one line naming the watches only when it carries that id and is watch-shaped; the captain's
   words, even a pasted watch block, stay as they are. A timeline rebuilt without the id shows a watch
   message in full rather than hiding anything. `<paseo-system>` and `<firstmate-board>` notes are still
@@ -434,7 +454,8 @@ like the send gate, because the list unmounts on a phone's tab switch and on the
 switch while a request can still be out.
 
 A button sends its prompt to the first mate at once, and brings the chat into view to show it go out:
-the First mate tab on a phone, the chat unfolded on a wide layout. The draft is not touched. The send is
+the main pane switched to General chat (`setMainView("general")` in `tellMate`), on the First mate tab on
+a phone, unfolded on a wide layout. The draft is not touched. The send is
 the chat's own: `useMateSender` (`client/mate-send.ts`) is what Send, Bearings and Ahoy go through too,
 so a suggestion is the same `firstmate.mate.ask` with the same failure toast, the transcript echoes it
 like a typed message, and a first mate mid-turn gets it the way `server/send.ts` delivers any message.
@@ -458,7 +479,9 @@ charter §2 has the first mate write on every `(hold: …)` item. The card draws
 "Captain's call" — on any card that has them, held or not, open or folded — and a held card adds an
 Answer box that sends `<id> — <title>: <typed text>` (`answerText`). Both go through the board's
 sender, the one a suggestion uses (`MateAsk`, built from `useMateSender` in `fleet.tsx` and in the
-panels), so they share its one message at a time, its failure toast and the chat coming into view.
+panels), so they share its one message at a time, its failure toast and the chat coming into view. That is the
+crew panel's cards; a send from the main pane passes `keepTab`, and leaves the captain on the board or
+the topic it was written on.
 An answer lives in the chat's draft store on `globalThis` (`answerKey`), since a card remounts when it
 changes column and a phone's send swaps the board for the chat. It stays in the box, which is disabled
 while any message is on its way, until the daemon has taken it, and is cleared then (`submitAnswer`'s
@@ -520,7 +543,7 @@ falling back to `PATH` and the usual install directories.
 ## Questions and permissions are answered in the chat
 
 When the first mate asks the captain something (Claude's `AskUserQuestion`) or needs a permission, it
-stops on a pending permission request. The chat draws each one at the end of the conversation and
+stops on a pending permission request. The general chat draws each one at the end of the conversation and
 answers it with `respondToPermission` from the client — the same call and payload the agent's own tab
 sends, so nothing server-side is involved:
 
@@ -534,8 +557,17 @@ sends, so nothing server-side is involved:
 The request reaches the chat through the timeline: every timeline page carries the agent's snapshot,
 pending requests included, and the request is itself a stream event, so it shows up with the next
 re-read. The board's poll of the first mate (`updatedAt` and the pending count) is a second trigger for
-a re-read, for a request the stream did not announce. The "waiting for your answer" banner now shows
-only when the chat is out of sight — folded, or behind the Crew tab — with a button that brings it back.
+a re-read, for a request the stream did not announce. The "waiting for your answer" banner shows
+only when the chat is out of sight — behind the board of topics or an open topic (`mainView` is not
+`"general"`), folded, or behind another tab on a phone — with a button, Show, that switches the main
+pane to General chat and brings it back.
+
+**A topic's own agent is answered in its topic.** `TopicDetail` draws that agent's pending requests at
+the end of the thread with the same `usePendingRequests` and `PermissionCard`, and its timeline's
+revision carries the agent's pending count so a new request is a re-read. The card's heading names who
+asks (`who`: "The first mate" in the chat, the agent's title in a topic and in Watch). Because one view
+can go from one agent to another, `useAgentTimeline` empties its entries and its agent when the
+agent id changes: another agent's page left on screen would have its requests answered as this one's.
 
 Checked on a throwaway 0.9.1 daemon: a Claude agent's AskUserQuestion arrived in the timeline page's
 snapshot with `allowOther` set, and answering it with `buildAnswers` got "I picked Blue." back.
@@ -545,27 +577,45 @@ snapshot with `allowOther` set, and answering it with `buildAnswers` got "I pick
 Paseo 0.11 replaced the static sidebar row and the bare surface with `addScreen` and
 `addSidebarHeaderItem`, and both keep the old id, `fleet` (`FLEET_SCREEN_ID`): the sidebar item's id is
 the key Settings › Sidebar keeps its order and hidden state under, and a saved
-`/plugin/firstmate/sidebar/fleet` link resolves to a screen of that id. The screen is titled
+`/plugin/firstmate/sidebar/fleet` link resolves to a screen of that id. It is the plugin's only screen
+and only row. The screen is titled
 "FirstMate" — the old surface's header read "fleet" — and every way in — the sidebar, "Open FirstMate",
 "FirstMate: bearings", `/bearings`, `/ahoy` — is `openScreen`. Two things Paseo draws differently for a
 non-legacy item, and nothing here can change: the screen header has no ship, and Settings › Sidebar
 shows a generic plugin icon.
 
-The item (`client/sidebar.tsx`) is the one FirstMate row, with a badge in `trailing`: how many crewmates
-Paseo still runs have their card in the Working or the Idle column (`activeCrewCount`), and no badge at
-zero. It reads **the board's own fleet query** (`useFleet`) rather than an agent observation of its own:
-the screen, the panels and the item share one cache and one poll, and the count agrees with the
-board's columns. The cost is that the poll now runs whenever the app shows this host — before, only
+The item (`client/sidebar.tsx`) is the one FirstMate row, with a badge in `trailing`, in the warning
+colour: how many topics are in Needs you (`needsYouCount`, by `captainColumn`), and no badge at zero or
+before there is a first mate, when the screen is the launch panel. It counts those and not the agents that run,
+because the captain acts on what waits on them. It
+reads **the board's own fleet query** (`useFleet`) rather than an agent observation of its own: the
+screen, the panels and the item share one cache and one poll, and the count agrees with the board's
+Needs you column. The cost is that the poll now runs whenever the app shows this host — before, only
 while the screen or a panel was open.
 
 A row per crewmate was tried and dropped after the captain used it: a backlog title is a sentence with
 notes, and Paseo's row draws its label with no line limit, so the rows were paragraphs; one count says
 what the sidebar needs to.
 
+**The screen is two panes** (`FleetSurface`): the main pane on the left (`TopicsMain`, see *The main
+pane*) and the crew panel on the right — the crew's board, Watch, the crew panel's topic view, or the
+Files view, switched with Crew / Files in the header. In the settings,
+`chatCollapsed` and `chatWidthFraction` are the main pane's and `boardCollapsed` is the crew panel's;
+`boardCollapsed` defaults to `true`, so the board of topics starts with the whole width. The header's
+two panel buttons show and hide each pane, and hiding one shows the other, so one is always in view. The Crew / Files
+switch is drawn only while the crew panel is shown. On a phone the "First mate" tab is the main pane,
+and Suggestions, Crew and Files are the other tabs.
+
+**The header's counts are the board of topics' columns**, whichever columns the crew panel draws:
+`headerCounts(cards, doneRecently)` gives "N need you · N working · N queued · N done in 7 days".
+`doneRecently` (`client/topic-format.ts`) counts the Done topics whose outcome is dated inside the last
+`DONE_RECENT_DAYS` (7, in `client/format.ts`), the constant the label reads too; everything ever finished is not a figure the
+captain acts on, and it only grows.
+
 ## Watching a crewmate
 
-A card's **Watch** shows that crewmate in the board's place — the right-hand pane, or the Crew tab on a
-phone — so the chat with the first mate stays beside it: its card, with the board's actions, and its
+A card's **Watch** shows that crewmate in the crew board's place — the right-hand pane, or the Crew tab
+on a phone — so the main pane stays beside it: its card, with the board's actions, and its
 live transcript. Pressing *Crew* again, or the view's own back button, returns to the board; the
 crewmate being watched is kept in module scope like the open tab. *Open in Paseo* is in the view's
 bar, not on the card — the card's first action is the caller's (`CardOpener`), so the board says
@@ -585,7 +635,7 @@ entry once the tail is full; a key built from either remounts the row, which clo
 detail just as its output arrives.
 
 A crewmate's pending questions and permissions are answered here exactly as the first mate's are in
-the chat — `usePendingRequests` and `PermissionCard`, shared — and the transcript follows its end the
+the chat and a topic's agent's are in its thread — `usePendingRequests` and `PermissionCard`, shared — and the transcript follows its end the
 same way (`useFollowEnd`, also shared).
 
 "At the end" (`isAtEnd`) is judged against the **shorter** of the live content height and the one
@@ -602,7 +652,8 @@ calls with their output, and replies, and the compiled client bundle carried the
 
 ## The home's files, in the panel
 
-A Files view — beside the crew board on a wide layout, a third tab on a phone — lists the home folder by
+A Files view — in the crew panel on a wide layout, behind Files in the header, and a tab of its own on a
+phone — lists the home folder by
 folder and opens any text file in an editor, with a Markdown preview for `.md`. Three calls in
 `shared/files.ts`, handled in `server/files.ts`, and a fourth for the chat:
 
@@ -794,6 +845,128 @@ Attachments and card answers are not persisted. A new mate UUID gets a new draft
 
 The pending attachments live beside the draft on `globalThis` (`client/attachments.ts`), bytes and
 all, so a lost connection keeps them; a failed send puts them back unless something new was attached.
+
+## Topics
+
+A backlog item is a topic, and a message is filed under it by a tag a compiler cannot check.
+
+**The tag and the filing rule are shared.** A captain message that starts `[topic: <id>]`, and a first-mate
+reply that starts with it (read after the reply's pieces are joined), belong to topic `<id>`; the tag is
+shown off. `splitTopicTag` and `topicTag` in `shared/topics.ts` are the only place that spells the tag.
+Nothing is filed by inheritance: an untagged reply, a tool call and an injected note stay in the chat,
+because Paseo never records its own notes in the timeline and an untagged reply may be to one. The daemon
+files by `fileTopicMessages` (`shared/topics.ts`, called from `server/topic-log.ts`) and the chat by `fileRows` in
+`client/transcript-rows.ts`; a change to what counts as a tagged message changes both, or a message
+shows in the chat and on its card, or in neither. They also cut a reply in the same place: `endsReply`
+names the entries that end one (the kinds the chat draws a row for), and reasoning and plans do not, so a
+reply streamed across them is one message in both. An injected message (`classifyUserMessage`) is never
+filed. A captain message that is only a tag is stored and drawn as `ATTACHMENTS_ONLY`. The charter (§2)
+tells the first mate to start every message about an item with the tag; one without it stays in the chat.
+
+**The chat hides a tagged row only where a thread shows it.** `chatRows` leaves out the rows of the topics
+it is given (`threads`) and keeps every other tagged row in the chat with its tag put back.
+`TopicsMain` gives it every backlog item on the board, because every one has a thread in the main pane;
+what stays is a mistyped id or an item gone from the board. In the crew panel only
+a card with a backlog item and no agent opens as a thread (`TopicView`); a card with an agent opens its
+transcript, so opening it there does not mark its topic read.
+
+**The chat can hide kinds of row.** `classifyUserMessage` (`shared/chat-messages.ts`) says what put a
+user message that is not the captain's into the inbox: another agent, a Paseo or board notice, or a
+watch. `visibleRows` leaves out the kinds listed in `hiddenChatKinds`, where `"tool"` stands for tool
+calls; nothing is hidden by default. Watch folds only notices and watches, since another agent's message
+is a crewmate's brief.
+
+**Threads are kept on the daemon** (`server/topic-log.ts`, `topics.json` in the plugin's data folder)
+because the chat reads only the last 150 entries of a timeline that holds thousands. A thread built
+from that tail would lose a message within the hour. The log upserts by message id and never deletes on a
+re-read, keeps each topic ordered by time and keeps the newest 200.
+
+**A message is identified by its first mate and its seq, and ordered by time.** Its `id` is
+`<agent id>:<seqStart>`, the agent whose timeline it is from and where it starts there, so a streaming reply
+keeps its id as it grows and two first mates' messages never collide, whichever of them is adopted again.
+A seq counts from zero in every agent and is never compared across agents: order, and "newest", always go
+by `at`.
+
+**Unread state is a settings document** (`topicsRead` in `shared/settings.ts`, a read key to the `at` of
+the newest message read) because the client writes it, the daemon has no use for it, and every device the
+captain uses should agree on what is read. Opening a thread, and each newer message while it is open, saves
+that time (`readPatch`) through the surface's batched `save` — from the crew panel's thread, and from the
+main pane through `TopicsMain`'s `onRead`.
+
+**Each pane has its own unread rule.** In the crew panel (`isUnread`) a card with no agent is unread by a
+first-mate message newer than the one read, under its backlog id; a card with an agent is unread by its
+`requiresAttention` alone, since it opens a transcript that never shows the thread. On the board of
+topics (`topicUnread`) every card goes by its last message, when that is not the captain's, under
+`readKey` (the task id, else the agent's id), because an open topic shows the thread and so reads it; a
+card with no last message goes by its agent's `requiresAttention`.
+
+**An open view is found again when its card changes.** Each pane remembers its open card by its `openId`
+(its agent's id, else its task id) and its task id beside it. When a thread's backlog line gains an
+`(agent: …)`, the card's `openId` changes; `findOpenCard` then finds it by the task id, and the view becomes
+that agent's. The view closes only when neither is on the board.
+
+**A card's last message** is the newer by `at` of two things: the newest message filed under its item, and,
+for a card with no status line, what its agent last said (`from: "agent"`, read with the status line by
+`ReportCache` and never stored in the topic log). A card with a status line has only the filed one.
+
+**The reply box has two destinations.** A card with an agent steers it directly; the thread and the
+transcript show a reply box instead of the held card's Answer box (`hideAnswer`), since two boxes sending
+to the same place in different ways would confuse.
+
+**Only the reply box and the board of topics' answer buttons tag.** A crew card's action prompts and the
+Answer box's `<id> — <title>: …` are a contract with the charter and bb's FirstMate, so they go bare, are
+not filed, and bring General chat into view. An answer button on the board of topics sends the same
+prompt under the tag (`mateReplyText`) with `keepTab`, so the answer shows in the topic's thread and the
+captain stays on the board.
+
+## The main pane: the board of topics and the general chat
+
+`TopicsMain` (`client/topics-main.tsx`) is the FirstMate screen's main pane. It is built for the captain
+rather than for running the crew, over the same fleet
+query and with everything it can share (`captainColumn`, `ReplyBox`, `MateChat`, the topic log); it adds
+only how a topic is drawn.
+
+**The switch is the first thing in the pane's bar, and nothing before it changes width**, so Board /
+General chat stays where it is whichever view shows — there is no title before it. After it come an open
+topic's back button and title, and the host's name at the right end. An open topic selects neither half
+of the switch, and pressing either closes it. In a narrow bar an open topic takes the switch's place, and
+Details takes the host's.
+
+**Who keeps what.** The view (`mainView`: `"board"` or `"general"`) is the screen's, in module scope
+(`cachedMainView`, Board to start with), because the screen's own buttons change it: `tellMate` — a
+suggestion or a card action in the crew panel — and the banner's Show both switch to General chat. The
+open topic (`mainTopic`, `cachedMainTopic`) is the screen's too: `setMainView` closes it, or the chat
+those buttons ask for would stay behind the topic, and the banner counts an open topic as hiding the
+chat. Both are in module scope since the screen unmounts whenever the captain opens a workspace. The
+pane is given no read map until the saved one has loaded (`topicsRead` null), so a topic drawn from the
+cache on a remount cannot save a one-entry map over it.
+
+**The general chat is drawn as a thread**: who said each message over a bubble (`ThreadBubble`), and
+"Sends to the first mate. Not about a topic." over the composer.
+
+**Narrow is not compact.** The pane is given `narrow` on a phone and when it is narrower than
+`NARROW_MAIN_WIDTH` (760) — the crew panel shown beside it — because four columns are unreadable there.
+The board is then one list, and an open topic shows either its thread or its details, switched from the
+bar (Details / Messages). `compact` stays the host's own word for a phone: it alone decides that Enter
+adds a line and not sends, and that the list leaves Done out.
+
+**A topic's thread is two sources merged by time** (`threadMessages`): the messages the first mate's
+conversation filed under the item, from the topic log, and, for a card with its own agent, that agent's
+timeline reduced by `transcriptRows` to the captain's words and the agent's replies. Tool calls,
+reasoning and injected notes are left out; Paseo wraps a prompt one agent sends another, the first mate's
+brief included, so `classifyUserMessage` drops it and a user message that is left is the captain's. The
+agent's messages are never stored: they are read live, 150 entries of tail, so an old exchange with a
+long-running agent scrolls out of the thread and stays in Paseo.
+
+**A finished line is Done wherever it sits.** `parseBacklog` files a ticked item under done, and
+`captainColumn` sends any item whose outcome says it landed there (not `failed` or `abandoned`), because a first mate often leaves a merged line
+under *In flight* for a while.
+
+**Done is cut short, because it only ever grows.** `shownDone(done, limit)` gives the newest `limit` by
+outcome date and how many are left, and `ShowMore` (`client/ui.tsx`) under them adds `DONE_SHOWN` (10) at
+a press. The board of topics and the crew panel's Done column both do it, each with its own limit in
+component state, so it starts over at 10 when the view remounts. The board of topics' Done heading has
+no count, for the reason the header counts seven days; the crew panel's has one.
 
 ## What was left out
 

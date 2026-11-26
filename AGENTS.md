@@ -584,7 +584,7 @@ passes the enabled ids into the RPC rather than the daemon keeping a copy.
 ## firstmate
 
 Talk to one "first mate" agent and it runs a crew of worker agents, each in its own Paseo worktree; a
-screen puts the conversation beside a board of the crew. A Paseo-native port of the
+screen shows the work as a board of topics, with the chat behind a switch and a panel of the crew beside it. A Paseo-native port of the
 [firstmate](https://github.com/kunchenguid/firstmate) agent distro, replacing
 ABorakati's `paseo-firstmate`, which was a dashboard over that distro's bash scripts and tmux sessions.
 Three things shape it, all in `firstmate/AGENTS.md`: **the plugin never dispatches a crewmate** — the

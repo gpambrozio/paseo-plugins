@@ -26,29 +26,39 @@ import { MAX_FILE_PATH_LENGTH, findHomeFiles } from "../shared/files";
 import { isAtEnd } from "./follow-end";
 import { isSendKey } from "./keys";
 import { createSendGate } from "./mate-send";
+import { mateReplyText, replyLabel, replyKey, replyTarget } from "./reply-target";
 import { chevronLabel, isCut, showsChevron } from "./suggestion-fold";
 import { createRemovalGate, suggestionRemovals } from "./suggestion-removals";
 import { isDirty, markSaved, type OpenFile } from "./open-file";
 import { allAnswered, buildAnswers, dismissSubmitsEmpty, parseQuestions, toggleOption } from "./questions";
 import {
   boardItems,
+  canEndOrRelaunch,
   boardRows,
+  captainColumn,
   contextPercent,
   contextTone,
   errorText,
   formatTokenCount,
+  findOpenCard,
+  groupCaptainCards,
+  headerCounts,
+  isUnread,
+  lastMessageLine,
   moveColumn,
+  openId,
   opensAsLeft,
   orderedColumns,
+  readPatch,
   relativeTime,
   revealFilesPatch,
   shortPath,
   watchStatusText,
   watchTone,
 } from "./format";
-import { watchPath, type AgentSummary, type BacklogItem, type FleetCard, type WatchSummary } from "../shared/fleet";
-import { activeCrewCount } from "./screen";
-import { injectedSummary, transcriptRows, type TimelineEntry } from "./transcript-rows";
+import { CREW_LABELS, watchPath, type AgentSummary, type BacklogItem, type FleetCard, type WatchSummary } from "../shared/fleet";
+import { displaySettings } from "../shared/settings";
+import { chatRows, transcriptRows, visibleRows, type TimelineEntry } from "./transcript-rows";
 
 function entry(item: unknown, seq: number): TimelineEntry {
   return {
@@ -93,30 +103,11 @@ describe("transcriptRows", () => {
     expect(transcriptRows([entry({ type: "compaction", status: "loading" }, 2)])[0]?.text).toBe("Compacting context…");
   });
 
-  it("recognises both envelopes and nothing else", () => {
-    expect(injectedSummary("<firstmate-board>\nThe captain spoke to crewmate a1.\n</firstmate-board>")).toBe(
-      "The captain spoke to crewmate a1.",
-    );
-    expect(injectedSummary("please look at <paseo-system>")).toBeNull();
-  });
-
-  it("folds a watch message — its blocks one after another, a dropped tag first — to the watches' names", () => {
+  it("folds a watch message to the watches' names, in the chat and in Watch", () => {
     const id = "firstmate-watch-5f0c";
     const one = '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nPull requests…\n</firstmate-watch>';
-    expect(injectedSummary(one, id)).toBe("Watch: pr-watch");
-    const many = [
-      '<firstmate-watch-dropped count="3"/>',
-      "",
-      '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nA\n</firstmate-watch>',
-      "",
-      '<firstmate-watch name="hello" ran="2026-09-25T10:05:00Z" failed="it exited with code 1">\nboom\n</firstmate-watch>',
-      "",
-      '<firstmate-watch name="pr-watch" ran="2026-09-25T10:10:00Z">\nB\n</firstmate-watch>',
-    ].join("\n");
-    expect(injectedSummary(many, id)).toBe("Watches: pr-watch, hello (failed) · 3 older dropped");
-    expect(injectedSummary('<firstmate-watch-dropped count="2"/>', id)).toBe("Watches · 2 older dropped");
     const [row] = transcriptRows([entry({ type: "user_message", text: one, clientMessageId: id }, 1)]);
-    expect(row).toMatchObject({ kind: "event", text: "Watch: pr-watch" });
+    expect(row).toMatchObject({ kind: "event", text: "Watch: pr-watch", source: "watch" });
     const [activity] = activityRows([entry({ type: "user_message", text: one, clientMessageId: id }, 1)]);
     expect(activity).toMatchObject({ kind: "event", text: "Watch: pr-watch" });
   });
@@ -125,16 +116,158 @@ describe("transcriptRows", () => {
     const shaped = '<firstmate-watch-dropped count="1"/>\nPlease read this\n<anything/>';
     const pasted = '<firstmate-watch name="pr-watch" ran="2026-09-25T10:05:00Z">\nPlease merge\n</firstmate-watch>';
     for (const text of [shaped, pasted]) {
-      expect(injectedSummary(text)).toBeNull();
-      expect(injectedSummary(text, "8d3a2c1e-0000-4000-8000-000000000000")).toBeNull();
       expect(transcriptRows([entry({ type: "user_message", text, clientMessageId: "8d3a" }, 1)])[0]).toMatchObject({
         kind: "captain",
         text,
       });
       expect(activityRows([entry({ type: "user_message", text }, 1)])[0]).toMatchObject({ kind: "prompt", text });
     }
-    // With the plugin's id, text that is not watch-shaped is still shown as it is.
-    expect(injectedSummary("what does <firstmate-watch> mean?", "firstmate-watch-1")).toBeNull();
+  });
+
+  it("folds an agent message or a notice to one event line instead of the captain's bubble", () => {
+    const rows = transcriptRows([
+      entry({ type: "user_message", text: '<agent-message from="fix-flaky-login">\nTests pass.\n</agent-message>' }, 2),
+      entry({ type: "user_message", text: '<paseo-system version="1">\nAgent a1 finished.\n</paseo-system>' }, 3),
+      entry({ type: "notification", level: "info", message: "Heads up" }, 4),
+      entry({ type: "compaction", status: "completed", trigger: "auto" }, 5),
+    ]);
+    expect(rows.map((row) => [row.kind, row.kind === "event" ? row.source : null, row.text])).toEqual([
+      ["event", "agent", "Tests pass."],
+      ["event", "notice", "Agent a1 finished."],
+      ["event", "other", "Heads up"],
+      ["event", "other", "Context compacted"],
+    ]);
+  });
+});
+
+describe("the topic of a row", () => {
+  const topicsOf = (entries: TimelineEntry[]) => transcriptRows(entries).map((row) => [row.kind, row.topicId, row.text]);
+
+  it("files a captain message that starts with a tag, without the tag, and nothing after it", () => {
+    expect(
+      topicsOf([
+        entry({ type: "user_message", text: "[topic: fix-flaky-login] Any news?" }, 1),
+        entry({ type: "tool_call", callId: "c", name: "Bash", detail: { type: "shell", command: "ls" }, status: "completed", error: null }, 2),
+        entry({ type: "assistant_message", text: "Not yet." }, 3),
+        entry({ type: "user_message", text: "Thanks." }, 4),
+      ]),
+    ).toEqual([
+      ["captain", "fix-flaky-login", "Any news?"],
+      ["tool", null, "$ ls"],
+      ["mate", null, "Not yet."],
+      ["captain", null, "Thanks."],
+    ]);
+  });
+
+  it("files a reply by the tag it starts with, once its pieces are joined", () => {
+    expect(
+      topicsOf([
+        entry({ type: "user_message", text: "Status?" }, 1),
+        entry({ type: "assistant_message", text: "[topic: dark-" }, 2),
+        entry({ type: "assistant_message", text: "mode] Queued behind the login fix." }, 3),
+        entry({ type: "assistant_message", text: "" }, 4),
+        entry({ type: "tool_call", callId: "c", name: "Bash", detail: { type: "shell", command: "ls" }, status: "completed", error: null }, 5),
+        entry({ type: "assistant_message", text: "Checking." }, 6),
+      ]),
+    ).toEqual([
+      ["captain", null, "Status?"],
+      ["mate", "dark-mode", "Queued behind the login fix."],
+      ["tool", null, "$ ls"],
+      ["mate", null, "Checking."],
+    ]);
+  });
+
+  it("never files an injected note, even one that starts with a tag", () => {
+    expect(
+      topicsOf([entry({ type: "user_message", text: "<firstmate-board>\n[topic: dark-mode] spoke.\n</firstmate-board>" }, 1)]),
+    ).toEqual([["event", null, "[topic: dark-mode] spoke."]]);
+  });
+
+  it("joins a reply across reasoning and todo entries, as the daemon does", () => {
+    expect(
+      topicsOf([
+        entry({ type: "assistant_message", text: "[topic: a] part one" }, 1),
+        entry({ type: "reasoning", text: "hmm" }, 2),
+        entry({ type: "todo", items: [] }, 3),
+        entry({ type: "assistant_message", text: " and part two" }, 4),
+      ]),
+    ).toEqual([["mate", "a", "part one and part two"]]);
+  });
+
+  it("keeps a message of attachments alone as a row once its tag is gone", () => {
+    expect(topicsOf([entry({ type: "user_message", text: "[topic: dark-mode]" }, 1)])).toEqual([
+      ["captain", "dark-mode", "(attachments)"],
+    ]);
+  });
+});
+
+describe("activityRows' injected messages", () => {
+  it("folds notices and watches, and leaves an agent message as the prompt it is", () => {
+    const rows = activityRows([
+      entry({ type: "user_message", text: '<agent-message from="fix-flaky-login">\nTests pass.\n</agent-message>' }, 2),
+      entry({ type: "user_message", text: "<firstmate-board>\nThe captain spoke.\n</firstmate-board>" }, 3),
+    ]);
+    expect(rows.map((row) => row.kind)).toEqual(["prompt", "event"]);
+  });
+});
+
+describe("canEndOrRelaunch", () => {
+  const withLabels = (labels: Record<string, string>) => ({ labels }) as AgentSummary;
+
+  it("is for an agent with the crew label only, not a backlog item's own agent", () => {
+    expect(canEndOrRelaunch(withLabels({ [CREW_LABELS.role]: CREW_LABELS.crewRole }))).toBe(true);
+    expect(canEndOrRelaunch(withLabels({}))).toBe(false);
+    expect(canEndOrRelaunch(withLabels({ [CREW_LABELS.role]: CREW_LABELS.mateRole }))).toBe(false);
+  });
+});
+
+describe("chatRows", () => {
+  const rows = transcriptRows([
+    entry({ type: "user_message", text: "[topic: dark-mode] Start it." }, 1),
+    entry({ type: "assistant_message", text: "[topic: fix-flaky-login] Not yet." }, 2),
+    entry({ type: "tool_call", callId: "c", name: "Bash", detail: { type: "shell", command: "ls" }, status: "completed", error: null }, 3),
+    entry({ type: "assistant_message", text: "Plain." }, 4),
+  ]);
+
+  it("hides the rows of a topic that opens as a thread, and puts the tag back on the rest", () => {
+    expect(chatRows(rows, new Set(["dark-mode"])).map((row) => row.text)).toEqual([
+      "[topic: fix-flaky-login] Not yet.",
+      "$ ls",
+      "Plain.",
+    ]);
+    expect(chatRows(rows, new Set()).map((row) => row.text)).toEqual([
+      "[topic: dark-mode] Start it.",
+      "[topic: fix-flaky-login] Not yet.",
+      "$ ls",
+      "Plain.",
+    ]);
+  });
+});
+
+describe("visibleRows", () => {
+  const rows = transcriptRows([
+    entry({ type: "user_message", text: "fix the login" }, 1),
+    entry({ type: "tool_call", callId: "c", name: "Bash", detail: { type: "shell", command: "ls" }, status: "completed", error: null }, 2),
+    entry({ type: "user_message", text: '<agent-message from="scout">\nhello\n</agent-message>' }, 3),
+    entry({ type: "user_message", text: "<firstmate-board>\nThe captain spoke.\n</firstmate-board>" }, 4),
+    entry({ type: "compaction", status: "completed", trigger: "auto" }, 5),
+    entry({ type: "assistant_message", text: "Aye." }, 6),
+  ]);
+  const kinds = (hidden: string[]) => visibleRows(rows, hidden).map((row) => row.key);
+
+  it("keeps everything when nothing is hidden", () => {
+    expect(kinds([])).toEqual(["1", "2", "3", "4", "5", "6"]);
+  });
+
+  it("hides each source on its own, and tool rows by 'tool'; the captain's words and other events stay", () => {
+    expect(kinds(["agent"])).toEqual(["1", "2", "4", "5", "6"]);
+    expect(kinds(["notice"])).toEqual(["1", "2", "3", "5", "6"]);
+    expect(kinds(["tool"])).toEqual(["1", "3", "4", "5", "6"]);
+    expect(kinds(["notice", "tool", "agent", "watch"])).toEqual(["1", "5", "6"]);
+  });
+
+  it("hides nothing until asked to", () => {
+    expect(displaySettings.schema.parse({}).hiddenChatKinds).toEqual([]);
   });
 });
 
@@ -988,25 +1121,60 @@ function crewCard(key: string, agent: Partial<AgentSummary> | null, column: Flee
           },
     report: null,
     url: null,
+    lastMessage: null,
   };
 }
 
-describe("the sidebar row's badge", () => {
-  it("counts the live crewmates in the Working and Idle columns, and nothing else", () => {
-    expect(activeCrewCount([])).toBe(0);
-    const cards = [
-      crewCard("working", { status: "running" }, "working"),
-      crewCard("idle", { status: "idle" }, "idle"),
-      crewCard("reported-done", { status: "idle" }, "idle"),
-      crewCard("blocked", { status: "idle", pendingPermissions: 1 }, "blocked"),
-      crewCard("failed", { status: "error" }, "failed"),
-      crewCard("parked", { status: "idle" }, "parked"),
-      crewCard("landed", { status: "idle" }, "done"),
-      crewCard("queued", null, "queued"),
-      crewCard("backlog-only", null, "working"),
-      crewCard("closed", { status: "closed" }, "idle"),
-    ];
-    expect(activeCrewCount(cards)).toBe(3);
+describe("the captain's columns", () => {
+  function held(column: FleetCard["column"], hold: string | null, section: BacklogItem["section"] = "in-flight"): FleetCard {
+    const card = crewCard("fix-flaky-login", null, column);
+    return {
+      ...card,
+      backlog: {
+        section,
+        id: "fix-flaky-login",
+        title: "Fix the flaky login test",
+        project: null,
+        kind: null,
+        mode: null,
+        agentId: null,
+        hold,
+        actions: [],
+        notes: [],
+        blockedBy: null,
+        since: null,
+        url: null,
+        reportPath: null,
+        outcome: null,
+      },
+    };
+  }
+
+  it("sends a held, blocked or failed card to Needs you", () => {
+    expect(captainColumn(held("queued", "Which database?"))).toBe("needs-you");
+    expect(captainColumn(held("working", "Which database?"))).toBe("needs-you");
+    expect(captainColumn(held("blocked", null))).toBe("needs-you");
+    expect(captainColumn(held("failed", null))).toBe("needs-you");
+  });
+
+  it("sends working and idle cards to Working, queued and parked cards to Queued", () => {
+    expect(captainColumn(held("working", null))).toBe("working");
+    expect(captainColumn(held("idle", null))).toBe("working");
+    expect(captainColumn(held("queued", null, "queued"))).toBe("queued");
+    expect(captainColumn(held("parked", null))).toBe("queued");
+  });
+
+  it("sends a finished card to Done even when a hold is left on its line", () => {
+    expect(captainColumn(held("done", null, "done"))).toBe("done");
+    expect(captainColumn(held("working", "Which database?", "done"))).toBe("done");
+    expect(captainColumn(crewCard("landed", { status: "idle" }, "done"))).toBe("done");
+  });
+
+  it("groups cards in the fixed order Needs you, Working, Queued, Done", () => {
+    const groups = groupCaptainCards([held("failed", null), held("working", null), held("parked", null)]);
+    expect([...groups.keys()]).toEqual(["needs-you", "working", "queued", "done"]);
+    expect(groups.get("needs-you")?.map((card) => card.column)).toEqual(["failed"]);
+    expect(groups.get("done")).toEqual([]);
   });
 });
 
@@ -1022,6 +1190,7 @@ describe("a card's actions and answer", () => {
       agentId: null,
       hold: null,
       actions: [],
+      notes: [],
       blockedBy: null,
       since: null,
       url: null,
@@ -1131,5 +1300,146 @@ describe("a card's actions and answer", () => {
     const held = backlogCard({ hold: "which?" });
     expect(answerKey(held)).toBe("answer:backlog:pick-db");
     expect(answerKey(held)).not.toBe(answerKey(backlogCard({ id: "other" })));
+  });
+});
+
+describe("opening a card", () => {
+  it("names a card by its agent's id, and by its task id when it has none", () => {
+    expect(openId({ ...crewCard("backlog:3", null), taskId: "fix-flaky-login" })).toBe("fix-flaky-login");
+    expect(openId({ ...crewCard("a1", { id: "a1" }), taskId: "fix-flaky-login" })).toBe("a1");
+    expect(openId(crewCard("a1", { id: "a1" }))).toBe("a1");
+    expect(openId(crewCard("empty", null))).toBeNull();
+  });
+});
+
+describe("a card's last message and unread dot", () => {
+  const at = (minute: number) => `2026-10-01T10:${String(minute).padStart(2, "0")}:00.000Z`;
+  const item = backlogItem({ id: "fix-flaky-login" });
+  /** `minute` is when it was said, as the minute of an hour on 2026-10-01. */
+  const withLast = (from: "captain" | "mate", minute: number, agent: Partial<AgentSummary> | null = null): FleetCard => ({
+    ...crewCard("backlog:0", agent),
+    backlog: item,
+    lastMessage: { id: `m:${minute}`, from, text: "Waiting on CI.", at: at(minute) },
+  });
+
+  it("is unread when the first mate spoke last, past what was read", () => {
+    expect(isUnread(withLast("mate", 12), {})).toBe(true);
+    expect(isUnread(withLast("mate", 12), { "fix-flaky-login": at(11) })).toBe(true);
+    expect(isUnread(withLast("mate", 12), { "fix-flaky-login": at(12) })).toBe(false);
+    expect(isUnread(withLast("mate", 0), {})).toBe(true);
+  });
+
+  it("is not unread when the captain spoke last, or nothing was said", () => {
+    expect(isUnread(withLast("captain", 12), {})).toBe(false);
+    expect(isUnread({ ...withLast("mate", 12), lastMessage: null }, {})).toBe(false);
+  });
+
+  it("is unread whenever the card's agent wants the captain", () => {
+    expect(isUnread(withLast("captain", 12, { requiresAttention: true }), { "fix-flaky-login": at(59) })).toBe(true);
+    expect(isUnread(crewCard("a1", { requiresAttention: true }), {})).toBe(true);
+  });
+
+  it("goes by the agent alone on a card that has one, whose thread nothing opens", () => {
+    expect(isUnread(withLast("mate", 12, { requiresAttention: false }), {})).toBe(false);
+    expect(isUnread(crewCard("a1", { requiresAttention: false }), {})).toBe(false);
+  });
+
+  it("records a later time only, and leaves the others as they were", () => {
+    expect(readPatch({ "dark-mode": at(3) }, "fix-flaky-login", at(12))).toEqual({ "dark-mode": at(3), "fix-flaky-login": at(12) });
+    expect(readPatch({ "fix-flaky-login": at(12) }, "fix-flaky-login", at(12))).toBeNull();
+    expect(readPatch({ "fix-flaky-login": at(12) }, "fix-flaky-login", at(9))).toBeNull();
+    expect(readPatch({}, "fix-flaky-login", at(0))).toEqual({ "fix-flaky-login": at(0) });
+  });
+
+  it("says who spoke, on one line", () => {
+    expect(lastMessageLine({ id: "m:1", from: "mate", text: "Waiting\n\non  CI.", at: "" })).toBe("First mate: Waiting on CI.");
+    expect(lastMessageLine({ id: "m:1", from: "captain", text: "Go ahead.", at: "" })).toBe("You: Go ahead.");
+  });
+
+  it("names the agent that spoke, or says Agent", () => {
+    const said = { id: "a1:1", from: "agent" as const, text: "Tests pass.", at: "" };
+    expect(lastMessageLine(said, "Login fixer")).toBe("Login fixer: Tests pass.");
+    expect(lastMessageLine(said, null)).toBe("Agent: Tests pass.");
+    expect(isUnread({ ...withLast("mate", 1), lastMessage: said }, {})).toBe(false);
+  });
+
+  it("keeps the read map in the display settings, empty by default", () => {
+    expect(displaySettings.schema.parse({}).topicsRead).toEqual({});
+  });
+});
+
+describe("finding the open card", () => {
+  const thread = { ...crewCard("backlog:0", null), taskId: "dark-mode" };
+  const crew = { ...crewCard("a1", { id: "a1" }), taskId: "dark-mode" };
+  const other = { ...crewCard("a2", { id: "a2" }), taskId: "fix-flaky-login" };
+
+  it("finds the card by the id it was opened under", () => {
+    expect(findOpenCard([other, thread], "dark-mode", "dark-mode")).toBe(thread);
+    expect(findOpenCard([other, crew], "a1", "dark-mode")).toBe(crew);
+  });
+
+  it("follows a thread whose line gained an agent to the agent's card, by task id", () => {
+    expect(findOpenCard([other, crew], "dark-mode", "dark-mode")).toBe(crew);
+  });
+
+  it("finds nothing once neither the id nor the task is on the board", () => {
+    expect(findOpenCard([other], "dark-mode", "dark-mode")).toBeNull();
+    expect(findOpenCard([other], "dark-mode", null)).toBeNull();
+  });
+});
+
+describe("the reply box", () => {
+  const withAgent: FleetCard = { ...crewCard("a1", { id: "a1", title: "Login fixer" }), taskId: "fix-flaky-login", backlog: backlogItem({ id: "fix-flaky-login" }) };
+  const without: FleetCard = { ...crewCard("backlog:1", null), taskId: "dark-mode", backlog: backlogItem({ id: "dark-mode" }) };
+
+  it("sends to the card's agent directly, and otherwise to the first mate under the item", () => {
+    expect(replyTarget(withAgent)).toEqual({ kind: "agent", agentId: "a1", title: "Login fixer" });
+    expect(replyTarget(without)).toEqual({ kind: "mate", topicId: "dark-mode" });
+    expect(replyTarget(crewCard("backlog:2", null))).toBeNull();
+  });
+
+  it("says who gets the message", () => {
+    expect(replyLabel({ kind: "agent", agentId: "a1", title: "Login fixer" })).toBe("Sends to Login fixer");
+    expect(replyLabel({ kind: "mate", topicId: "dark-mode" })).toBe("Sends to the first mate, tagged [topic: dark-mode]");
+  });
+
+  it("tags what goes to the first mate, and keeps drafts apart from every other box", () => {
+    expect(mateReplyText("dark-mode", "Start it.")).toBe("[topic: dark-mode] Start it.");
+    expect(replyKey({ kind: "mate", topicId: "dark-mode" })).toBe("reply:topic:dark-mode");
+    expect(replyKey({ kind: "agent", agentId: "a1", title: "x" })).toBe("reply:agent:a1");
+  });
+});
+
+function backlogItem(overrides: Partial<BacklogItem>): BacklogItem {
+  return {
+    section: "queued",
+    id: "x",
+    title: "X",
+    project: null,
+    kind: null,
+    mode: null,
+    agentId: null,
+    hold: null,
+    actions: [],
+    notes: [],
+    blockedBy: null,
+    since: null,
+    url: null,
+    reportPath: null,
+    outcome: null,
+    ...overrides,
+  };
+}
+
+describe("the header's counts", () => {
+  const cards = [
+    crewCard("a", { status: "running" }, "working"),
+    crewCard("b", { status: "idle" }, "blocked"),
+    crewCard("c", null, "queued"),
+  ];
+
+  it("are the board's first three columns, and what finished lately", () => {
+    expect(headerCounts(cards, 3)).toEqual(["1 needs you", "1 working", "1 queued", "3 done in 7 days"]);
+    expect(headerCounts([], 0)[0]).toBe("0 need you");
   });
 });

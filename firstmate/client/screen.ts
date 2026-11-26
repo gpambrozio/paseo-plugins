@@ -6,16 +6,11 @@
  * keeps it too, so the captain's Settings › Sidebar order and hiding survive.
  */
 import type { FleetCard } from "../shared/fleet";
+import { captainColumn } from "./format";
 
 export const FLEET_SCREEN_ID = "fleet";
 
-/**
- * The sidebar row's badge: how many crewmates Paseo still runs have their card in the Working or the
- * Idle column — busy, or waiting for their next word — counted the way the board places them.
- */
-export function activeCrewCount(cards: readonly FleetCard[]): number {
-  return cards.filter(
-    (card) =>
-      card.agent !== null && card.agent.status !== "closed" && (card.column === "working" || card.column === "idle"),
-  ).length;
+/** The sidebar row's badge: the topics in Needs you. */
+export function needsYouCount(cards: readonly FleetCard[]): number {
+  return cards.filter((card) => captainColumn(card) === "needs-you").length;
 }

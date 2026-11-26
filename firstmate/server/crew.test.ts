@@ -1,8 +1,12 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 import type { PluginHookEvents, PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 
 import { CREW_LABELS, type FirstmateConfig } from "../shared/fleet";
-import { CaptainSteers, registerSteerRelay, relaunchText, relayText } from "./crew";
+import { CaptainSteers, exitCrew, registerSteerRelay, relaunchText, relayText, steerCrew } from "./crew";
 import type { PaseoApi, TimelineItem } from "./host-types";
 
 describe("CaptainSteers", () => {
@@ -115,5 +119,67 @@ describe("registerSteerRelay", () => {
     await end();
     expect(send).not.toHaveBeenCalled();
     expect(steers.has("a1")).toBe(true);
+  });
+});
+
+describe("an agent a backlog line names", () => {
+  const OWN = "3f2a9c1e-5b7d-4e8a-9c0f-1a2b3c4d5e6f";
+
+  async function homeWith(backlog: string): Promise<string> {
+    const home = await mkdtemp(join(tmpdir(), "fm-crew-"));
+    await mkdir(join(home, "data"));
+    await writeFile(join(home, "data", "backlog.md"), backlog);
+    return home;
+  }
+
+  function fakePaseo(labels: Record<string, string>, sent: string[]): PaseoApi {
+    return {
+      agents: {
+        ref: (id: string) => ({
+          async refresh() {
+            return { agent: { id, title: "Fix login", labels, archivedAt: null } };
+          },
+          async send(text: string) {
+            sent.push(`${id}: ${text}`);
+          },
+          async archive() {
+            sent.push(`${id}: archived`);
+          },
+        }),
+      },
+    } as unknown as PaseoApi;
+  }
+
+  it("is steered like a crewmate, though it has no crew label", async () => {
+    const home = await homeWith(`## In flight\n- [ ] fix-flaky-login - Fix the login (agent: ${OWN})\n`);
+    const sent: string[] = [];
+    await steerCrew(fakePaseo({}, sent), new CaptainSteers(), OWN, "use pnpm", home);
+    expect(sent).toEqual([`${OWN}: use pnpm`]);
+  });
+
+  it("is refused when no backlog line names it, and is never ended or relaunched from the board", async () => {
+    const home = await homeWith("## In flight\n- [ ] fix-flaky-login - Fix the login\n");
+    const sent: string[] = [];
+    await expect(steerCrew(fakePaseo({}, sent), new CaptainSteers(), OWN, "hi", home)).rejects.toThrow("not one of the crew");
+    await expect(exitCrew(fakePaseo({}, sent), OWN)).rejects.toThrow("not one of the crew");
+    expect(sent).toEqual([]);
+  });
+
+  it("is not relayed to the first mate, which never dispatched it; a labelled crewmate is", async () => {
+    const home = await homeWith(`## In flight\n- [ ] fix-flaky-login - Fix the login (agent: ${OWN})\n`);
+    const own = new CaptainSteers();
+    await steerCrew(fakePaseo({}, []), own, OWN, "use pnpm", home);
+    expect(own.has(OWN)).toBe(false);
+
+    const crew = new CaptainSteers();
+    await steerCrew(fakePaseo({ [CREW_LABELS.role]: CREW_LABELS.crewRole }, []), crew, OWN, "use pnpm", home);
+    expect(crew.has(OWN)).toBe(true);
+  });
+
+  it("still steers a crewmate with the crew label without reading the backlog", async () => {
+    const sent: string[] = [];
+    const labels = { [CREW_LABELS.role]: CREW_LABELS.crewRole };
+    await steerCrew(fakePaseo(labels, sent), new CaptainSteers(), OWN, "go", "/no/such/home");
+    expect(sent).toEqual([`${OWN}: go`]);
   });
 });

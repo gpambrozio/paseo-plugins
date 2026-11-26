@@ -15,6 +15,7 @@ import type { PluginLifecycleRegistration } from "@getpaseo/plugin/server";
 import { CREW_LABELS, type FirstmateConfig } from "../shared/fleet";
 import { stopAgent } from "./cli";
 import { closingText, fetchLiveAgent, resolveMate } from "./fleet";
+import { readBacklog } from "./home";
 import type { PaseoAgent, PaseoApi, TimelineItem } from "./host-types";
 import { askMate } from "./mate";
 import { sendWithoutInterrupting } from "./send";
@@ -32,6 +33,18 @@ async function requireCrew(paseo: PaseoApi, agentId: string): Promise<PaseoAgent
     throw new Error(`${agent.title ?? agentId} is not one of the crew.`);
   }
   return agent;
+}
+
+/**
+ * `requireCrew`, widened to an agent a backlog line of `home` names with `(agent: …)`: the first mate may
+ * have started it without the crew labels, and the captain still talks to it from its card.
+ */
+async function requireSteerable(paseo: PaseoApi, agentId: string, home: string): Promise<PaseoAgent> {
+  const agent = await fetchLiveAgent(paseo, agentId);
+  if (agent === null) throw new Error(`Paseo has no live agent ${agentId}.`);
+  if (agent.labels[CREW_LABELS.role] === CREW_LABELS.crewRole) return agent;
+  if ((await readBacklog(home)).some((item) => item.agentId === agentId)) return agent;
+  throw new Error(`${agent.title ?? agentId} is not one of the crew.`);
 }
 
 /** A steer nobody answered in this long is forgotten, so the map cannot grow for the life of the daemon. */
@@ -89,19 +102,27 @@ export class CaptainSteers {
  * Recorded before the send, so a turn that ends the instant the message lands
  * still finds it; taken back if the send fails.
  */
-export async function steerCrew(paseo: PaseoApi, steers: CaptainSteers, agentId: string, text: string): Promise<void> {
-  await requireCrew(paseo, agentId);
-  steers.record(agentId, text);
+export async function steerCrew(
+  paseo: PaseoApi,
+  steers: CaptainSteers,
+  agentId: string,
+  text: string,
+  home: string,
+): Promise<void> {
+  const agent = await requireSteerable(paseo, agentId, home);
+  // Only the first mate's own crew is relayed to it; an agent it never dispatched would send it investigating.
+  const relayed = agent.labels[CREW_LABELS.role] === CREW_LABELS.crewRole;
+  if (relayed) steers.record(agentId, text);
   try {
     await sendWithoutInterrupting(paseo, agentId, text);
   } catch (error) {
-    steers.forget(agentId, text);
+    if (relayed) steers.forget(agentId, text);
     throw error;
   }
 }
 
-export async function interruptCrew(paseo: PaseoApi, agentId: string): Promise<void> {
-  await requireCrew(paseo, agentId);
+export async function interruptCrew(paseo: PaseoApi, agentId: string, home: string): Promise<void> {
+  await requireSteerable(paseo, agentId, home);
   await stopAgent(agentId);
 }
 
