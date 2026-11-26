@@ -466,6 +466,23 @@ describe("registerHooks", () => {
     expect(summarize).toHaveBeenCalledTimes(1);
   });
 
+  it("ignores background agents, which another plugin keeps hidden", async () => {
+    const { store, summarize, publish, emit } = setup();
+    const hidden: PluginHookAgent = { ...agent, id: "b1", title: "Indexer", background: true };
+    await emit("agent.permission.before", { agent: hidden, request: question });
+    await emit("agent.turn.after", { agent: hidden, turnId: "t1", outcome: { kind: "completed" }, timeline });
+    await emit("agent.turn.after", {
+      agent: hidden,
+      turnId: "t2",
+      outcome: { kind: "failed", error: { message: "boom" } },
+      timeline,
+    });
+    await settle();
+    expect(store.list()).toEqual([]);
+    expect(summarize).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it("records without summarising when the event kind is switched off", async () => {
     const config: HeraldConfig = { ...DEFAULT_CONFIG, announce: { ...DEFAULT_CONFIG.announce, finished: false } };
     const { store, summarize, publish, emit } = setup({}, config);

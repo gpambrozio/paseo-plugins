@@ -158,6 +158,15 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     return helpers.has(agent.id) || agent.title === HELPER_TITLE;
   }
 
+  /**
+   * Agents Herald never announces, lists or summarises: its own helpers, and
+   * any background agent — a hidden helper another plugin created, which
+   * Paseo keeps out of tabs, lists and attention, and whose hooks still fire.
+   */
+  function ignores(agent: PluginHookAgent): boolean {
+    return agent.background || isHelper(agent);
+  }
+
   function generationOf(agentId: string): number {
     return generations.get(agentId) ?? 0;
   }
@@ -329,7 +338,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     }),
 
     server.addHook("agent.permission.before", async (event, context) => {
-      if (isHelper(event.agent)) return;
+      if (ignores(event.agent)) return;
       const described = describePermission(event.request);
       const generation = generationOf(event.agent.id);
       const key = `${event.agent.id}:${event.request.id}`;
@@ -353,7 +362,7 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     }),
 
     server.addHook("agent.permission.after", async (event) => {
-      if (isHelper(event.agent)) return;
+      if (ignores(event.agent)) return;
       deps.store.removeIf(event.agent.id, (entry) => entry.requestId === event.requestId);
       markResolved(`${event.agent.id}:${event.requestId}`);
       if (event.resolution.behavior === "deny" && event.resolution.interrupt === true) {
@@ -362,13 +371,13 @@ export function registerHooks(server: PluginLifecycleRegistration, deps: HookDep
     }),
 
     server.addHook("agent.turn.before", async (event) => {
-      if (isHelper(event.agent)) return;
+      if (ignores(event.agent)) return;
       movedOn(event.agent.id);
       deps.store.remove(event.agent.id);
     }),
 
     server.addHook("agent.turn.after", async (event, context) => {
-      if (isHelper(event.agent)) return;
+      if (ignores(event.agent)) return;
       if (isRepeatTurn(event.agent.id, event.turnId)) return;
       const generation = generationOf(event.agent.id);
       const turn = await readTurn(context.paseo, event.agent.id, event.turnId);

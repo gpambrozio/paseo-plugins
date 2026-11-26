@@ -7,6 +7,15 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Every version
 as `@gpambrozio/paseo-herald` and tagged here, so a version is something to install and a line to
 read before you move.
 
+## [0.7.1] — 2026-11-26
+
+### Fixed
+
+- **Herald stays quiet about other plugins' hidden helpers.** Paseo 0.16 lets plugins run helper
+  agents in the background, out of your tabs and lists. Herald announced them anyway when they
+  finished or asked something, listed them in its panel and wrote each a summary. It now leaves them
+  alone, as Paseo does.
+
 ## [0.7.0] — 2026-11-20
 
 **Requires Paseo 0.16.** This version does not load on Paseo 0.15 or older; stay on 0.6.2 until you
